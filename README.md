@@ -188,6 +188,24 @@ reporting_supplier_daily
 reporting_analytics_daily
 ```
 
+### Point de départ recommandé
+
+Au début du projet, il n'est pas nécessaire de créer toutes les tables.
+
+Le plus simple est de commencer avec :
+
+* `reporting_kpi_daily`
+* `reporting_sales_daily`
+
+Ces deux tables permettent déjà de construire la page d'accueil et de valider le flux complet :
+
+* extraction des données PrestaShop
+* calcul des agrégats
+* écriture dans la base de reporting
+* lecture par le dashboard PHP
+
+Ensuite, on ajoute les autres tables au fur et à mesure selon les besoins métier.
+
 ---
 
 ## 🔄 ETL (Data Pipeline)
@@ -202,6 +220,17 @@ reporting_analytics_daily
 * intégrer analytics (GA4 ou Matomo)
 * calculer KPI
 * remplir tables de reporting
+
+### Approche conseillée
+
+Ne pas dupliquer toute la base PrestaShop.
+
+Le bon modèle est :
+
+* lire uniquement les tables source utiles
+* transformer les données
+* stocker le résultat dans une base de reporting séparée
+* interroger uniquement cette base depuis le dashboard
 
 ---
 
@@ -303,7 +332,10 @@ Créer site PHP sur Infomaniak (`dashboard.hurricanemusic.fr`)
 
 ### Étape 2
 
-Créer tables de reporting
+Créer la base de reporting et les deux premières tables :
+
+* `reporting_kpi_daily`
+* `reporting_sales_daily`
 
 ### Étape 3
 
