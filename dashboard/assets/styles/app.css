@@ -1,0 +1,239 @@
+:root {
+    color-scheme: dark;
+    --bg: #07111f;
+    --bg-alt: #0a1729;
+    --panel: rgba(13, 27, 47, 0.88);
+    --panel-strong: rgba(18, 36, 63, 0.96);
+    --text: #edf4ff;
+    --muted: #97abc6;
+    --accent: #7dd3fc;
+    --accent-strong: #38bdf8;
+    --success: #8bd3a8;
+    --border: rgba(148, 163, 184, 0.15);
+    --shadow: 0 24px 60px rgba(1, 6, 17, 0.35);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Inter", "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--text);
+    background:
+        radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.18), transparent 30%),
+        radial-gradient(circle at 84% 0%, rgba(34, 197, 94, 0.08), transparent 26%),
+        linear-gradient(180deg, var(--bg-alt), var(--bg));
+}
+
+a {
+    color: var(--accent);
+}
+
+code {
+    color: var(--accent);
+    background: rgba(56, 189, 248, 0.12);
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.4rem;
+}
+
+.app-shell {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 28px 20px 56px;
+}
+
+.topbar,
+.hero,
+.kpi-card,
+.channel-card {
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 18px;
+    border-radius: 20px;
+    background: rgba(6, 14, 27, 0.6);
+    backdrop-filter: blur(12px);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-mark {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    font-weight: 800;
+    color: white;
+    background: linear-gradient(135deg, rgba(125, 211, 252, 0.24), rgba(56, 189, 248, 0.6));
+}
+
+.brand-name {
+    font-weight: 800;
+    letter-spacing: 0.01em;
+}
+
+.brand-subtitle,
+.kpi-hint,
+.channel-hint,
+.hero-card p,
+.hero-copy p,
+.section-head p {
+    color: var(--muted);
+}
+
+.status-pills {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.pill {
+    padding: 9px 12px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.08);
+    color: var(--muted);
+    border: 1px solid rgba(148, 163, 184, 0.08);
+    font-size: 0.9rem;
+}
+
+.pill-accent {
+    color: var(--accent);
+    background: rgba(56, 189, 248, 0.12);
+}
+
+.hero {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: 1.3fr 0.7fr;
+    gap: 18px;
+    padding: 28px;
+    border-radius: 28px;
+    background: linear-gradient(180deg, rgba(18, 36, 63, 0.96), rgba(8, 18, 33, 0.9));
+}
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-size: 0.78rem;
+    margin-bottom: 10px;
+}
+
+.hero h1 {
+    margin: 0 0 10px;
+    font-size: clamp(2rem, 4vw, 4rem);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+}
+
+.hero-card {
+    border-radius: 22px;
+    padding: 20px;
+    background: rgba(6, 14, 27, 0.34);
+}
+
+.hero-card-label,
+.kpi-label,
+.channel-label {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+}
+
+.hero-card-value {
+    margin-top: 10px;
+    font-size: 2rem;
+    font-weight: 800;
+}
+
+.section {
+    margin-top: 26px;
+}
+
+.section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.section-head h2 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.section-head p {
+    margin: 0;
+}
+
+.kpi-grid,
+.channel-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.channel-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.kpi-card,
+.channel-card {
+    border-radius: 22px;
+    padding: 18px;
+    background: linear-gradient(180deg, var(--panel), rgba(7, 17, 31, 0.92));
+}
+
+.kpi-value,
+.channel-value {
+    margin-top: 10px;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.kpi-hint,
+.channel-hint {
+    margin-top: 10px;
+    line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+    .topbar,
+    .section-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .hero {
+        grid-template-columns: 1fr;
+    }
+
+    .status-pills {
+        justify-content: flex-start;
+    }
+}

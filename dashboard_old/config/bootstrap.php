@@ -25,6 +25,9 @@ $config = [
         'monthly_revenue' => (float) env_value('TARGET_MONTHLY_REVENUE', 0),
         'monthly_orders' => (int) env_value('TARGET_MONTHLY_ORDERS', 0),
     ],
+    'etl' => [
+        'web_token' => (string) env_value('ETL_WEB_TOKEN', ''),
+    ],
 ];
 
 $privateConfigPath = dirname(__DIR__, 2) . '/../dashboard-private/config.php';

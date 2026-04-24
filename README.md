@@ -178,7 +178,7 @@ Avec :
 
 ```sql
 reporting_kpi_daily
-reporting_sales_daily
+reporting_invoice_line_fact
 reporting_margin_daily
 reporting_stock_snapshot
 reporting_product_daily
@@ -194,8 +194,8 @@ Au début du projet, il n'est pas nécessaire de créer toutes les tables.
 
 Le plus simple est de commencer avec :
 
-* `reporting_kpi_daily`
-* `reporting_sales_daily`
+* `reporting_invoice_line_fact`
+* `reporting_kpi_daily` si tu veux un cache journalier plus tard
 
 Ces deux tables permettent déjà de construire la page d'accueil et de valider le flux complet :
 
@@ -334,8 +334,7 @@ Créer site PHP sur Infomaniak (`dashboard.hurricanemusic.fr`)
 
 Créer la base de reporting et les deux premières tables :
 
-* `reporting_kpi_daily`
-* `reporting_sales_daily`
+* `reporting_invoice_line_fact`
 
 ### Étape 3
 

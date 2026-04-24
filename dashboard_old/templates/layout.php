@@ -356,9 +356,6 @@ declare(strict_types=1);
             <nav class="nav" aria-label="Navigation principale">
                 <a href="#overview">Accueil</a>
                 <a href="#sales">Ventes</a>
-                <a href="#marketing">Marketing</a>
-                <a href="#stock">Stock</a>
-                <a href="#performance">Performance</a>
             </nav>
         </header>
         <?= $content ?>
