@@ -1,368 +1,114 @@
-# 🚀 Dashboard Business - Hurricane Music (PHP Version)
+# Hurricane Music Dashboard
 
-## 🧠 Vision
+Dashboard interne de pilotage pour Hurricane Music.
 
-Ce projet consiste à créer un **dashboard de pilotage d’entreprise** centralisé, permettant de suivre :
+## Ce que fait le projet
 
-* chiffre d’affaires
-* marge
-* performance commerciale
-* marketing (analytics)
-* stock et achats
+- lecture du mois en cours
+- comparaison avec N-1
+- récap occasion global et par canal
+- top 5 marques
+- répartition par canal
+- import ETL depuis les tables métier
+- part du global sur les sous-ensembles
 
-👉 L’objectif est de construire un **outil de décision interne**, rapide, fiable et adapté au métier.
+## Règle principale
 
----
+Le dashboard ne lit pas les tables PrestaShop directement dans les vues.
 
-## 🏗️ Architecture globale
+- `K_LI_FAC` = source brute
+- `K_ARTICLE` = enrichissement produit
+- `WEB_FABRICANT` = référentiel marques
+- `reporting_invoice_line_fact` = table de travail du dashboard
+
+## Lancement
+
+```bash
+cd dashboard
+php bin/console app:etl:import-invoice-lines
+```
+
+## Déclenchement web de l’ETL
 
 ```text
-MariaDB PrestaShop (source)
-        ↓
-ETL (PHP ou Python) - 2x / jour
-        ↓
-Tables de reporting (MariaDB)
-        ↓
-Dashboard PHP
-        ↓
-Frontend JS (charts)
+/etl/import?token=TON_TOKEN
 ```
 
----
+## Fichiers utiles
 
-## ⚙️ Stack technique
+- [docs/context.md](docs/context.md)
+- [dashboard/src/Controller/DashboardController.php](dashboard/src/Controller/DashboardController.php)
+- [dashboard/src/Repository/KpiRepository.php](dashboard/src/Repository/KpiRepository.php)
+- [dashboard/src/Service/InvoiceLineImportService.php](dashboard/src/Service/InvoiceLineImportService.php)
+- [dashboard/templates/dashboard/home.html.twig](dashboard/templates/dashboard/home.html.twig)
 
-### Backend
+## Tech
 
-* PHP 8
-* MariaDB (base existante PrestaShop)
+- Symfony 7.4
+- Doctrine DBAL / Migrations
+- Twig
 
-### Configuration sécurisée
+## Ce qu’il ne faut pas refaire
 
-Les secrets ne doivent pas être stockés dans le webroot.
+- ne pas lire `K_LI_FAC` directement dans le dashboard
+- ne pas réinventer un star schema trop tôt
+- ne pas dupliquer toutes les colonnes source si elles ne servent pas au reporting
+- ne pas perdre les règles métier déjà validées:
+  - canal
+  - occasion
+  - marques
 
-* Variables d’environnement: `DB_DSN`, `DB_USER`, `DB_PASSWORD`, `TARGET_MONTHLY_REVENUE`, `TARGET_MONTHLY_ORDERS`
-* Fichier privé hors racine publique: `../dashboard-private/config.php`
-* Exemple: `../dashboard-private/config.php.example`
+## Ce qu’il faudra probablement faire ensuite
 
-### Comment la config est chargée
+1. page de détail ligne par ligne
+2. recherche et filtres avancés
+3. exports CSV
+4. sécurisation plus fine du déclenchement web ETL
+5. nettoyage / indexation si le volume augmente
 
-Le bootstrap lit la configuration dans cet ordre :
+## Commandes utiles
 
-1. valeurs par défaut codées dans `dashboard/config/bootstrap.php`
-2. variables d’environnement, si elles existent
-3. fichier privé `../dashboard-private/config.php`, qui écrase les valeurs précédentes
+### Vérifier la config
 
-Concrètement :
-
-* pour modifier la base de données, édite `../dashboard-private/config.php`
-* pour un déploiement automatisé, tu peux aussi injecter les variables d’environnement
-* le fichier privé reste en dehors du webroot, donc il n’est pas servi par le navigateur
-
-Exemple minimal de `../dashboard-private/config.php` :
-
-```php
-<?php
-
-return [
-    'database' => [
-        'dsn' => 'mysql:host=127.0.0.1;dbname=dashboard;charset=utf8mb4',
-        'user' => 'dashboard_user',
-        'password' => 'change-me',
-    ],
-    'targets' => [
-        'monthly_revenue' => 0,
-        'monthly_orders' => 0,
-    ],
-];
+```bash
+cd dashboard
+php bin/console about
 ```
 
-### Data
+### Lancer la migration
 
-* Tables de reporting dédiées
-
-### ETL
-
-* Script PHP ou Python
-* Cron (2 fois par jour)
-
-### Frontend
-
-* HTML / CSS
-* Bootstrap (optionnel)
-* Chart.js ou ApexCharts
-* JS léger (Alpine.js optionnel)
-
----
-
-## 📊 Fonctionnalités principales
-
-### 🏠 Dashboard (Accueil)
-
-* CA total
-* Marge
-* Nombre de commandes
-* Panier moyen
-* Trafic
-* Taux de conversion
-
-Avec :
-
-* comparaison N-1
-* évolution dans le temps
-
----
-
-### 💰 Ventes
-
-* CA par :
-
-  * magasin
-  * canal
-  * marque
-  * catégorie
-* Top produits
-* évolution temporelle
-
----
-
-### 📈 Marketing / Analytics
-
-* Trafic total
-* Sources de trafic
-* Conversion par source
-* Pages d’entrée
-
----
-
-### 📦 Stock / Achats
-
-* État du stock
-* Valorisation
-* Produits en rupture
-* Rotation
-* Achats fournisseurs
-
----
-
-### 📊 Performance avancée
-
-* CA vs trafic
-* Marge par canal
-* Rentabilité produit
-* Analyses croisées
-
----
-
-## 🔍 Filtres globaux
-
-* Date
-* Magasin
-* Canal
-* Marque
-* Catégorie
-* Fournisseur
-
----
-
-## 🧮 Modèle de données (clé du projet)
-
-### ⚠️ Principe fondamental
-
-❌ Ne jamais requêter directement les tables PrestaShop pour le dashboard
-✅ Toujours utiliser des **tables de reporting pré-calculées**
-
----
-
-## 📁 Tables de reporting
-
-```sql
-reporting_kpi_daily
-reporting_invoice_line_fact
-reporting_margin_daily
-reporting_stock_snapshot
-reporting_product_daily
-reporting_category_daily
-reporting_brand_daily
-reporting_supplier_daily
-reporting_analytics_daily
+```bash
+cd dashboard
+php bin/console doctrine:migrations:migrate
 ```
 
-### Point de départ recommandé
+### Lancer l’import
 
-Au début du projet, il n'est pas nécessaire de créer toutes les tables.
-
-Le plus simple est de commencer avec :
-
-* `reporting_invoice_line_fact`
-* `reporting_kpi_daily` si tu veux un cache journalier plus tard
-
-Ces deux tables permettent déjà de construire la page d'accueil et de valider le flux complet :
-
-* extraction des données PrestaShop
-* calcul des agrégats
-* écriture dans la base de reporting
-* lecture par le dashboard PHP
-
-Ensuite, on ajoute les autres tables au fur et à mesure selon les besoins métier.
-
----
-
-## 🔄 ETL (Data Pipeline)
-
-### Fréquence
-
-* 2 fois par jour (cron)
-
-### Rôle
-
-* extraire données PrestaShop
-* intégrer analytics (GA4 ou Matomo)
-* calculer KPI
-* remplir tables de reporting
-
-### Approche conseillée
-
-Ne pas dupliquer toute la base PrestaShop.
-
-Le bon modèle est :
-
-* lire uniquement les tables source utiles
-* transformer les données
-* stocker le résultat dans une base de reporting séparée
-* interroger uniquement cette base depuis le dashboard
-
----
-
-## 📂 Structure du projet
-
-```text
-/dashboard
-  /public
-    index.php
-  /src
-    Database.php
-    Repository/
-  /templates
-  /config
-  /scripts
-    etl.php
+```bash
+cd dashboard
+php bin/console app:etl:import-invoice-lines
 ```
 
----
+### Vider le cache
 
-## 🧭 Navigation
-
-```text
-/accueil
-/ventes
-/marketing
-/stock
-/performance
+```bash
+cd dashboard
+php bin/console cache:clear
 ```
 
----
+## Mémo pour une prochaine discussion
 
-## 🔍 Drill-down
+Si tu reprends ce projet plus tard, le point de départ utile est:
 
-Chaque KPI doit être cliquable :
+1. lire `README.md`
+2. regarder `dashboard/src/Repository/KpiRepository.php`
+3. regarder `dashboard/src/Service/InvoiceLineImportService.php`
+4. regarder `dashboard/templates/dashboard/home.html.twig`
 
-```text
-CA global
-→ CA par canal
-→ Produits
-→ Détail produit
-```
+Le cœur du projet est:
 
----
-
-## 📊 Graphiques
-
-Utilisation de Chart.js ou ApexCharts :
-
-* courbes CA vs N-1
-* histogrammes
-* comparatifs
-* multi-séries
-
----
-
-## 🎯 Roadmap
-
-### V1 (MVP)
-
-* table reporting_sales_daily
-* page accueil
-* KPI principaux
-* 1 graphique CA vs N-1
-
----
-
-### V2
-
-* filtres globaux
-* pages ventes / marketing
-* drill-down
-
----
-
-### V3
-
-* stock / achats
-* alertes
-* objectifs
-* optimisation UX
-
----
-
-## ⚠️ Bonnes pratiques
-
-* ❌ pas de requêtes lourdes en live
-* ✅ pré-calcul via ETL
-* ✅ index SQL optimisés
-* ✅ requêtes simples côté dashboard
-
----
-
-## 🏁 Lancement du projet
-
-### Étape 1
-
-Créer site PHP sur Infomaniak (`dashboard.hurricanemusic.fr`)
-
-### Étape 2
-
-Créer la base de reporting et les deux premières tables :
-
-* `reporting_invoice_line_fact`
-
-### Étape 3
-
-Créer ETL (PHP ou Python)
-
-### Étape 4
-
-Créer page index.php (KPI)
-
-### Étape 5
-
-Ajouter graphiques
-
----
-
-## 💡 Objectif final
-
-Créer un **outil interne puissant**, rapide et adapté au métier, capable de remplacer :
-
-* Excel
-* exports manuels
-* analyses dispersées
-
----
-
-## 🧠 Principe clé
-
-👉 Le succès du projet repose sur :
-**la qualité des données, pas sur la techno front**
-
----
+- `K_LI_FAC` comme source des lignes de facture
+- `K_ARTICLE` comme enrichissement produit
+- `WEB_FABRICANT` comme référentiel des marques
+- `reporting_invoice_line_fact` comme table de travail
+- le dashboard lit uniquement la table de reporting

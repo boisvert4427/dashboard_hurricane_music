@@ -18,33 +18,21 @@
             </div>
         </header>
 
-        <section class="hero">
-            <div class="hero-copy">
-                <div class="eyebrow">Vue d'ensemble</div>
-                <h1>Lecture mensuelle du business, puis détail par canal.</h1>
-                <p>
-                    La première version se concentre sur une seule source de vérité: les lignes de facture
-                    <code>K_Li_FAC</code>, pour suivre le mois en cours et comparer avec N-1.
-                </p>
-            </div>
-            <div class="hero-card">
-                <div class="hero-card-label">Statut</div>
-                <div class="hero-card-value">Base en cours</div>
-                <p>La structure Symfony est prête pour brancher l'ETL et la table de reporting.</p>
-            </div>
-        </section>
-
         <section class="section">
             <div class="section-head">
                 <h2>Global depuis le 1er</h2>
-                <p>Les quatre chiffres que tu veux voir en premier.</p>
+                <p>{{ period_label }} comparé à {{ previous_period_label }}.</p>
             </div>
 
             <div class="kpi-grid">
                 {% for kpi in kpis %}
                     <article class="kpi-card">
                         <div class="kpi-label">{{ kpi.label }}</div>
-                        <div class="kpi-value">{{ kpi.value }}</div>
+                        <div class="kpi-value">{{ kpi.current }}</div>
+                        <div class="kpi-comparison {{ kpi.delta_class }}">
+                            <span>N-1: {{ kpi.previous }}</span>
+                            <span>{{ kpi.delta }}</span>
+                        </div>
                         <div class="kpi-hint">{{ kpi.hint }}</div>
                     </article>
                 {% endfor %}
@@ -53,16 +41,87 @@
 
         <section class="section">
             <div class="section-head">
-                <h2>Canaux de vente</h2>
-                <p>Répartition à construire à partir des indices présents dans <code>K_Li_FAC</code>.</p>
+                <h2>Occasion</h2>
+                <p>Recap du rayon occasion sur la période en cours, avec comparaison N-1.</p>
             </div>
 
-            <div class="channel-grid">
+            <div class="occasion-grid">
+                <article class="occasion-card occasion-card-global">
+                    <div class="insight-label">Global occasion</div>
+                    <div class="occasion-value">{{ occasion.current_total }}</div>
+                    <div class="occasion-share">{{ occasion.share_global }}</div>
+                    <div class="occasion-comparison {{ occasion.delta_class }}">
+                        <span>N-1: {{ occasion.previous_total }}</span>
+                        <span>{{ occasion.delta }}</span>
+                    </div>
+                    <div class="occasion-meta">
+                        <span>Lignes: {{ occasion.current_lines }} | N-1: {{ occasion.previous_lines }}</span>
+                        <span>Factures: {{ occasion.current_invoices }} | N-1: {{ occasion.previous_invoices }}</span>
+                    </div>
+                </article>
+
+                {% for channel in occasion.channels %}
+                    <article class="occasion-card">
+                        <div class="insight-label">{{ channel.label }}</div>
+                        <div class="occasion-value">{{ channel.current_total }}</div>
+                        <div class="occasion-share">{{ channel.share_global }}</div>
+                        <div class="occasion-comparison {{ channel.delta_class }}">
+                            <span>N-1: {{ channel.previous_total }}</span>
+                            <span>{{ channel.delta }}</span>
+                        </div>
+                        <div class="occasion-meta">
+                            <span>Lignes: {{ channel.current_lines }} | N-1: {{ channel.previous_lines }}</span>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Top 5 marques</h2>
+                <p>Les marques qui pèsent le plus sur la période.</p>
+            </div>
+
+            <div class="insight-grid">
+                {% for brand in brand_highlights.top_brands %}
+                    <article class="insight-card">
+                        <div class="insight-label">Marque #{{ loop.index }}</div>
+                        <div class="insight-brand">{{ brand.brand_name }}</div>
+                        <div class="insight-value">{{ brand.current_total }}</div>
+                        <div class="insight-share">{{ brand.share_global }}</div>
+                        <div class="insight-sub">N-1: {{ brand.previous_total }}</div>
+                        <div class="insight-delta {{ brand.delta_class }}">{{ brand.delta }}</div>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Répartition par canal</h2>
+                <p>Barres proportionnelles au CA du mois en cours.</p>
+            </div>
+
+            <div class="channel-grid channel-grid-bars">
                 {% for channel in channels %}
                     <article class="channel-card">
                         <div class="channel-label">{{ channel.label }}</div>
                         <div class="channel-value">{{ channel.value }}</div>
+                        <div class="channel-share">{{ channel.share_global }}</div>
                         <div class="channel-hint">{{ channel.hint }}</div>
+                        <div class="channel-bar">
+                            <span style="width: {{ channel.share|round(0, 'floor') }}%"></span>
+                        </div>
+                        <div class="channel-highlights">
+                            {% for brand in channel.highlights.top_brands %}
+                                <div class="channel-highlight">
+                                    <span>#{{ loop.index }}</span>
+                                    <strong>{{ brand.brand_name }}</strong>
+                                    <em class="{{ brand.delta_class }}">{{ brand.current_total }} | N-1 {{ brand.previous_total }} | {{ brand.delta }} | {{ brand.share_global }}</em>
+                                </div>
+                            {% endfor %}
+                        </div>
                     </article>
                 {% endfor %}
             </div>

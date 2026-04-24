@@ -1,0 +1,260 @@
+# Context de reprise
+
+Ce document sert de mémo pour reprendre le projet vite dans une prochaine discussion.
+
+## Objectif produit
+
+Le dashboard doit servir à piloter l’activité de Hurricane Music avec:
+
+1. **Accueil**
+   - global du mois en cours
+   - comparaison N-1
+   - occasion global + par canal
+   - top 5 marques
+   - répartition par canal
+   - part de chaque sous-ensemble en % du global
+
+2. **Détail**
+   - recherche ligne par ligne
+   - filtres métier
+   - pages de détail à venir
+
+## Architecture
+
+Le projet est maintenant une application Symfony.
+
+Flux:
+
+```text
+K_LI_FAC + K_ARTICLE + WEB_FABRICANT
+        ↓
+ETL Symfony
+        ↓
+reporting_invoice_line_fact
+        ↓
+Dashboard Symfony
+```
+
+Le dashboard ne doit pas interroger les tables métier directement dans les vues.
+
+## Bases de données
+
+Deux connexions Doctrine sont utilisées:
+
+- `DATABASE_URL` = base reporting
+- `PRESTASHOP_DATABASE_URL` = base source PrestaShop
+
+Règle:
+
+- le dashboard lit uniquement la base reporting
+- l’ETL lit la base PrestaShop puis écrit dans la base reporting
+
+## Sources métiers
+
+### `K_LI_FAC`
+
+Table source principale des lignes de facture.
+
+Champs importants:
+
+- `IDLigneFac`
+- `IDFAC`
+- `DateFacture`
+- `DH_Facture`
+- `IDART`
+- `DESIGNATION_PRODUIT`
+- `CODE`
+- `TotalHT`
+- `TotalTTC`
+- `MARGE`
+- `WEB`
+- `SITE`
+- `MODE_VENTE`
+- `IDCLI`
+- `IDPRESTATAIRE`
+
+### `K_ARTICLE`
+
+Table source d’enrichissement produit.
+
+Champs importants:
+
+- `IDART`
+- `DESIGNATION`
+- `CODE`
+- `IDRAY`
+- `IDFAM`
+- `IDSSFAM`
+- `ID_FAB`
+- `supplier`
+- `REF_FOU`
+
+### `WEB_FABRICANT`
+
+Référentiel des marques.
+
+Champs importants:
+
+- `IDFAB`
+- `NOM_FAB`
+
+Jointure:
+
+- `K_ARTICLE.ID_FAB = WEB_FABRICANT.IDFAB`
+
+## Table de reporting
+
+La table centrale est:
+
+- `reporting_invoice_line_fact`
+
+Elle contient une ligne de facture enrichie.
+
+Champs fonctionnels principaux:
+
+- `invoice_number`
+- `invoice_date`
+- `product_id`
+- `product_code`
+- `product_name`
+- `brand_id`
+- `brand_name`
+- `ray_id`
+- `family_id`
+- `subfamily_id`
+- `supplier_name`
+- `channel_name`
+- `quantity`
+- `total_ht`
+- `margin_ht`
+
+## Sous-ensembles affichés
+
+Les cartes de la home affichent maintenant:
+
+- la valeur courante
+- la valeur N-1
+- la variation vs N-1
+- la part du global
+
+Cette logique s’applique à:
+
+- l’occasion
+- les canaux
+- les marques
+- les marques dans chaque canal
+
+## ETL
+
+L’ETL est dans Symfony.
+
+### Commande CLI
+
+```bash
+cd dashboard
+php bin/console app:etl:import-invoice-lines
+```
+
+### Route web protégée
+
+```text
+/etl/import?token=TON_TOKEN
+```
+
+Le token est défini dans `dashboard/.env.local` via `ETL_WEB_TOKEN`.
+
+### Rôle
+
+1. lire `K_LI_FAC`
+2. joindre `K_ARTICLE`
+3. joindre `WEB_FABRICANT`
+4. calculer le canal
+5. écrire dans `reporting_invoice_line_fact`
+
+### Volume
+
+On part d’environ 228k lignes, donc:
+
+- import complet acceptable
+- batch interne utilisé
+
+## Règles métier
+
+### Canal de vente
+
+Règle actuelle:
+
+- si `WEB = 1` -> `Web`
+- sinon si `SITE = 0` -> `Nantes`
+- sinon si `SITE = 1` -> `Bordeaux`
+- sinon -> `Autre`
+
+### Occasion
+
+Les lignes occasion sont détectées par:
+
+- `product_code` commence par `B-`
+- ou `product_code` contient `occas`
+- ou `product_code` commence par `DEPV`
+- ou `product_name` contient `occas`
+
+Conséquence:
+
+- occasion incluse dans le global
+- occasion incluse dans les canaux
+- occasion exclue du top marques
+
+### Exclusion métier
+
+Une ligne est exclue de tous les calculs si:
+
+- `IDART = 18823`
+- ou `REF_FOU` commence par `REPRISE`
+
+L’objectif est de retirer les reprises / lignes parasites du reporting.
+
+## Dashboard actuel
+
+La home affiche:
+
+- KPI globaux du mois
+- top 5 marques
+- répartition par canal
+- récap occasion N vs N-1
+
+Affichage:
+
+- montants sans décimales visibles
+- delta vert si hausse
+- delta rouge si baisse
+- delta gris si neutre
+- part du global affichée sur les sous-ensembles
+
+## Bonnes habitudes
+
+- ne pas modifier les chiffres dans les vues
+- faire les exclusions métier dans l’ETL et dans les agrégats SQL
+- garder `README.md` court
+- utiliser ce fichier comme mémoire métier détaillée
+
+## Fichiers clés
+
+- [dashboard/src/Controller/DashboardController.php](../dashboard/src/Controller/DashboardController.php)
+- [dashboard/src/Repository/KpiRepository.php](../dashboard/src/Repository/KpiRepository.php)
+- [dashboard/src/Service/InvoiceLineImportService.php](../dashboard/src/Service/InvoiceLineImportService.php)
+- [dashboard/src/Command/ImportInvoiceLinesCommand.php](../dashboard/src/Command/ImportInvoiceLinesCommand.php)
+- [dashboard/templates/dashboard/home.html.twig](../dashboard/templates/dashboard/home.html.twig)
+- [dashboard/assets/styles/app.css](../dashboard/assets/styles/app.css)
+- [dashboard/migrations/Version20260424130000.php](../dashboard/migrations/Version20260424130000.php)
+
+## Ce qu’il faut retenir pour la prochaine reprise
+
+Le point de départ utile est:
+
+1. `README.md`
+2. `docs/context.md`
+3. `dashboard/src/Repository/KpiRepository.php`
+4. `dashboard/src/Service/InvoiceLineImportService.php`
+5. `dashboard/templates/dashboard/home.html.twig`
+
+Si tu dois reprendre vite le projet, lis d’abord ce document.
