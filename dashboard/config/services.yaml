@@ -8,6 +8,8 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     etl_web_token: '%env(ETL_WEB_TOKEN)%'
+    dashboard_monthly_target_ht_default: 0
+    dashboard_monthly_target_ht: '%env(float:default:dashboard_monthly_target_ht_default:DASHBOARD_MONTHLY_TARGET_HT)%'
 
 services:
     # default configuration for services in *this* file

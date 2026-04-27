@@ -282,7 +282,6 @@ final class InvoiceLineImportService
     private function mapRow(array $row, ?array $article, array $brandNames, string $now): array
     {
         [$invoiceDate, $invoiceDateTime] = $this->resolveInvoiceTimestamps($row);
-        [$channelCode, $channelName] = $this->resolveChannel($row);
 
         $articleCode = is_array($article) ? ($article['CODE'] ?? '') : '';
         $articleDesignation = is_array($article) ? ($article['DESIGNATION'] ?? '') : '';
@@ -294,6 +293,7 @@ final class InvoiceLineImportService
         $articleSupplierName = is_array($article) ? ($article['supplier'] ?? '') : '';
         $articleSupplierReference = is_array($article) ? ($article['REF_FOU'] ?? '') : '';
         $articleBrandName = is_array($article) ? ($brandNames[(int) ($article['ID_FAB'] ?? 0)] ?? '') : '';
+        [$channelCode, $channelName] = $this->resolveChannel($row, $article);
 
         $productCode = $this->value($articleCode !== '' ? $articleCode : ($row['CODE'] ?? ''));
         $productName = $this->value($articleDesignation !== '' ? $articleDesignation : ($row['DESIGNATION_PRODUIT'] ?? ''));
@@ -342,6 +342,10 @@ final class InvoiceLineImportService
     {
         $articleId = (int) ($row['IDART'] ?? 0);
         if ($articleId === 18823) {
+            return true;
+        }
+
+        if ((float) ($row['Q_FAC'] ?? 0) === 0.0) {
             return true;
         }
 
@@ -455,8 +459,13 @@ final class InvoiceLineImportService
      * @param array<string, mixed> $row
      * @return array{0: string, 1: string}
      */
-    private function resolveChannel(array $row): array
+    private function resolveChannel(array $row, ?array $article = null): array
     {
+        $articleRay = is_array($article) ? (int) ($article['IDRAY'] ?? 0) : 0;
+        if ($articleRay === 2) {
+            return ['ECOLE', 'École'];
+        }
+
         $webFlag = (int) ($row['WEB'] ?? 0);
         $site = (int) ($row['SITE'] ?? -1);
 
@@ -477,13 +486,13 @@ final class InvoiceLineImportService
 
     private function normalizeInvoiceNumber(array $row): string
     {
-        $invoiceNumber = $this->value($row['NumFacPoste'] ?? '');
+        $invoiceNumber = (string) ((int) ($row['IDFAC'] ?? 0));
 
-        if ($invoiceNumber !== '') {
+        if ($invoiceNumber !== '0') {
             return $invoiceNumber;
         }
 
-        return (string) ((int) ($row['IDFAC'] ?? 0));
+        return $this->value($row['NumFacPoste'] ?? '');
     }
 
     private function value(mixed $value): string

@@ -185,9 +185,12 @@ On part d’environ 228k lignes, donc:
 Règle actuelle:
 
 - si `WEB = 1` -> `Web`
+- sinon si `IDRAY = 2` -> `École`
 - sinon si `SITE = 0` -> `Nantes`
 - sinon si `SITE = 1` -> `Bordeaux`
 - sinon -> `Autre`
+
+Le canal `École` sert à isoler les lignes liées aux produits pédagogiques.
 
 ### Occasion
 
@@ -210,8 +213,21 @@ Une ligne est exclue de tous les calculs si:
 
 - `IDART = 18823`
 - ou `REF_FOU` commence par `REPRISE`
+- ou `Q_FAC = 0`
 
 L’objectif est de retirer les reprises / lignes parasites du reporting.
+
+### Numéro de facture
+
+Le numéro de facture de référence est `IDFAC`.
+
+`NumFacPoste` peut servir de fallback technique, mais le reporting s’appuie désormais sur `IDFAC` pour compter les factures.
+
+### Marques
+
+Le top global des marques exclut `HM` par défaut.
+
+Cette exclusion ne s’applique pas aux vues de détail ni aux highlights par canal.
 
 ## Dashboard actuel
 
@@ -221,6 +237,17 @@ La home affiche:
 - top 5 marques
 - répartition par canal
 - récap occasion N vs N-1
+- bloc d’alertes métier
+- filtres de lecture
+- comparaisons N-1 et mois précédent
+
+Le détail affiche:
+
+- recherche ligne par ligne
+- filtres
+- tri
+- pagination
+- export CSV
 
 Affichage:
 
