@@ -1,0 +1,2 @@
+"""Competitive intelligence worker package."""
+

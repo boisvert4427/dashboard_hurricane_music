@@ -21,7 +21,20 @@ Le dashboard doit servir à piloter l’activité de Hurricane Music avec:
 
 ## Architecture
 
-Le projet est maintenant une application Symfony.
+Le projet est une application Symfony unique avec des sous-sections distinctes.
+
+Symfony sert à la fois pour:
+
+- le dashboard principal
+- la section dédiée à la veille concurrentielle
+- l’orchestration métier et la base de données reporting
+
+La veille concurrentielle est intégrée au même site, mais reste isolée par:
+
+- ses routes
+- ses tables
+- ses services
+- son worker Python séparé
 
 Flux:
 
@@ -163,13 +176,73 @@ php bin/console app:etl:import-invoice-lines
 
 Le token est défini dans `dashboard/.env.local` via `ETL_WEB_TOKEN`.
 
+## Veille concurrentielle
+
+La phase 1 repose sur une API interne Symfony et un worker Python séparé.
+
+### Routes API
+
+```text
+GET  /api/competitive/run-batch
+GET  /api/competitive/products/next-batch
+POST /api/competitive/candidates
+POST /api/competitive/candidates/{id}/status
+```
+
+### Déclenchement
+
+Le navigateur ou un cron doit appeler:
+
+```text
+/api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
+```
+
+Cette route lance `competitive_intelligence_python/run_batch.py` en arrière-plan.
+Le batch runner bloque désormais une deuxième exécution simultanée pour le même `competitor_id` / `lang_id` / `shop_id`.
+
+### Authentification
+
+Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_API_TOKEN`.
+
+### Flux
+
+1. Symfony lit les produits dans la base PrestaShop.
+2. Symfony fournit un lot à Python.
+3. Python lance le scraper du concurrent.
+4. Python renvoie des candidats scorés.
+5. Symfony stocke les candidats en base.
+6. Validation humaine ensuite.
+
+### Worker Python
+
+Le squelette Python est dans `competitive_intelligence_python/`.
+
+### Statuts de test
+
+La table `competitor_url_test_result` enregistre:
+
+- `matched`
+- `not_found`
+- `cloudflare`
+- `search_input_not_found`
+- `error`
+
+Les lots suivants ignorent les produits déjà marqués `not_found`, `cloudflare` ou `search_input_not_found`.
+
+### Tables métier
+
+- `competitor`
+- `competitor_url_candidate`
+- `competitor_url_final`
+- `competitor_url_test_result`
+
 ### Rôle
 
-1. lire `K_LI_FAC`
-2. joindre `K_ARTICLE`
-3. joindre `WEB_FABRICANT`
-4. calculer le canal
-5. écrire dans `reporting_invoice_line_fact`
+1. lire les produits PrestaShop par lot
+2. lancer le scraper adapté au concurrent
+3. scorer les URLs candidates
+4. pousser les candidats et les tests dans Symfony
+5. laisser la validation humaine décider du statut final
 
 ### Volume
 
@@ -222,6 +295,14 @@ L’objectif est de retirer les reprises / lignes parasites du reporting.
 Le numéro de facture de référence est `IDFAC`.
 
 `NumFacPoste` peut servir de fallback technique, mais le reporting s’appuie désormais sur `IDFAC` pour compter les factures.
+
+## Règles projet à garder
+
+- ne pas mélanger le code Python dans Symfony
+- ne pas faire de scraping prix dans la phase 1
+- ne pas lancer les 8 500 produits d’un coup
+- privilégier des lots progressifs
+- garder les statuts de test explicites
 
 ### Marques
 

@@ -11,6 +11,7 @@ Dashboard interne de pilotage pour Hurricane Music.
 - répartition par canal
 - import ETL depuis les tables métier
 - part du global sur les sous-ensembles
+- module de veille concurrentielle URL Finder
 
 ## Règle principale
 
@@ -33,6 +34,41 @@ php bin/console app:etl:import-invoice-lines
 ```text
 /etl/import?token=TON_TOKEN
 ```
+
+## Veille concurrentielle
+
+La phase 1 est un URL Finder:
+
+- Symfony orchestre le lot de produits
+- Python cherche les URLs chez les concurrents
+- Symfony stocke les candidats et les résultats de test
+- la validation humaine passe ensuite les candidats en `valid` ou `rejected`
+
+### URL de lancement
+
+```text
+/api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
+```
+
+Le batch runner refuse désormais de lancer deux exécutions concurrentes pour le même `competitor_id` / `lang_id` / `shop_id`.
+
+### URL de lecture de lot
+
+```text
+/api/competitive/products/next-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
+```
+
+Les produits déjà marqués `not_found`, `cloudflare` ou `search_input_not_found` dans `competitor_url_test_result` sont exclus du prochain lot.
+
+### Worker Python
+
+Le worker est dans:
+
+```text
+competitive_intelligence_python/run_batch.py
+```
+
+Le worker enregistre les statuts de test dans `competitor_url_test_result`, y compris les cas `cloudflare` et `search_input_not_found`.
 
 ## Fichiers utiles
 
@@ -57,6 +93,7 @@ php bin/console app:etl:import-invoice-lines
   - canal
   - occasion
   - marques
+- ne pas mélanger le scraping Python dans Symfony
 
 ## Ce qu’il faudra probablement faire ensuite
 
@@ -65,6 +102,7 @@ php bin/console app:etl:import-invoice-lines
 3. exports CSV
 4. sécurisation plus fine du déclenchement web ETL
 5. nettoyage / indexation si le volume augmente
+6. affichage back-office de la veille concurrentielle
 
 ## Commandes utiles
 
@@ -87,6 +125,13 @@ php bin/console doctrine:migrations:migrate
 ```bash
 cd dashboard
 php bin/console app:etl:import-invoice-lines
+```
+
+### Lancer un batch concurrentiel
+
+```bash
+curl -H 'X-COMPETITIVE-TOKEN: TON_TOKEN' \
+'https://dashboard.hurricanemusic.fr/api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1'
 ```
 
 ### Vider le cache
@@ -112,3 +157,4 @@ Le cœur du projet est:
 - `WEB_FABRICANT` comme référentiel des marques
 - `reporting_invoice_line_fact` comme table de travail
 - le dashboard lit uniquement la table de reporting
+- la veille concurrentielle est une sous-section du même site, avec un worker Python séparé

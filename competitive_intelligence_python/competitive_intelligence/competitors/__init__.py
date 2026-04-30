@@ -1,0 +1,2 @@
+"""Competitor-specific scraper adapters."""
+

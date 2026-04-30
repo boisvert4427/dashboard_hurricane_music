@@ -1,0 +1,151 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Veille concurrentielle | Dashboard Hurricane Music{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Veille concurrentielle</div>
+                    <div class="brand-subtitle">Phase 1: URL Finder, validation humaine, base Symfony</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_home') }}">Retour dashboard</a>
+                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+                <a class="pill" href="{{ path('app_competitive_candidates') }}">Candidats</a>
+            </div>
+        </header>
+
+        <section class="module-hero">
+            <div>
+                <div class="module-kicker">Sous-espace dédié du site</div>
+                <h1>URL Finder pour concurrents</h1>
+                <p>
+                    Symfony orchestre les concurrents, les produits à traiter et la validation.
+                    Python exécutera la recherche d’URLs par lots et retournera les candidats scorés.
+                </p>
+            </div>
+            <div class="module-hero-actions">
+                <a class="button button-primary" href="{{ path('app_competitive_candidates') }}">Voir les candidats</a>
+                <a class="button button-secondary" href="{{ path('app_competitive_competitors') }}">Configurer les concurrents</a>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Vue d’ensemble</h2>
+                <p>Le socle de travail pour lancer la phase 1 sans mélanger avec le dashboard métier.</p>
+            </div>
+
+            <div class="module-stats">
+                <article class="module-stat-card">
+                    <div class="kpi-label">Concurrents</div>
+                    <strong>{{ competitor_count }}</strong>
+                    <span>Domaines et patterns de recherche</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">En attente</div>
+                    <strong>{{ status_counts.pending }}</strong>
+                    <span>À valider humainement</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Validés</div>
+                    <strong>{{ status_counts.valid }}</strong>
+                    <span>Exploitables pour la suite</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Rejetés</div>
+                    <strong>{{ status_counts.rejected }}</strong>
+                    <span>URLs non retenues</span>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Workflow cible</h2>
+                <p>Progression par lots, sans charger 34 000 recherches d’un coup.</p>
+            </div>
+
+            <div class="workflow-grid">
+                <article class="workflow-card">
+                    <div class="workflow-step">1</div>
+                    <h3>Symfony fournit les produits</h3>
+                    <p>Extraction par lot des produits à surveiller, avec référentiel centralisé.</p>
+                </article>
+                <article class="workflow-card">
+                    <div class="workflow-step">2</div>
+                    <h3>Python lance les recherches</h3>
+                    <p>Appels aux moteurs de recherche internes des concurrents avec la référence, l’EAN et le nom produit.</p>
+                </article>
+                <article class="workflow-card">
+                    <div class="workflow-step">3</div>
+                    <h3>Scoring et envoi</h3>
+                    <p>Chaque candidat est scoré puis renvoyé dans Symfony pour validation humaine.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Derniers candidats</h2>
+                <p>Les URLs les plus récentes à valider ou rejeter.</p>
+            </div>
+
+            <div class="detail-table-wrap">
+                <table class="detail-table module-table">
+                    <thead>
+                        <tr>
+                            <th>Produit</th>
+                            <th>Concurrent</th>
+                            <th>URL</th>
+                            <th>Score</th>
+                            <th>Statut</th>
+                            <th>Mise à jour</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for candidate in recent_candidates %}
+                            <tr>
+                                <td>{{ candidate.productId }}</td>
+                                <td>{{ candidate.competitor.name }}</td>
+                                <td class="module-url-cell">{{ candidate.url }}</td>
+                                <td><strong>{{ candidate.score }}</strong></td>
+                                <td><span class="status-chip status-{{ candidate.status }}">{{ candidate.status }}</span></td>
+                                <td>{{ candidate.updatedAt ? candidate.updatedAt|date('d/m/Y H:i') : 'n/a' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td class="detail-empty" colspan="6">Aucun candidat enregistré pour le moment.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Concurrents configurés</h2>
+                <p>Le point d’entrée de chaque moteur de recherche concurrent.</p>
+            </div>
+
+            <div class="module-competitor-grid">
+                {% for competitor in competitors %}
+                    <article class="module-competitor-card">
+                        <div class="module-competitor-name">{{ competitor.name }}</div>
+                        <div class="module-competitor-domain">{{ competitor.domain }}</div>
+                        <div class="module-competitor-pattern"><code>{{ competitor.searchUrlPattern }}</code></div>
+                    </article>
+                {% else %}
+                    <article class="module-empty-card">
+                        Aucun concurrent configuré pour le moment.
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+{% endblock %}

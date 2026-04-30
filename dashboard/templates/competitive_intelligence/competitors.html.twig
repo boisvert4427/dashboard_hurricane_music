@@ -1,0 +1,54 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Concurrents | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Concurrents</div>
+                    <div class="brand-subtitle">Référentiel des domaines et des patterns de recherche</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Accueil module</a>
+                <a class="pill" href="{{ path('app_competitive_candidates') }}">Candidats</a>
+                <a class="pill" href="{{ path('app_home') }}">Retour dashboard</a>
+            </div>
+        </header>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Liste des concurrents</h2>
+                <p>{{ candidate_counts.pending }} candidats en attente sur le module.</p>
+            </div>
+
+            <div class="detail-table-wrap">
+                <table class="detail-table module-table">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Domaine</th>
+                            <th>Pattern de recherche</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for competitor in competitors %}
+                            <tr>
+                                <td><strong>{{ competitor.name }}</strong></td>
+                                <td>{{ competitor.domain }}</td>
+                                <td><code>{{ competitor.searchUrlPattern }}</code></td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td class="detail-empty" colspan="3">Aucun concurrent configuré pour le moment.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+{% endblock %}

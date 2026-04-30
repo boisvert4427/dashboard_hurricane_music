@@ -1,0 +1,78 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Candidats | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Candidats URL</div>
+                    <div class="brand-subtitle">Validation humaine des URLs trouvées chez les concurrents</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Accueil module</a>
+                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+                <a class="pill" href="{{ path('app_home') }}">Retour dashboard</a>
+            </div>
+        </header>
+
+        <section class="toolbar-panel">
+            <div class="filter-form">
+                <div class="filter-field">
+                    <label>Statut</label>
+                    <div class="status-filter-row">
+                        <a class="button button-secondary {% if selected_status == '' %}button-active{% endif %}" href="{{ path('app_competitive_candidates') }}">Tous</a>
+                        <a class="button button-secondary {% if selected_status == status_values.pending %}button-active{% endif %}" href="{{ path('app_competitive_candidates', {status: 'pending'}) }}">Pending</a>
+                        <a class="button button-secondary {% if selected_status == status_values.valid %}button-active{% endif %}" href="{{ path('app_competitive_candidates', {status: 'valid'}) }}">Valid</a>
+                        <a class="button button-secondary {% if selected_status == status_values.rejected %}button-active{% endif %}" href="{{ path('app_competitive_candidates', {status: 'rejected'}) }}">Rejected</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Candidats</h2>
+                <p>{{ status_counts.pending }} pending, {{ status_counts.valid }} valid, {{ status_counts.rejected }} rejected.</p>
+            </div>
+
+            <div class="detail-table-wrap">
+                <table class="detail-table module-table">
+                    <thead>
+                        <tr>
+                            <th>Produit</th>
+                            <th>Concurrent</th>
+                            <th>Titre</th>
+                            <th>URL</th>
+                            <th>Source</th>
+                            <th>Score</th>
+                            <th>Statut</th>
+                            <th>Mise à jour</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for candidate in candidates %}
+                            <tr>
+                                <td>{{ candidate.productId }}</td>
+                                <td>{{ candidate.competitor.name }}</td>
+                                <td>{{ candidate.title ?: 'n/a' }}</td>
+                                <td class="module-url-cell">{{ candidate.url }}</td>
+                                <td>{{ candidate.source ?: 'n/a' }}</td>
+                                <td><strong>{{ candidate.score }}</strong></td>
+                                <td><span class="status-chip status-{{ candidate.status }}">{{ candidate.status }}</span></td>
+                                <td>{{ candidate.updatedAt ? candidate.updatedAt|date('d/m/Y H:i') : 'n/a' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td class="detail-empty" colspan="8">Aucun candidat ne correspond à ce filtre.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+{% endblock %}
