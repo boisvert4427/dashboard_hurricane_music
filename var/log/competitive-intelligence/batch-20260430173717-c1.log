@@ -1,0 +1,15 @@
+{'event': 'batch_fetched', 'competitor_id': 1, 'items': 5, 'after_id': 953, 'has_more': True, 'debug': True}
+{'event': 'product_start', 'id_product': 925, 'supplier_reference': 'ADU 477R205', 'name': 'DUNLOP - 36 MED JAZZTONE 205'}
+{'event': 'product_search_done', 'id_product': 925, 'candidates': 1}
+{'event': 'product_submit', 'id_product': 925, 'results': 1, 'tests': 1}
+{'event': 'product_start', 'id_product': 927, 'supplier_reference': 'ADU 477R207', 'name': 'DUNLOP - 36 MED JAZZTONE 207'}
+{'event': 'product_search_done', 'id_product': 927, 'candidates': 1}
+{'event': 'product_submit', 'id_product': 927, 'results': 1, 'tests': 1}
+{'event': 'product_start', 'id_product': 928, 'supplier_reference': 'ADU 477R208', 'name': 'DUNLOP - 36 MED JAZZTONE 208'}
+{'event': 'product_search_done', 'id_product': 928, 'candidates': 1}
+{'event': 'product_submit', 'id_product': 928, 'results': 1, 'tests': 1}
+{'event': 'product_start', 'id_product': 952, 'supplier_reference': 'ADU 47R1N', 'name': 'DUNLOP - 47R1N'}
+{'event': 'product_error', 'id_product': 952, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_start', 'id_product': 953, 'supplier_reference': 'ADU 47R1S', 'name': 'DUNLOP - 47R1S'}
+{'event': 'product_error', 'id_product': 953, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'competitor_id': 1, 'batch_items': 5, 'candidates': 3, 'tests': 3, 'after_id': 953, 'has_more': True}

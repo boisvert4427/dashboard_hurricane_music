@@ -1,0 +1,207 @@
+{
+  "url": "https://www.woodbrass.com/mediators-dunlop-nylon-jazz-ii1-18-black-extremite-arrondie-pack-de-24-p14170.html?queryID=3fb3233f018452179337e555895dabf6",
+  "title": "Jim Dunlop 24 x 1,38mm Jazz II Stiffo  - Médiators | Woodbrass​",
+  "inputCount": 25,
+  "inputs": [
+    {
+      "index": 0,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "header-login"
+    },
+    {
+      "index": 1,
+      "type": "email",
+      "className": "login-form__content__input",
+      "placeholder": "example@example.com",
+      "name": "email",
+      "value": ""
+    },
+    {
+      "index": 2,
+      "type": "password",
+      "className": "login-form__content__input",
+      "placeholder": "•••••••••••••••••••••••",
+      "name": "password",
+      "value": ""
+    },
+    {
+      "index": 3,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "goCreate"
+    },
+    {
+      "index": 4,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "backTo",
+      "value": "/mediators-dunlop-nylon-jazz-ii1-18-black-extremite-arrondie-pack-de-24-p14170.html?queryID=3fb3233f018452179337e555895dabf6"
+    },
+    {
+      "index": 5,
+      "type": "email",
+      "className": "slider-over__register-form__input",
+      "placeholder": "Adresse email",
+      "name": "email",
+      "value": ""
+    },
+    {
+      "index": 6,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": "une guitare électrique|un piano pour débutant|une batterie électronique|un micro de studio|une sonorisation portable|une partition de jazz "
+    },
+    {
+      "index": 7,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": "#888888|Je cherche"
+    },
+    {
+      "index": 8,
+      "type": "submit",
+      "className": "fwb tup fs20 fs18-sm cp",
+      "placeholder": null,
+      "name": null,
+      "value": "Ajouter"
+    },
+    {
+      "index": 9,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "products_id",
+      "value": "14170"
+    },
+    {
+      "index": 10,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "cart_quantity",
+      "value": "1"
+    },
+    {
+      "index": 11,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "cart_buy"
+    },
+    {
+      "index": 12,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "queryID",
+      "value": "3fb3233f018452179337e555895dabf6"
+    },
+    {
+      "index": 13,
+      "type": "submit",
+      "className": "fwb tup fs20 fs18-sm cp",
+      "placeholder": null,
+      "name": null,
+      "value": "Ajouter"
+    },
+    {
+      "index": 14,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "products_id",
+      "value": "14170"
+    },
+    {
+      "index": 15,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "cart_quantity",
+      "value": "1"
+    },
+    {
+      "index": 16,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "cart_buy"
+    },
+    {
+      "index": 17,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "queryID",
+      "value": "3fb3233f018452179337e555895dabf6"
+    },
+    {
+      "index": 18,
+      "type": "email",
+      "className": "pl20 pt0 pb0 fs13 clrNoir",
+      "placeholder": "votre adresse email",
+      "name": "email",
+      "value": null
+    },
+    {
+      "index": 19,
+      "type": "email",
+      "className": "ins-dynamic-input ins-element-content ins-sample-element-children",
+      "placeholder": " Votre e-mail",
+      "name": "1545222171109",
+      "value": null
+    },
+    {
+      "index": 20,
+      "type": "checkbox",
+      "className": "ins-checkbox-default ins-sample-element-children",
+      "placeholder": null,
+      "name": "ins-element-id",
+      "value": null
+    },
+    {
+      "index": 21,
+      "type": "checkbox",
+      "className": "ins-checkbox-default ins-sample-element-children",
+      "placeholder": null,
+      "name": "ins-element-id",
+      "value": null
+    },
+    {
+      "index": 22,
+      "type": "checkbox",
+      "className": "ins-checkbox-default ins-sample-element-children",
+      "placeholder": null,
+      "name": "ins-element-id",
+      "value": null
+    },
+    {
+      "index": 23,
+      "type": "checkbox",
+      "className": "ins-checkbox-default ins-sample-element-children",
+      "placeholder": null,
+      "name": "15554144661620",
+      "value": null
+    },
+    {
+      "index": 24,
+      "type": "checkbox",
+      "className": "ins-checkbox-default ins-sample-element-children",
+      "placeholder": null,
+      "name": "16554144661620",
+      "value": null
+    }
+  ]
+}

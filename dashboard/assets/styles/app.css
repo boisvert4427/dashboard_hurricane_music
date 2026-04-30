@@ -86,6 +86,11 @@ code {
     background: linear-gradient(135deg, rgba(125, 211, 252, 0.24), rgba(56, 189, 248, 0.6));
 }
 
+.brand-mark-competitive {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.22), rgba(249, 115, 22, 0.58));
+    border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
 .brand-name {
     font-weight: 800;
     letter-spacing: 0.01em;
@@ -799,6 +804,12 @@ code {
     border-color: rgba(148, 163, 184, 0.12);
 }
 
+.button-active {
+    border-color: rgba(125, 211, 252, 0.28);
+    background: rgba(56, 189, 248, 0.14);
+    color: var(--accent);
+}
+
 .button-disabled {
     pointer-events: none;
     opacity: 0.45;
@@ -887,6 +898,172 @@ code {
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--muted);
+}
+
+.module-shell {
+    max-width: 1320px;
+}
+
+.module-hero {
+    margin-top: 26px;
+    padding: 24px;
+    border-radius: 28px;
+    border: 1px solid var(--border);
+    background:
+        radial-gradient(circle at top right, rgba(251, 191, 36, 0.14), transparent 28%),
+        linear-gradient(180deg, rgba(18, 36, 63, 0.94), rgba(7, 17, 31, 0.94));
+    box-shadow: var(--shadow);
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-end;
+}
+
+.module-kicker {
+    color: #fbbf24;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 0.75rem;
+    margin-bottom: 10px;
+}
+
+.module-hero h1 {
+    margin: 0;
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    line-height: 1.05;
+}
+
+.module-hero p {
+    margin: 14px 0 0;
+    max-width: 72ch;
+    color: var(--muted);
+}
+
+.module-hero-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.module-stats,
+.workflow-grid,
+.module-competitor-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.module-stats {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.module-stat-card,
+.workflow-card,
+.module-competitor-card,
+.module-empty-card {
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--panel), rgba(7, 17, 31, 0.92));
+    box-shadow: var(--shadow);
+    padding: 18px;
+}
+
+.module-stat-card strong {
+    display: block;
+    margin-top: 10px;
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.module-stat-card span,
+.workflow-card p,
+.module-competitor-domain {
+    color: var(--muted);
+}
+
+.workflow-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.workflow-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.workflow-step {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    font-weight: 800;
+}
+
+.workflow-card h3,
+.module-competitor-name {
+    margin: 0 0 8px;
+    font-size: 1rem;
+}
+
+.module-competitor-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.module-competitor-pattern {
+    margin-top: 12px;
+    overflow-wrap: anywhere;
+}
+
+.module-empty-card {
+    color: var(--muted);
+}
+
+.module-table {
+    min-width: 1050px;
+}
+
+.module-url-cell {
+    max-width: 280px;
+    overflow-wrap: anywhere;
+}
+
+.status-filter-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.status-pending {
+    color: var(--warning);
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.2);
+}
+
+.status-valid {
+    color: var(--success);
+    background: rgba(139, 211, 168, 0.12);
+    border-color: rgba(139, 211, 168, 0.2);
+}
+
+.status-rejected {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.2);
 }
 
 .detail-product strong,

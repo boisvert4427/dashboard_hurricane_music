@@ -1,0 +1,5 @@
+{'event': 'batch_fetched', 'competitor_id': 1, 'items': 1, 'after_id': 760, 'has_more': True, 'debug': False}
+{'event': 'product_start', 'id_product': 760, 'supplier_reference': 'ADU 263', 'name': 'DUNLOP - 263'}
+{'event': 'product_search_done', 'id_product': 760, 'candidates': 1}
+{'event': 'product_submit', 'id_product': 760, 'results': 1, 'tests': 1}
+{'competitor_id': 1, 'batch_items': 1, 'candidates': 1, 'tests': 1, 'after_id': 760, 'has_more': True}

@@ -1,0 +1,143 @@
+{
+  "url": "https://www.woodbrass.com/",
+  "title": "Woodbrass - N°1 Français de la vente d'instrument de musique",
+  "inputCount": 17,
+  "inputs": [
+    {
+      "index": 0,
+      "type": "checkbox",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 1,
+      "type": "checkbox",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 2,
+      "type": null,
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 3,
+      "type": "checkbox",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 4,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "header-login"
+    },
+    {
+      "index": 5,
+      "type": "email",
+      "className": "login-form__content__input",
+      "placeholder": "example@example.com",
+      "name": "email",
+      "value": ""
+    },
+    {
+      "index": 6,
+      "type": "password",
+      "className": "login-form__content__input",
+      "placeholder": "•••••••••••••••••••••••",
+      "name": "password",
+      "value": ""
+    },
+    {
+      "index": 7,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "action",
+      "value": "goCreate"
+    },
+    {
+      "index": 8,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": "backTo",
+      "value": "/"
+    },
+    {
+      "index": 9,
+      "type": "email",
+      "className": "slider-over__register-form__input",
+      "placeholder": "Adresse email",
+      "name": "email",
+      "value": ""
+    },
+    {
+      "index": 10,
+      "type": "search",
+      "className": "ais-SearchBox-input search-input keywords",
+      "placeholder": "Je cherche une guitare él",
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 11,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": "une guitare électrique|un piano pour débutant|une batterie électronique|un micro de studio|une sonorisation portable|une partition de jazz "
+    },
+    {
+      "index": 12,
+      "type": "hidden",
+      "className": null,
+      "placeholder": null,
+      "name": null,
+      "value": "#888888|Je cherche"
+    },
+    {
+      "index": 13,
+      "type": "search",
+      "className": "ais-SearchBox-input mb10 bd-gray-light p5 fullW",
+      "placeholder": "Trouver une marque",
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 14,
+      "type": "number",
+      "className": "ais-RangeInput-input fullW noBorder m0 ais-RangeInput-input--min",
+      "placeholder": "0",
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 15,
+      "type": "number",
+      "className": "ais-RangeInput-input fullW noBorder m0 ais-RangeInput-input--max",
+      "placeholder": "0",
+      "name": null,
+      "value": null
+    },
+    {
+      "index": 16,
+      "type": "email",
+      "className": "pl20 pt0 pb0 fs13 clrNoir",
+      "placeholder": "votre adresse email",
+      "name": "email",
+      "value": null
+    }
+  ]
+}

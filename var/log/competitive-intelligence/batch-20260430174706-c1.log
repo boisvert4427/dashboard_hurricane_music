@@ -1,0 +1,17 @@
+{'event': 'batch_fetched', 'competitor_id': 1, 'items': 5, 'after_id': 967, 'has_more': True, 'debug': True}
+{'event': 'product_start', 'id_product': 955, 'supplier_reference': 'ADU 47R2S', 'name': 'DUNLOP - 47R2S'}
+{'event': 'product_error', 'id_product': 955, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_submit', 'id_product': 955, 'results': 0, 'tests': 1}
+{'event': 'product_start', 'id_product': 956, 'supplier_reference': 'ADU 47R3N', 'name': 'DUNLOP - 47R3N'}
+{'event': 'product_error', 'id_product': 956, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_submit', 'id_product': 956, 'results': 0, 'tests': 1}
+{'event': 'product_start', 'id_product': 957, 'supplier_reference': 'ADU 47R3S', 'name': 'DUNLOP - 47R3S'}
+{'event': 'product_error', 'id_product': 957, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_submit', 'id_product': 957, 'results': 0, 'tests': 1}
+{'event': 'product_start', 'id_product': 958, 'supplier_reference': 'ADU 47RXLN', 'name': 'DUNLOP - 47RXLN'}
+{'event': 'product_error', 'id_product': 958, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_submit', 'id_product': 958, 'results': 0, 'tests': 1}
+{'event': 'product_start', 'id_product': 967, 'supplier_reference': 'ADU 486PMD', 'name': 'DUNLOP - 486PMD'}
+{'event': 'product_error', 'id_product': 967, 'error': 'Woodbrass Cloudflare challenge encountered.'}
+{'event': 'product_submit', 'id_product': 967, 'results': 0, 'tests': 1}
+{'competitor_id': 1, 'batch_items': 5, 'candidates': 0, 'tests': 5, 'after_id': 967, 'has_more': True}

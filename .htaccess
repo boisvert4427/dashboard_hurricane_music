@@ -3,6 +3,10 @@ AddOutputFilterByType DEFLATE "application/atom+xml" "application/javascript" "a
 DirectoryIndex index.php index.html
 
 Require ip 37.65.67.88
+Require ip 80.11.3.77
+Require ip 84.234.23.235
+Require ip 10.4.23.29
+
 
 # SECTION BEGIN GIT PROTECTION
 RedirectMatch 404 /\.git
