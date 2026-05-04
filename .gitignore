@@ -1,0 +1,9 @@
+# Competitive intelligence artifacts
+/debug/
+/competitive_intelligence_python/debug/
+/competitive_intelligence_python/var/lock/competitive-intelligence/
+/var/log/competitive-intelligence/
+
+# Python bytecode
+**/*.pyc
+**/__pycache__/

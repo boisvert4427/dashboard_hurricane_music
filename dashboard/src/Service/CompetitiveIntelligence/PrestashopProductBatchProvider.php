@@ -9,9 +9,6 @@ use Doctrine\DBAL\ParameterType;
 
 final class PrestashopProductBatchProvider
 {
-    /** @var array<string, string> */
-    private array $prefixCache = [];
-
     public function __construct(
         private readonly Connection $prestashopConnection,
     ) {
@@ -25,44 +22,31 @@ final class PrestashopProductBatchProvider
         $limit = max(1, min(200, $limit));
         $afterId = max(0, $afterId);
 
-        $prefix = $this->resolvePrefix();
-        $productTable = $prefix . 'product';
-        $productLangTable = $prefix . 'product_lang';
-        $manufacturerTable = $prefix . 'manufacturer';
+        $feedTable = 'leo_netrivals_send_feed';
         $finalTable = 'tm2dn_dashboard.competitor_url_final';
         $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
 
-        $joins = [
-            sprintf('LEFT JOIN %s pl ON pl.id_product = p.id_product AND pl.id_lang = :lang_id AND pl.id_shop = :shop_id', $productLangTable),
-            sprintf('LEFT JOIN %s m ON m.id_manufacturer = p.id_manufacturer', $manufacturerTable),
-            sprintf('LEFT JOIN %s f ON f.id = p.id_product AND f.competitor_id = :competitor_id', $finalTable),
-            sprintf('LEFT JOIN %s tr ON tr.id_product = p.id_product AND tr.competitor_id = :competitor_id', $testResultTable),
-        ];
-
-        $referenceExpression = 'p.reference';
-
         $sql = sprintf(
-            'SELECT p.id_product,
-                    NULLIF(TRIM(COALESCE(%s, \'\')), \'\') AS supplier_reference,
-                    NULLIF(TRIM(COALESCE(p.ean13, \'\')), \'\') AS ean,
-                    NULLIF(TRIM(COALESCE(m.name, \'\')), \'\') AS brand,
-                    COALESCE(NULLIF(TRIM(COALESCE(pl.name, \'\')), \'\'), CONCAT(\'Product \', p.id_product)) AS name
-             FROM %s p
-             %s
-             WHERE p.id_product > :after_id
-               AND f.id IS NULL
-               AND p.active = 1
-               AND p.visibility IN (\'both\', \'catalog\', \'search\')
-               AND NULLIF(TRIM(COALESCE(p.reference, \'\')), \'\') IS NOT NULL
+            'SELECT f.id_product,
+                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
+                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
+                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
+             FROM %s f
+             LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
+             LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
+             WHERE f.id_product > :after_id
+               AND final_row.id IS NULL
+               AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
                AND (tr.result IS NULL OR tr.result NOT IN (\'not_found\', \'cloudflare\', \'search_input_not_found\'))
-               AND LOWER(COALESCE(p.reference, \'\')) NOT LIKE \'%%b-%%\'
-               AND LOWER(COALESCE(p.reference, \'\')) NOT LIKE \'%%occas%%\'
-               AND LOWER(COALESCE(p.reference, \'\')) NOT LIKE \'%%depv%%\'
-             ORDER BY p.id_product ASC
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
+             ORDER BY f.id_product ASC
              LIMIT :limit',
-            $referenceExpression,
-            $productTable,
-            implode("\n             ", $joins)
+            $feedTable,
+            $finalTable,
+            $testResultTable
         );
 
         $rows = $this->prestashopConnection->fetchAllAssociative(
@@ -109,31 +93,6 @@ final class PrestashopProductBatchProvider
             'competitor_id' => $competitorId,
             'has_more' => count($items) === $limit,
         ];
-    }
-
-    private function resolvePrefix(): string
-    {
-        if (isset($this->prefixCache['prefix'])) {
-            return $this->prefixCache['prefix'];
-        }
-
-        $tableNames = $this->prestashopConnection->fetchFirstColumn('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()');
-        $tables = array_map('strval', $tableNames);
-
-        $prefix = 'ps_';
-        foreach ($tables as $table) {
-            if (str_ends_with($table, 'product')) {
-                $candidate = substr($table, 0, -strlen('product'));
-                if (in_array($candidate . 'product_lang', $tables, true)) {
-                    $prefix = $candidate;
-                    break;
-                }
-            }
-        }
-
-        $this->prefixCache['prefix'] = $prefix;
-
-        return $prefix;
     }
 
 }

@@ -184,6 +184,7 @@ La phase 1 repose sur une API interne Symfony et un worker Python séparé.
 
 ```text
 GET  /api/competitive/run-batch
+GET  /api/competitive/run-both
 GET  /api/competitive/products/next-batch
 POST /api/competitive/candidates
 POST /api/competitive/candidates/{id}/status
@@ -198,7 +199,15 @@ Le navigateur ou un cron doit appeler:
 ```
 
 Cette route lance `competitive_intelligence_python/run_batch.py` en arrière-plan.
-Le batch runner bloque désormais une deuxième exécution simultanée pour le même `competitor_id` / `lang_id` / `shop_id`.
+Le batch runner bloque une deuxième exécution simultanée pour le même `competitor_id` / `lang_id` / `shop_id`.
+
+Orchestrateur parallèle:
+
+```text
+/api/competitive/run-both?limit=5&after_id_woodbrass=0&after_id_starsmusic=0&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+```
+
+Il lance Woodbrass et Stars Music en parallèle, chacun avec son propre `after_id`.
 
 ### Authentification
 
@@ -206,12 +215,17 @@ Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_A
 
 ### Flux
 
-1. Symfony lit les produits dans la base PrestaShop.
+1. Symfony lit les produits dans `leo_netrivals_send_feed` dans la base PrestaShop.
 2. Symfony fournit un lot à Python.
 3. Python lance le scraper du concurrent.
 4. Python renvoie des candidats scorés.
 5. Symfony stocke les candidats en base.
 6. Validation humaine ensuite.
+
+Concurrents actifs:
+
+- `1` = Woodbrass
+- `2` = Stars Music
 
 ### Worker Python
 
@@ -235,6 +249,7 @@ Les lots suivants ignorent les produits déjà marqués `not_found`, `cloudflare
 - `competitor_url_candidate`
 - `competitor_url_final`
 - `competitor_url_test_result`
+- `leo_netrivals_send_feed`
 
 ### Rôle
 
@@ -243,6 +258,7 @@ Les lots suivants ignorent les produits déjà marqués `not_found`, `cloudflare
 3. scorer les URLs candidates
 4. pousser les candidats et les tests dans Symfony
 5. laisser la validation humaine décider du statut final
+6. limiter la concurrence globale via `max_parallel` si nécessaire
 
 ### Volume
 

@@ -1,5 +1,0 @@
-{'event': 'batch_fetched', 'competitor_id': 1, 'items': 1, 'after_id': 283, 'has_more': True, 'debug': True}
-{'event': 'product_start', 'id_product': 283, 'supplier_reference': 'KAL V49MKII', 'name': 'ALESIS - V49 MKII'}
-{'event': 'product_search_done', 'id_product': 283, 'candidates': 0}
-{'event': 'product_submit', 'id_product': 283, 'results': 0, 'tests': 1}
-{'competitor_id': 1, 'batch_items': 1, 'candidates': 0, 'tests': 1, 'after_id': 283, 'has_more': True}

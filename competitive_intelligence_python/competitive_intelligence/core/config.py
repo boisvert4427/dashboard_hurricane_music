@@ -11,6 +11,7 @@ class Settings:
     after_id: int = 0
     lang_id: int = 1
     shop_id: int = 1
+    max_parallel: int = 0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -22,5 +23,5 @@ class Settings:
             after_id=int(os.environ.get("CI_AFTER_ID", "0")),
             lang_id=int(os.environ.get("CI_LANG_ID", "1")),
             shop_id=int(os.environ.get("CI_SHOP_ID", "1")),
+            max_parallel=int(os.environ.get("CI_MAX_PARALLEL", "0")),
         )
-

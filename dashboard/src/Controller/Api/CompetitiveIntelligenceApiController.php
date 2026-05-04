@@ -80,6 +80,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         $langId = max(1, (int) $request->query->get('lang_id', 1));
         $shopId = max(1, (int) $request->query->get('shop_id', 1));
         $debug = in_array(strtolower((string) $request->query->get('debug', '0')), ['1', 'true', 'yes', 'on'], true);
+        $maxParallel = max(0, (int) $request->query->get('max_parallel', 0));
 
         $competitor = $entityManager->getRepository(Competitor::class)->find($competitorId);
         if (!$competitor instanceof Competitor) {
@@ -103,6 +104,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
                 $langId,
                 $shopId,
                 $debug,
+                $maxParallel,
             );
         } catch (\Throwable $e) {
             return $this->json([
@@ -118,12 +120,121 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             'command' => $run['command'],
             'project_root' => $projectRoot,
             'log_file' => $run['log_file'] ?? null,
+            'max_parallel' => $maxParallel,
             'batch' => $batch,
             'competitor' => [
                 'id' => $competitor->getId(),
                 'name' => $competitor->getName(),
                 'domain' => $competitor->getDomain(),
                 'search_url_pattern' => $competitor->getSearchUrlPattern(),
+            ],
+        ]);
+    }
+
+    #[Route('/run-both', name: 'api_competitive_run_both', methods: ['GET', 'POST'])]
+    public function runBoth(
+        Request $request,
+        CompetitiveBatchRunner $batchRunner,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        if (!$this->isAuthorized($request)) {
+            return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
+        }
+
+        $limit = max(1, (int) $request->query->get('limit', 5));
+        $langId = max(1, (int) $request->query->get('lang_id', 1));
+        $shopId = max(1, (int) $request->query->get('shop_id', 1));
+        $debug = in_array(strtolower((string) $request->query->get('debug', '0')), ['1', 'true', 'yes', 'on'], true);
+        $maxParallel = max(0, (int) $request->query->get('max_parallel', 2));
+        $afterIdWoodbrass = max(0, (int) $request->query->get('after_id_woodbrass', 0));
+        $afterIdStarsMusic = max(0, (int) $request->query->get('after_id_starsmusic', 0));
+
+        $competitorIds = [
+            'woodbrass' => 1,
+            'stars_music' => 2,
+        ];
+
+        $competitors = [];
+        foreach ($competitorIds as $key => $competitorId) {
+            $competitor = $entityManager->getRepository(Competitor::class)->find($competitorId);
+            if (!$competitor instanceof Competitor) {
+                return $this->json([
+                    'ok' => false,
+                    'error' => sprintf('Unknown competitor_id "%d" for "%s".', $competitorId, $key),
+                ], 404);
+            }
+            $competitors[$key] = $competitor;
+        }
+
+        try {
+            $projectDir = (string) $this->getParameter('kernel.project_dir');
+            $apiBaseUrl = $request->getSchemeAndHttpHost();
+            $apiToken = (string) $this->getParameter('competitive_intelligence_api_token');
+
+            $runs = [
+                'woodbrass' => $batchRunner->start(
+                    $projectDir,
+                    $apiBaseUrl,
+                    $apiToken,
+                    $competitorIds['woodbrass'],
+                    $limit,
+                    $afterIdWoodbrass,
+                    $langId,
+                    $shopId,
+                    $debug,
+                    $maxParallel,
+                ),
+                'stars_music' => $batchRunner->start(
+                    $projectDir,
+                    $apiBaseUrl,
+                    $apiToken,
+                    $competitorIds['stars_music'],
+                    $limit,
+                    $afterIdStarsMusic,
+                    $langId,
+                    $shopId,
+                    $debug,
+                    $maxParallel,
+                ),
+            ];
+        } catch (\Throwable $e) {
+            return $this->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        return $this->json([
+            'ok' => true,
+            'started' => true,
+            'limit' => $limit,
+            'lang_id' => $langId,
+            'shop_id' => $shopId,
+            'debug' => $debug,
+            'max_parallel' => $maxParallel,
+            'runs' => [
+                'woodbrass' => [
+                    'competitor' => [
+                        'id' => $competitors['woodbrass']->getId(),
+                        'name' => $competitors['woodbrass']->getName(),
+                        'domain' => $competitors['woodbrass']->getDomain(),
+                    ],
+                    'pid' => $runs['woodbrass']['pid'],
+                    'command' => $runs['woodbrass']['command'],
+                    'log_file' => $runs['woodbrass']['log_file'] ?? null,
+                    'after_id' => $afterIdWoodbrass,
+                ],
+                'stars_music' => [
+                    'competitor' => [
+                        'id' => $competitors['stars_music']->getId(),
+                        'name' => $competitors['stars_music']->getName(),
+                        'domain' => $competitors['stars_music']->getDomain(),
+                    ],
+                    'pid' => $runs['stars_music']['pid'],
+                    'command' => $runs['stars_music']['command'],
+                    'log_file' => $runs['stars_music']['log_file'] ?? null,
+                    'after_id' => $afterIdStarsMusic,
+                ],
             ],
         ]);
     }

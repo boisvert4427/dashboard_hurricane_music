@@ -21,6 +21,7 @@ final class CompetitiveBatchRunner
         int $langId = 1,
         int $shopId = 1,
         bool $debug = false,
+        int $maxParallel = 0,
     ): array {
         $projectRoot = dirname(rtrim($projectDir, '/'));
         $this->assertBatchNotRunning($projectRoot, $competitorId, $langId, $shopId);
@@ -44,6 +45,9 @@ final class CompetitiveBatchRunner
 
         if ($debug) {
             $env['CI_DEBUG'] = '1';
+        }
+        if ($maxParallel > 0) {
+            $env['CI_MAX_PARALLEL'] = (string) $maxParallel;
         }
 
         $logDir = $projectRoot . '/var/log/competitive-intelligence';

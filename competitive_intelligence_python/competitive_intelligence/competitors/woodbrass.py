@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import re
 from typing import Iterable
@@ -9,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 from ..core.browser import browser_context
-from ..core.normalization import normalize_text, simplify_name
+from ..core.normalization import normalize_text
 from ..core.scoring import ProductFacts
 from .base import Candidate, CompetitorScraper
 
@@ -23,7 +24,7 @@ class WoodbrassMatch:
 
 
 class WoodbrassScraper(CompetitorScraper):
-    SEARCH_INPUT_TIMEOUT_MS = 4000
+    SEARCH_INPUT_TIMEOUT_MS = 12000
     SEARCH_RESULT_TIMEOUT_MS = 3000
 
     def __init__(self, search_url_pattern: str, http, debug: bool = False, debug_dir: str = "debug"):
@@ -46,33 +47,32 @@ class WoodbrassScraper(CompetitorScraper):
 
         queries = [
             facts.supplier_reference,
-            facts.ean,
-            f"{facts.brand} {facts.supplier_reference}".strip(),
-            simplify_name(facts.name),
         ]
 
         candidates: list[Candidate] = []
         seen_urls: set[str] = set()
 
         with browser_context(user_agent=None) as context:
-            page = context.new_page()
-            page.goto("https://www.woodbrass.com/", wait_until="domcontentloaded")
-            page.wait_for_timeout(500)
-            self._accept_cookies(page)
-            self._dismiss_overlays(page)
+            search_page = context.new_page()
+            product_page = context.new_page()
+            search_page.goto("https://www.woodbrass.com/", wait_until="domcontentloaded")
+            search_page.wait_for_timeout(500)
+            self._accept_cookies(search_page)
+            self._dismiss_overlays(search_page)
 
-            if self._is_cloudflare_page(page):
-                self._dump_debug(page, "", "cloudflare-challenge")
+            if self._is_cloudflare_page(search_page):
+                self._dump_debug(search_page, "", "cloudflare-challenge", product_id=product_id)
                 raise RuntimeError("Woodbrass Cloudflare challenge encountered.")
 
             for query in [q for q in queries if q]:
                 query_matched = False
-                for result in self._search_and_extract(page, query):
-                    product_page = self._fetch_product_page(result.url)
-                    if product_page is None:
+                self._dump_search_state(search_page, query, "search-before", product_id=product_id)
+                for result in self._search_and_extract(search_page, product_page, query, product_id=product_id):
+                    product_result = self._open_product_page_by_url(product_page, result.url, product_id=product_id)
+                    if product_result is None:
                         continue
 
-                    match = self._match_product_page(product_page, facts)
+                    match = self._match_product_page(product_result, facts)
                     if not match.matched_ref and not match.matched_ean:
                         continue
 
@@ -102,23 +102,26 @@ class WoodbrassScraper(CompetitorScraper):
         candidates.sort(key=lambda item: item.score, reverse=True)
         return candidates[:5]
 
-    def _search_and_extract(self, page, query: str) -> Iterable[Candidate]:
+    def _search_and_extract(self, search_page, product_page, query: str, product_id: int | None = None) -> Iterable[Candidate]:
         selector = "input.ais-SearchBox-input.search-input.keywords"
-        search_input = self._wait_for_search_input(page, selector, timeout_ms=self.SEARCH_INPUT_TIMEOUT_MS)
+        search_input = self._wait_for_search_input(search_page, selector, timeout_ms=self.SEARCH_INPUT_TIMEOUT_MS)
         if search_input is None:
-            if self._is_cloudflare_page(page):
-                self._dump_debug(page, query, "cloudflare-challenge")
+            search_input = self._reload_search_page(search_page, selector)
+        if search_input is None:
+            if self._is_cloudflare_page(search_page):
+                self._dump_debug(search_page, query, "cloudflare-challenge", product_id=product_id)
                 raise RuntimeError("Woodbrass Cloudflare challenge encountered.")
-            self._dump_debug(page, query, "search-input-not-found")
+            self._dump_search_state(search_page, query, "search-input-not-found-state", product_id=product_id)
+            self._dump_debug(search_page, query, "search-input-not-found", product_id=product_id)
             raise RuntimeError("Woodbrass search input was not found on the page.")
 
         try:
             search_input.scroll_into_view_if_needed(timeout=2000)
         except Exception:
             pass
-        page.wait_for_timeout(150)
+        search_page.wait_for_timeout(150)
         search_input.fill(query)
-        page.evaluate(
+        search_page.evaluate(
             """selector => {
                 const input = document.querySelector(selector);
                 if (!input) return;
@@ -130,14 +133,14 @@ class WoodbrassScraper(CompetitorScraper):
         )
 
         try:
-            page.wait_for_function(
+            search_page.wait_for_function(
                 """() => document.querySelectorAll('ol.ais-Hits-list li.ais-Hits-item a.box-product[href], li.ais-Hits-item a.box-product[href]').length > 0""",
                 timeout=self.SEARCH_RESULT_TIMEOUT_MS,
             )
         except Exception:
             pass
 
-        result_links = page.evaluate(
+        result_links = search_page.evaluate(
             """() => Array.from(document.querySelectorAll('ol.ais-Hits-list li.ais-Hits-item a.box-product[href], li.ais-Hits-item a.box-product[href]'))
                 .slice(0, 3)
                 .map((anchor) => ({
@@ -152,15 +155,15 @@ class WoodbrassScraper(CompetitorScraper):
             if not href:
                 continue
 
-            candidate_url = urljoin(page.url, href)
+            candidate_url = urljoin(search_page.url, href)
             if not self._is_woodbrass_url(candidate_url):
                 continue
 
-            product_page = self._open_product_page_by_url(page, candidate_url)
-            if product_page is None:
+            product_result = self._open_product_page_by_url(product_page, candidate_url)
+            if product_result is None:
                 continue
 
-            page_title, _page_text, page_url = product_page
+            page_title, _page_html, _page_text, page_url = product_result
             yield Candidate(
                 id_product=0,
                 url=page_url,
@@ -185,13 +188,47 @@ class WoodbrassScraper(CompetitorScraper):
             page.wait_for_timeout(500)
         return None
 
-    def _dump_debug(self, page, query: str, label: str) -> None:
+    def _reload_search_page(self, page, selector: str):
+        try:
+            page.reload(wait_until="domcontentloaded")
+        except Exception:
+            return None
+
+        page.wait_for_timeout(500)
+        self._accept_cookies(page)
+        self._dismiss_overlays(page)
+
+        if self._is_cloudflare_page(page):
+            return None
+
+        return self._wait_for_search_input(page, selector, timeout_ms=self.SEARCH_INPUT_TIMEOUT_MS)
+
+    def _dump_debug(self, page, query: str, label: str, html_text: str | None = None, product_id: int | None = None) -> None:
         if not self.debug:
             return
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
-        slug = "".join(ch if ch.isalnum() else "-" for ch in query).strip("-") or "query"
-        base = self.debug_dir / f"woodbrass-{label}-{slug}"
+        slug = self._debug_slug(query)
+        prefix = f"woodbrass-{label}"
+        if product_id is not None:
+            prefix = f"{prefix}-id-{product_id}"
+        base = self.debug_dir / f"{prefix}-{slug}"
+
+        try:
+            page.screenshot(path=str(base.with_suffix(".png")), full_page=True)
+        except Exception:
+            pass
+
+    def _dump_search_state(self, page, query: str, label: str, product_id: int | None = None) -> None:
+        if not self.debug:
+            return
+
+        self.debug_dir.mkdir(parents=True, exist_ok=True)
+        slug = self._debug_slug(query)
+        prefix = f"woodbrass-{label}"
+        if product_id is not None:
+            prefix = f"{prefix}-id-{product_id}"
+        base = self.debug_dir / f"{prefix}-{slug}"
 
         try:
             page.screenshot(path=str(base.with_suffix(".png")), full_page=True)
@@ -199,81 +236,93 @@ class WoodbrassScraper(CompetitorScraper):
             pass
 
         try:
-            html = page.content()
-            (base.with_suffix(".html")).write_text(html, encoding="utf-8")
-        except Exception:
-            pass
-
-        try:
-            info = page.evaluate(
-                """() => {
-                    const inputs = Array.from(document.querySelectorAll('input')).map((input, index) => ({
-                        index,
-                        type: input.getAttribute('type'),
-                        className: input.getAttribute('class'),
-                        placeholder: input.getAttribute('placeholder'),
-                        name: input.getAttribute('name'),
-                        value: input.getAttribute('value'),
-                    }));
+            page.evaluate(
+                """(selector) => {
                     return {
                         url: window.location.href,
                         title: document.title,
-                        inputCount: inputs.length,
-                        inputs,
+                        inputCount: document.querySelectorAll('input').length,
+                        searchSelectorCount: document.querySelectorAll(selector).length,
                     };
-                }"""
-            )
-            (base.with_suffix(".json")).write_text(
-                __import__("json").dumps(info, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+                }""",
+                "input.ais-SearchBox-input.search-input.keywords",
             )
         except Exception:
             pass
+
+    def _debug_slug(self, value: str) -> str:
+        cleaned = "".join(ch if ch.isalnum() else "-" for ch in value).strip("-")
+        cleaned = cleaned[:80] if cleaned else "query"
+        digest = hashlib.sha1(value.encode("utf-8", errors="ignore")).hexdigest()[:10]
+        return f"{cleaned}-{digest}"
 
     def _accept_cookies(self, page) -> None:
         candidates = [
             "text=ALLOW ALL",
             "text=Allow all",
+            "text=Accept all",
             "text=Tout accepter",
+            "text=J'accepte",
             "text=Accepter",
+            "text=Accepter et fermer",
+            "text=Accepter tout",
+            "text=Autoriser tous",
             "text=Continuer sans accepter",
             "text=Continue without accepting",
+            "button:has-text('Accept all')",
             "button:has-text('ALLOW ALL')",
             "button:has-text('Allow all')",
             "button:has-text('Tout accepter')",
+            "button:has-text('J'accepte')",
             "button:has-text('Accepter')",
+            "button:has-text('Accepter et fermer')",
+            "button:has-text('Accepter tout')",
+            "button:has-text('Autoriser tous')",
             "button:has-text('Continuer sans accepter')",
             "button:has-text('Continue without accepting')",
+            "[aria-label*='accept' i]",
+            "[aria-label*='cookie' i]",
         ]
-        for selector in candidates:
-            try:
-                locator = page.locator(selector).first
-                if locator.count() > 0:
-                    locator.click(timeout=1500)
-                    page.wait_for_timeout(1000)
-                    return
-            except Exception:
-                continue
+        for frame in [page] + list(page.frames):
+            for selector in candidates:
+                try:
+                    locator = frame.locator(selector).first
+                    if locator.count() > 0:
+                        locator.click(timeout=1500)
+                        page.wait_for_timeout(1000)
+                        return
+                except Exception:
+                    continue
 
     def _dismiss_overlays(self, page) -> None:
         candidates = [
             "button:has-text('Accept')",
             "button:has-text('I agree')",
             "button:has-text('OK')",
+            "button:has-text('Close')",
+            "button:has-text('Fermer')",
+            "button:has-text('Non merci')",
+            "button:has-text('Je refuse')",
+            "button:has-text('Plus tard')",
             "button:has-text('Tout accepter')",
             "button:has-text('Accepter')",
+            "button:has-text('Accepter et fermer')",
             "[aria-label='Close']",
+            "[aria-label*='close' i]",
             ".cookie button",
+            ".modal button",
+            ".popup button",
         ]
-        for selector in candidates:
-            try:
-                locator = page.locator(selector).first
-                if locator.count() > 0:
-                    locator.click(timeout=1500)
-                    page.wait_for_timeout(300)
-                    return
-            except Exception:
-                continue
+        for frame in [page] + list(page.frames):
+            for selector in candidates:
+                try:
+                    locator = frame.locator(selector).first
+                    if locator.count() > 0:
+                        locator.click(timeout=1500)
+                        page.wait_for_timeout(300)
+                        return
+                except Exception:
+                    continue
 
     def _is_cloudflare_page(self, page) -> bool:
         try:
@@ -287,18 +336,19 @@ class WoodbrassScraper(CompetitorScraper):
             text = ""
 
         try:
-            html = (page.content() or "").lower()
+            url = (page.url or "").lower()
         except Exception:
-            html = ""
+            url = ""
 
         signals = [
-            "cloudflare",
+            "enable javascript and cookies to continue",
             "performing security verification",
             "just a moment",
-            "/cdn-cgi/challenge-platform/",
             "verify you are human",
+            "attention required",
+            "access denied",
         ]
-        haystack = " ".join([title, text, html])
+        haystack = " ".join([title, text, url])
         return any(signal in haystack for signal in signals)
 
     def _extract_result_links(self, html: str, base_url: str) -> Iterable[Candidate]:
@@ -359,19 +409,21 @@ class WoodbrassScraper(CompetitorScraper):
         parsed = urlparse(url)
         return "woodbrass.com" in parsed.netloc
 
-    def _open_product_page_by_url(self, page, candidate_url: str):
+    def _open_product_page_by_url(self, page, candidate_url: str, product_id: int | None = None):
         try:
             page.goto(candidate_url, wait_until="domcontentloaded", timeout=15000)
             page.wait_for_timeout(1000)
         except Exception:
             return None
 
-        html = page.content()
+        if self._is_cloudflare_page(page):
+            return None
         page_url = page.url
+        html = page.content()
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.get_text(" ", strip=True) if soup.title else page_url
         text = soup.get_text(" ", strip=True)
-        return title, text, page_url
+        return title, html, text, page_url
 
     def _extract_anchor_title(self, anchor) -> str:
         image = anchor.select_one("img[title]")
@@ -389,19 +441,6 @@ class WoodbrassScraper(CompetitorScraper):
             product_node.get_text(" ", strip=True) if product_node else "",
         ]
         return " ".join(piece for piece in pieces if piece).strip()
-
-    def _fetch_product_page(self, url: str) -> tuple[str, str, str, str] | None:
-        try:
-            response = self.http.get(url)
-            response.raise_for_status()
-        except Exception:
-            return None
-
-        html = response.text
-        soup = BeautifulSoup(html, "html.parser")
-        title = soup.title.get_text(" ", strip=True) if soup.title else url
-        text = soup.get_text(" ", strip=True)
-        return title, html, text, url
 
     def _match_product_page(self, product_page: tuple[str, str, str, str], facts: ProductFacts) -> WoodbrassMatch:
         title, html, text, url = product_page
@@ -445,14 +484,21 @@ class WoodbrassScraper(CompetitorScraper):
             return False
 
         normalized = normalize_text(reference)
-        compact = normalized.replace(" ", "").replace("-", "")
         extracted_normalized = normalize_text(extracted_reference)
+        compact = normalized.replace(" ", "").replace("-", "")
         extracted_compact = extracted_normalized.replace(" ", "").replace("-", "")
-        text_compact = text_norm.replace(" ", "").replace("-", "")
 
-        return (
-            normalized == extracted_normalized
-            or compact == extracted_compact
-            or normalized in text_norm
-            or compact in text_compact
-        )
+        if normalized == extracted_normalized or compact == extracted_compact:
+            return True
+
+        if self._contains_normalized_reference(text_norm, normalized):
+            return True
+
+        return False
+
+    def _contains_normalized_reference(self, text_norm: str, reference_norm: str) -> bool:
+        if not text_norm or not reference_norm:
+            return False
+
+        pattern = rf"(?<![a-z0-9]){re.escape(reference_norm)}(?![a-z0-9])"
+        return re.search(pattern, text_norm) is not None
