@@ -30,6 +30,7 @@ final class CompetitiveIntelligenceController extends AbstractController
             ->getQuery()
             ->getResult();
         $testResultReport = $this->getTestResultReport($entityManager, $competitors, $batchProvider);
+        $testResultTotals = $this->getTestResultTotals($testResultReport);
         $theoreticalTotal = array_sum(array_column($testResultReport, 'theoretical'));
 
         $recentCandidates = $this->getCandidateRepository($entityManager)
@@ -46,6 +47,7 @@ final class CompetitiveIntelligenceController extends AbstractController
             'status_counts' => $statusCounts,
             'competitors' => $competitors,
             'test_result_report' => $testResultReport,
+            'test_result_totals' => $testResultTotals,
             'theoretical_total' => $theoreticalTotal,
             'recent_candidates' => $recentCandidates,
         ]);
@@ -217,5 +219,51 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         return array_values($report);
+    }
+
+    /**
+     * @param array<int, array{
+     *     competitor: Competitor,
+     *     total: int,
+     *     matched: int,
+     *     pending: int,
+     *     not_found: int,
+     *     cloudflare: int,
+     *     search_input_not_found: int,
+     *     error: int,
+     *     theoretical: int
+     * }> $report
+     *
+     * @return array{
+     *     theoretical:int,
+     *     total:int,
+     *     matched:int,
+     *     pending:int,
+     *     not_found:int,
+     *     cloudflare:int,
+     *     search_input_not_found:int,
+     *     error:int
+     * }
+     */
+    private function getTestResultTotals(array $report): array
+    {
+        $totals = [
+            'theoretical' => 0,
+            'total' => 0,
+            'matched' => 0,
+            'pending' => 0,
+            'not_found' => 0,
+            'cloudflare' => 0,
+            'search_input_not_found' => 0,
+            'error' => 0,
+        ];
+
+        foreach ($report as $row) {
+            foreach ($totals as $key => $value) {
+                $totals[$key] += (int) ($row[$key] ?? 0);
+            }
+        }
+
+        return $totals;
     }
 }

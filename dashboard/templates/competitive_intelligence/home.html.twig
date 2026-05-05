@@ -112,6 +112,21 @@
                             </tr>
                         {% endfor %}
                     </tbody>
+                    {% if test_result_report is not empty %}
+                        <tfoot>
+                            <tr>
+                                <th>Total</th>
+                                <th>{{ test_result_totals.theoretical }}</th>
+                                <th>{{ test_result_totals.total }}</th>
+                                <th>{{ test_result_totals.matched }}</th>
+                                <th>{{ test_result_totals.pending }}</th>
+                                <th>{{ test_result_totals.not_found }}</th>
+                                <th>{{ test_result_totals.cloudflare }}</th>
+                                <th>{{ test_result_totals.search_input_not_found }}</th>
+                                <th>{{ test_result_totals.error }}</th>
+                            </tr>
+                        </tfoot>
+                    {% endif %}
                 </table>
             </div>
         </section>
