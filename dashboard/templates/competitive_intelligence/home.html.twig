@@ -61,6 +61,58 @@
                     <strong>{{ status_counts.rejected }}</strong>
                     <span>URLs non retenues</span>
                 </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Théoriques</div>
+                    <strong>{{ theoretical_total }}</strong>
+                    <span>Produits à matcher côté feed</span>
+                </article>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Rapport des tests URL</h2>
+                <p>Lecture par concurrent des statuts de test: matched, not_found, cloudflare, search_input_not_found et error.</p>
+            </div>
+
+            <div class="detail-table-wrap">
+                <table class="detail-table module-table">
+                    <thead>
+                        <tr>
+                            <th>Concurrent</th>
+                            <th>Théorique</th>
+                            <th>Total</th>
+                            <th>Matched</th>
+                            <th>Pending</th>
+                            <th>Not found</th>
+                            <th>Cloudflare</th>
+                            <th>Search input not found</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in test_result_report %}
+                            <tr>
+                                <td>
+                                    <strong>{{ row.competitor.name }}</strong>
+                                    <div class="module-competitor-domain">{{ row.competitor.domain }}</div>
+                                </td>
+                                <td><strong>{{ row.theoretical }}</strong></td>
+                                <td><strong>{{ row.total }}</strong></td>
+                                <td>{{ row.matched }}</td>
+                                <td>{{ row.pending }}</td>
+                                <td>{{ row.not_found }}</td>
+                                <td>{{ row.cloudflare }}</td>
+                                <td>{{ row.search_input_not_found }}</td>
+                                <td>{{ row.error }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td class="detail-empty" colspan="9">Aucun test URL enregistré pour le moment.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </section>
 

@@ -59,11 +59,12 @@ final class CompetitiveTestResultIngestionService
             if ($existing instanceof CompetitorUrlTestResult) {
                 $existing
                     ->setResult($result)
-                    ->setUrl($this->nullableString($test['url'] ?? null))
-                    ->setTitle($this->nullableString($test['title'] ?? null))
+                    ->setUrl($this->truncateNullableString($test['url'] ?? null, 2048))
+                    ->setCompetitorTitle($this->truncateNullableString($test['competitor_title'] ?? null, 255))
                     ->setScore(isset($test['score']) ? (int) $test['score'] : null)
-                    ->setMatchedQuery($this->nullableString($test['matched_query'] ?? null))
-                    ->setMessage($this->nullableString($test['message'] ?? null))
+                    ->setCompetitorPrice($this->nullableDecimalString($test['competitor_price'] ?? null))
+                    ->setMatchedQuery($this->truncateNullableString($test['matched_query'] ?? null, 255))
+                    ->setMessage($this->truncateNullableString($test['message'] ?? null, 255))
                     ->touch();
                 $updated++;
                 continue;
@@ -73,11 +74,12 @@ final class CompetitiveTestResultIngestionService
                 $productId,
                 $competitor,
                 $result,
-                $this->nullableString($test['url'] ?? null),
-                $this->nullableString($test['title'] ?? null),
+                $this->truncateNullableString($test['url'] ?? null, 2048),
+                $this->truncateNullableString($test['competitor_title'] ?? null, 255),
                 isset($test['score']) ? (int) $test['score'] : null,
-                $this->nullableString($test['matched_query'] ?? null),
-                $this->nullableString($test['message'] ?? null),
+                $this->nullableDecimalString($test['competitor_price'] ?? null),
+                $this->truncateNullableString($test['matched_query'] ?? null, 255),
+                $this->truncateNullableString($test['message'] ?? null, 255),
             ));
             $inserted++;
         }
@@ -96,5 +98,30 @@ final class CompetitiveTestResultIngestionService
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function truncateNullableString(mixed $value, int $maxLength): ?string
+    {
+        $value = $this->nullableString($value);
+        if ($value === null) {
+            return null;
+        }
+
+        return mb_substr($value, 0, max(1, $maxLength));
+    }
+
+    private function nullableDecimalString(mixed $value): ?string
+    {
+        $value = $this->nullableString($value);
+        if ($value === null) {
+            return null;
+        }
+
+        $value = str_replace(',', '.', $value);
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        return number_format((float) $value, 2, '.', '');
     }
 }

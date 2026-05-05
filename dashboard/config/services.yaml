@@ -11,6 +11,8 @@ parameters:
     competitive_intelligence_api_token: '%env(COMPETITIVE_INTELLIGENCE_API_TOKEN)%'
     dashboard_monthly_target_ht_default: 0
     dashboard_monthly_target_ht: '%env(float:default:dashboard_monthly_target_ht_default:DASHBOARD_MONTHLY_TARGET_HT)%'
+    prestashop_base_url_default: 'https://www.hurricanemusic.fr'
+    prestashop_base_url: '%env(default:prestashop_base_url_default:PRESTASHOP_BASE_URL)%'
 
 services:
     # default configuration for services in *this* file
@@ -27,6 +29,11 @@ services:
         arguments:
             $reportingConnection: '@doctrine.dbal.reporting_connection'
             $prestashopConnection: '@doctrine.dbal.prestashop_connection'
+
+    App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider:
+        arguments:
+            $prestashopConnection: '@doctrine.dbal.prestashop_connection'
+            $prestashopBaseUrl: '%prestashop_base_url%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

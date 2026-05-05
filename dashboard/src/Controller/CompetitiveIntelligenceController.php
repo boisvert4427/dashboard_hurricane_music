@@ -6,7 +6,9 @@ namespace App\Controller;
 
 use App\Entity\Competitor;
 use App\Entity\CompetitorUrlCandidate;
+use App\Entity\CompetitorUrlTestResult;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,7 +18,10 @@ use Symfony\Component\Routing\Attribute\Route;
 final class CompetitiveIntelligenceController extends AbstractController
 {
     #[Route('', name: 'app_competitive_home', methods: ['GET'])]
-    public function index(EntityManagerInterface $entityManager): Response
+    public function index(
+        EntityManagerInterface $entityManager,
+        PrestashopProductBatchProvider $batchProvider,
+    ): Response
     {
         $statusCounts = $this->getCandidateStatusCounts($entityManager);
         $competitors = $this->getCompetitorRepository($entityManager)
@@ -24,6 +29,8 @@ final class CompetitiveIntelligenceController extends AbstractController
             ->orderBy('c.name', 'ASC')
             ->getQuery()
             ->getResult();
+        $testResultReport = $this->getTestResultReport($entityManager, $competitors, $batchProvider);
+        $theoreticalTotal = array_sum(array_column($testResultReport, 'theoretical'));
 
         $recentCandidates = $this->getCandidateRepository($entityManager)
             ->createQueryBuilder('c')
@@ -38,6 +45,8 @@ final class CompetitiveIntelligenceController extends AbstractController
             'competitor_count' => count($competitors),
             'status_counts' => $statusCounts,
             'competitors' => $competitors,
+            'test_result_report' => $testResultReport,
+            'theoretical_total' => $theoreticalTotal,
             'recent_candidates' => $recentCandidates,
         ]);
     }
@@ -131,5 +140,82 @@ final class CompetitiveIntelligenceController extends AbstractController
     private function getCandidateRepository(EntityManagerInterface $entityManager)
     {
         return $entityManager->getRepository(CompetitorUrlCandidate::class);
+    }
+
+    /**
+     * @param array<int, Competitor> $competitors
+     *
+     * @return array<int, array{
+     *     competitor: Competitor,
+     *     total: int,
+     *     matched: int,
+     *     pending: int,
+     *     not_found: int,
+     *     cloudflare: int,
+     *     search_input_not_found: int,
+     *     error: int,
+     *     theoretical: int
+     * }>
+     */
+    private function getTestResultReport(
+        EntityManagerInterface $entityManager,
+        array $competitors,
+        PrestashopProductBatchProvider $batchProvider,
+    ): array
+    {
+        $statusKeys = [
+            CompetitorUrlTestResult::RESULT_MATCHED,
+            'pending',
+            CompetitorUrlTestResult::RESULT_NOT_FOUND,
+            CompetitorUrlTestResult::RESULT_CLOUDFLARE,
+            CompetitorUrlTestResult::RESULT_SEARCH_INPUT_NOT_FOUND,
+            CompetitorUrlTestResult::RESULT_ERROR,
+        ];
+
+        $report = [];
+        foreach ($competitors as $competitor) {
+            if (!$competitor instanceof Competitor) {
+                continue;
+            }
+
+            $report[$competitor->getId() ?? 0] = [
+                'competitor' => $competitor,
+                'total' => 0,
+                'matched' => 0,
+                'pending' => 0,
+                'not_found' => 0,
+                'cloudflare' => 0,
+                'search_input_not_found' => 0,
+                'error' => 0,
+                'theoretical' => $batchProvider->countEligibleProducts($competitor->getId() ?? 0),
+            ];
+        }
+
+        $rows = $entityManager->getRepository(CompetitorUrlTestResult::class)
+            ->createQueryBuilder('t')
+            ->select('IDENTITY(t.competitor) AS competitor_id, t.result AS result, COUNT(t.productId) AS total')
+            ->groupBy('t.competitor, t.result')
+            ->orderBy('competitor_id', 'ASC')
+            ->getQuery()
+            ->getArrayResult();
+
+        foreach ($rows as $row) {
+            $competitorId = (int) ($row['competitor_id'] ?? 0);
+            $result = (string) ($row['result'] ?? '');
+            $total = (int) ($row['total'] ?? 0);
+
+            if (!isset($report[$competitorId])) {
+                continue;
+            }
+
+            if (!in_array($result, $statusKeys, true)) {
+                continue;
+            }
+
+            $report[$competitorId][$result] = $total;
+            $report[$competitorId]['total'] += $total;
+        }
+
+        return array_values($report);
     }
 }

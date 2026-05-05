@@ -20,6 +20,7 @@ class Candidate:
     source: str
     score: int
     matched_query: str
+    price: float | None = None
     status: str = "pending"
 
 
@@ -96,4 +97,3 @@ class CompetitorScraper(ABC):
                 continue
             results.append((href, text))
         return results
-

@@ -39,6 +39,7 @@ final class CompetitiveCandidateIngestionService
         $ignored = 0;
         $candidateRepository = $this->entityManager->getRepository(CompetitorUrlCandidate::class);
         $finalRepository = $this->entityManager->getRepository(CompetitorUrlFinal::class);
+        $bestFinalByProductId = [];
 
         foreach ($results as $result) {
             if (!is_array($result)) {
@@ -61,11 +62,17 @@ final class CompetitiveCandidateIngestionService
 
             if ($existing instanceof CompetitorUrlCandidate) {
                 $existing
-                    ->setTitle($this->nullableString($result['title'] ?? null))
-                    ->setSource($this->nullableString($result['source'] ?? null))
+                    ->setTitle($this->truncateNullableString($result['title'] ?? null, 255))
+                    ->setSource($this->truncateNullableString($result['source'] ?? null, 50))
                     ->setScore((int) ($result['score'] ?? 0))
                     ->setStatus($this->normalizeStatus((string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING)));
-                $this->upsertFinalIfNeeded($finalRepository, $productId, $competitor, $url, (int) ($result['score'] ?? 0), (string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING));
+                $this->rememberFinalCandidate(
+                    $bestFinalByProductId,
+                    $productId,
+                    $url,
+                    (int) ($result['score'] ?? 0),
+                    (string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING),
+                );
                 $updated++;
                 continue;
             }
@@ -74,15 +81,32 @@ final class CompetitiveCandidateIngestionService
                 $productId,
                 $competitor,
                 $url,
-                $this->nullableString($result['title'] ?? null),
-                $this->nullableString($result['source'] ?? null),
+                $this->truncateNullableString($result['title'] ?? null, 255),
+                $this->truncateNullableString($result['source'] ?? null, 50),
                 (int) ($result['score'] ?? 0),
                 $this->normalizeStatus((string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING)),
             );
 
             $this->entityManager->persist($candidate);
-            $this->upsertFinalIfNeeded($finalRepository, $productId, $competitor, $url, (int) ($result['score'] ?? 0), (string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING));
+            $this->rememberFinalCandidate(
+                $bestFinalByProductId,
+                $productId,
+                $url,
+                (int) ($result['score'] ?? 0),
+                (string) ($result['status'] ?? CompetitorUrlCandidate::STATUS_PENDING),
+            );
             $inserted++;
+        }
+
+        foreach ($bestFinalByProductId as $productId => $bestCandidate) {
+            $this->upsertFinalIfNeeded(
+                $finalRepository,
+                (int) $productId,
+                $competitor,
+                (string) $bestCandidate['url'],
+                (int) $bestCandidate['score'],
+                (string) $bestCandidate['status'],
+            );
         }
 
         $this->entityManager->flush();
@@ -110,12 +134,40 @@ final class CompetitiveCandidateIngestionService
         return $value === '' ? null : $value;
     }
 
+    private function truncateNullableString(mixed $value, int $maxLength): ?string
+    {
+        $value = $this->nullableString($value);
+        if ($value === null) {
+            return null;
+        }
+
+        return mb_substr($value, 0, max(1, $maxLength));
+    }
+
+    /**
+     * @param array<int, array{url:string, score:int, status:string}> $bestFinalByProductId
+     */
+    private function rememberFinalCandidate(array &$bestFinalByProductId, int $productId, string $url, int $score, string $status): void
+    {
+        if ($score <= 90 && $status !== CompetitorUrlCandidate::STATUS_VALID) {
+            return;
+        }
+
+        if (!isset($bestFinalByProductId[$productId]) || $score >= $bestFinalByProductId[$productId]['score']) {
+            $bestFinalByProductId[$productId] = [
+                'url' => $url,
+                'score' => $score,
+                'status' => $status,
+            ];
+        }
+    }
+
     /**
      * @param object $finalRepository
      */
     private function upsertFinalIfNeeded(object $finalRepository, int $productId, Competitor $competitor, string $url, int $score, string $status): void
     {
-        if ($score < 100 && $status !== CompetitorUrlCandidate::STATUS_VALID) {
+        if ($score <= 90 && $status !== CompetitorUrlCandidate::STATUS_VALID) {
             return;
         }
 

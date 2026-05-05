@@ -34,10 +34,13 @@ class CompetitorUrlTestResult
     private ?string $url = null;
 
     #[ORM\Column(length: 255, nullable: true)]
-    private ?string $title = null;
+    private ?string $competitorTitle = null;
 
     #[ORM\Column(type: 'smallint', nullable: true)]
     private ?int $score = null;
+
+    #[ORM\Column(type: 'decimal', precision: 10, scale: 2, nullable: true)]
+    private ?string $competitorPrice = null;
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $matchedQuery = null;
@@ -53,8 +56,9 @@ class CompetitorUrlTestResult
         Competitor $competitor,
         string $result,
         ?string $url = null,
-        ?string $title = null,
+        ?string $competitorTitle = null,
         ?int $score = null,
+        ?string $competitorPrice = null,
         ?string $matchedQuery = null,
         ?string $message = null,
     ) {
@@ -62,8 +66,9 @@ class CompetitorUrlTestResult
         $this->competitor = $competitor;
         $this->result = $result;
         $this->url = $url;
-        $this->title = $title;
+        $this->competitorTitle = $competitorTitle;
         $this->score = $score;
+        $this->competitorPrice = $competitorPrice;
         $this->matchedQuery = $matchedQuery;
         $this->message = $message;
         $this->lastTestedAt = new \DateTimeImmutable();
@@ -103,14 +108,14 @@ class CompetitorUrlTestResult
         return $this;
     }
 
-    public function getTitle(): ?string
+    public function getCompetitorTitle(): ?string
     {
-        return $this->title;
+        return $this->competitorTitle;
     }
 
-    public function setTitle(?string $title): self
+    public function setCompetitorTitle(?string $competitorTitle): self
     {
-        $this->title = $title;
+        $this->competitorTitle = $competitorTitle;
 
         return $this;
     }
@@ -123,6 +128,18 @@ class CompetitorUrlTestResult
     public function setScore(?int $score): self
     {
         $this->score = $score;
+
+        return $this;
+    }
+
+    public function getCompetitorPrice(): ?string
+    {
+        return $this->competitorPrice;
+    }
+
+    public function setCompetitorPrice(?string $competitorPrice): self
+    {
+        $this->competitorPrice = $competitorPrice;
 
         return $this;
     }

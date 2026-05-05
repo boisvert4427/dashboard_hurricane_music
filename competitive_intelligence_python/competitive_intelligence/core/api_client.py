@@ -36,6 +36,9 @@ class ApiClient:
             json=payload,
             headers=self._headers(),
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            body = response.text.strip()
+            if body:
+                raise RuntimeError(f"submit_candidates failed ({response.status_code}): {body}")
+            response.raise_for_status()
         return response.json()
-

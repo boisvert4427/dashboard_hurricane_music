@@ -42,6 +42,7 @@ La phase 1 est un URL Finder:
 - Symfony orchestre le lot de produits
 - Python cherche les URLs chez les concurrents
 - Symfony stocke les candidats et les résultats de test
+- les tests gardent `competitor_title` et `competitor_price` quand ils sont disponibles
 - la validation humaine passe ensuite les candidats en `valid` ou `rejected`
 
 ### URL de lancement
@@ -58,7 +59,7 @@ Le batch runner refuse désormais de lancer deux exécutions concurrentes pour l
 /api/competitive/products/next-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
 ```
 
-Les produits déjà marqués `not_found`, `cloudflare` ou `search_input_not_found` dans `competitor_url_test_result` sont exclus du prochain lot.
+Les produits déjà testés pour ce concurrent sont exclus du prochain lot, afin d’éviter de recycler le même `id_product`.
 
 ### Worker Python
 
@@ -133,6 +134,14 @@ php bin/console app:etl:import-invoice-lines
 curl -H 'X-COMPETITIVE-TOKEN: TON_TOKEN' \
 'https://dashboard.hurricanemusic.fr/api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1'
 ```
+
+### Lancer tous les concurrents
+
+```text
+/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+```
+
+Cela lance Woodbrass, Stars Music, Thomann et Michenaud.
 
 ### Vider le cache
 

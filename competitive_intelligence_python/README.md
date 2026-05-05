@@ -12,9 +12,14 @@ Responsibilities:
 ## Current adapter
 
 - `WoodbrassScraper`
+- `StarsMusicScraper`
+- `ThomannScraper`
+- `MichenaudScraper`
 - it searches using the competitor search URL
 - it inspects the first product links
 - it opens the product pages and verifies the supplier reference or EAN before saving
+- Thomann uses the embedded `search.index` payload from the search page and scores the closest title at `90`.
+- Thomann and Michenaud also capture price when available.
 
 ## Run
 
@@ -55,3 +60,25 @@ The worker is usually triggered by Symfony through:
 
 That endpoint starts `run_batch.py` in the background.
 Debug mode can be enabled with `debug=1`, which writes screenshots and HTML snapshots to `competitive_intelligence_python/debug/`.
+
+### All competitors
+
+The dashboard also exposes a combined launcher:
+
+```text
+/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=change-me-too
+```
+
+That route starts Woodbrass, Stars Music, Thomann, and Michenaud together.
+
+### Result fields
+
+The worker sends the following test-result fields back to Symfony:
+
+- `competitor_title`
+- `competitor_price`
+- `matched_query`
+- `score`
+- `result`
+
+The `title` field is no longer stored on `competitor_url_test_result`.

@@ -20,15 +20,19 @@
 6. Human validation remains separate.
 7. A running batch is lock-protected per `competitor_id` / `lang_id` / `shop_id` so the cron can skip instead of stacking workers.
 8. The batch source is `leo_netrivals_send_feed` in the PrestaShop database, not the `product` table.
-9. Current competitors are:
+9. Next-batch selection excludes products already tested for that competitor, so retries do not recycle the same `id_product`.
+10. Current competitors are:
    - `1` = Woodbrass
    - `2` = Stars Music
-10. Debug mode writes PNG screenshots only under `debug/`.
+   - `3` = Thomann
+   - `4` = Michenaud
+11. Debug mode writes PNG screenshots only under `debug/`.
 
 ## Key Routes
 
 - `GET /api/competitive/run-batch`
-- `GET /api/competitive/run-both`
+- `GET /api/competitive/run-all`
+- `GET /api/competitive/run-both` (legacy alias)
 - `GET /api/competitive/products/next-batch`
 - `POST /api/competitive/candidates`
 - `POST /api/competitive/candidates/{id}/status`
@@ -36,7 +40,7 @@
 ## Important Rules
 
 - Phase 1 is URL finding only.
-- Do not scrape prices yet.
+- Prices are now captured for competitors that expose them.
 - Do not process all products in one burst.
 - Prefer small batches and progressive scheduling.
 - Keep test statuses explicit:
@@ -46,7 +50,10 @@
   - `search_input_not_found`
   - `error`
 - Keep final URLs keyed by PrestaShop `id_product`.
-- Exclude `not_found`, `cloudflare`, and `search_input_not_found` from the next batch selection.
+- Keep `competitor_title` as the canonical competitor-side title in test results.
+- `title` was removed from `competitor_url_test_result`.
+- `competitor_price` is optional and may be null.
+- Exclude already tested products from the next batch selection for the same competitor.
 - `max_parallel` can be used to cap how many batches run at once across competitors.
 
 ## Operational Notes

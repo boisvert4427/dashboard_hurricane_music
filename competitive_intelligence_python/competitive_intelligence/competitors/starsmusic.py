@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 import hashlib
 import re
 from typing import Iterable
@@ -23,8 +24,8 @@ class StarsMusicMatch:
 
 
 class StarsMusicScraper(CompetitorScraper):
-    SEARCH_INPUT_TIMEOUT_MS = 12000
-    SEARCH_RESULT_TIMEOUT_MS = 5000
+    SEARCH_INPUT_TIMEOUT_MS = 2500
+    SEARCH_RESULT_TIMEOUT_MS = 1500
 
     def __init__(self, search_url_pattern: str, http, debug: bool = False, debug_dir: str = "debug"):
         super().__init__(search_url_pattern=search_url_pattern, http=http)
@@ -42,8 +43,8 @@ class StarsMusicScraper(CompetitorScraper):
             name=str(product.get("name") or ""),
         )
         product_id = int(product["id_product"])
-        query = facts.name.strip()
-        if not query:
+        queries = [facts.name.strip()]
+        if not queries:
             return []
 
         candidates: list[Candidate] = []
@@ -52,94 +53,104 @@ class StarsMusicScraper(CompetitorScraper):
         with browser_context(user_agent=None) as context:
             search_page = context.new_page()
             product_page = context.new_page()
-
             search_page.goto("https://www.stars-music.fr/", wait_until="domcontentloaded")
-            search_page.wait_for_timeout(1000)
+            search_page.wait_for_timeout(250)
             self._accept_cookies(search_page)
 
             if self._is_cloudflare_page(search_page):
-                self._dump_debug(search_page, query, "cloudflare-challenge", product_id=product_id)
+                self._dump_debug(search_page, "", "cloudflare-challenge", product_id=product_id)
                 raise RuntimeError("Stars Music Cloudflare challenge encountered.")
 
-            self._dump_search_state(search_page, query, "search-before", product_id=product_id)
+            for query in queries:
+                self._dump_search_state(search_page, query, "search-before", product_id=product_id)
 
-            search_input = self._wait_for_search_input(search_page, 'input[name="search-input-textbar"]')
-            if search_input is None:
-                self._dump_search_state(search_page, query, "search-input-not-found-state", product_id=product_id)
-                self._dump_debug(search_page, query, "search-input-not-found", product_id=product_id)
-                raise RuntimeError("Stars Music search input was not found on the page.")
+                search_input = self._wait_for_search_input(search_page, 'input[name="search-input-textbar"]')
+                if search_input is None:
+                    self._dump_search_state(search_page, query, "search-input-not-found-state", product_id=product_id)
+                    self._dump_debug(search_page, query, "search-input-not-found", product_id=product_id)
+                    raise RuntimeError("Stars Music search input was not found on the page.")
 
-            try:
-                search_input.fill(query)
-            except Exception:
-                self._dump_debug(search_page, query, "search-input-not-found", product_id=product_id)
-                raise RuntimeError("Stars Music search input was not found on the page.")
-
-            try:
-                search_page.locator(".submitSearch").first.click(force=True)
-            except Exception:
                 try:
-                    search_input.press("Enter")
+                    search_input.fill(query)
+                except Exception:
+                    self._dump_debug(search_page, query, "search-input-not-found", product_id=product_id)
+                    raise RuntimeError("Stars Music search input was not found on the page.")
+
+                try:
+                    search_page.locator(".submitSearch").first.click(force=True)
+                except Exception:
+                    try:
+                        search_input.press("Enter")
+                    except Exception:
+                        pass
+
+                try:
+                    search_page.wait_for_function(
+                        """() => document.querySelectorAll('.dfd-card').length > 0""",
+                        timeout=self.SEARCH_RESULT_TIMEOUT_MS,
+                    )
                 except Exception:
                     pass
 
-            try:
-                search_page.wait_for_function(
-                    """() => document.querySelectorAll('a.dfd-card-link[href]').length > 0""",
-                    timeout=self.SEARCH_RESULT_TIMEOUT_MS,
+                result_cards = search_page.evaluate(
+                    """() => Array.from(document.querySelectorAll('.dfd-card'))
+                        .slice(0, 10)
+                        .map((card) => {
+                            const anchor = card.querySelector('a[href]');
+                            return {
+                                href: anchor ? (anchor.getAttribute('href') || '') : '',
+                                title: (card.querySelector('.dfd-card-title')?.textContent || card.textContent || '').trim(),
+                                text: (card.innerText || '').trim(),
+                            };
+                        })"""
                 )
-            except Exception:
-                pass
 
-            result_links = search_page.evaluate(
-                """() => Array.from(document.querySelectorAll('a.dfd-card-link[href]'))
-                    .slice(0, 3)
-                    .map((anchor) => ({
-                        href: anchor.getAttribute('href') || '',
-                        title: (anchor.textContent || '').trim(),
-                    }))"""
-            )
-
-            for item in result_links:
-                href = str(item.get("href") or "").strip()
-                title = str(item.get("title") or "").strip()
-                if not href:
+                if not isinstance(result_cards, list):
                     continue
 
-                candidate_url = urljoin(search_page.url, href)
-                if not self._is_stars_music_url(candidate_url):
-                    continue
+                for item in result_cards:
+                    href = str(item.get("href") or "").strip()
+                    title = str(item.get("title") or "").strip()
+                    text = str(item.get("text") or "").strip()
+                    if not href:
+                        continue
+                    if href.endswith("/all") or "/all" in href:
+                        continue
 
-                product_result = self._open_product_page_by_url(product_page, candidate_url, product_id=product_id)
-                if product_result is None:
-                    continue
+                    candidate_url = urljoin(search_page.url, href)
+                    if not self._is_stars_music_url(candidate_url):
+                        continue
 
-                match = self._match_product_page(product_result, facts)
-                if not match.matched_ref:
-                    continue
+                    product_result = self._open_product_page_by_url(product_page, candidate_url, product_id=product_id)
+                    if product_result is None:
+                        continue
 
-                normalized_url = candidate_url.strip()
-                if normalized_url in seen_urls:
-                    continue
+                    match = self._match_product_page(product_result, facts)
+                    if not match.matched_ref:
+                        continue
 
-                seen_urls.add(normalized_url)
-                candidates.append(
-                    Candidate(
-                        id_product=product_id,
-                        url=normalized_url,
-                        title=match.title,
-                        source="stars_music_product_page",
-                        score=100,
-                        matched_query=query,
+                    normalized_url = candidate_url.strip()
+                    if normalized_url in seen_urls:
+                        continue
+
+                    seen_urls.add(normalized_url)
+                    candidates.append(
+                        Candidate(
+                            id_product=product_id,
+                            url=normalized_url,
+                            title=match.title or title or text,
+                            source="stars_music_product_page",
+                            score=100,
+                            matched_query=query,
+                        )
                     )
-                )
-                break
+                    break
 
         candidates.sort(key=lambda item: item.score, reverse=True)
         return candidates[:5]
 
     def _wait_for_search_input(self, page, selector: str, timeout_ms: int = 30000):
-        attempts = max(1, timeout_ms // 500)
+        attempts = max(1, timeout_ms // 200)
         for _ in range(attempts):
             try:
                 count = page.evaluate("selector => document.querySelectorAll(selector).length", selector)
@@ -147,7 +158,7 @@ class StarsMusicScraper(CompetitorScraper):
                     return page.locator(selector).first
             except Exception:
                 pass
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(150)
         return None
 
     def _open_product_page_by_url(self, page, url: str, product_id: int | None = None):
@@ -156,7 +167,7 @@ class StarsMusicScraper(CompetitorScraper):
         except Exception:
             return None
 
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(400)
 
         if self._is_cloudflare_page(page):
             self._dump_debug(page, url, "cloudflare-challenge", product_id=product_id)
@@ -176,15 +187,50 @@ class StarsMusicScraper(CompetitorScraper):
         soup = BeautifulSoup(html, "html.parser")
         spec_items = [normalize_text(item.get_text(" ", strip=True)) for item in soup.select("ul.product-specs li.spec-item")]
         ref_norm = normalize_text(facts.supplier_reference)
+        ean_norm = normalize_text(facts.ean)
         matched_ref = False
-        if len(spec_items) > 1:
+        matched_ean = False
+
+        for script in soup.select('script[type="application/ld+json"]'):
+            script_text = script.get_text(" ", strip=True)
+            if not script_text:
+                continue
+            try:
+                payload = json.loads(script_text)
+            except Exception:
+                continue
+
+            if isinstance(payload, dict):
+                entries = [payload]
+            elif isinstance(payload, list):
+                entries = [item for item in payload if isinstance(item, dict)]
+            else:
+                entries = []
+
+            for entry in entries:
+                if not matched_ref:
+                    for key in ("mpn", "sku", "name"):
+                        value = normalize_text(str(entry.get(key) or ""))
+                        if value and ref_norm and self._contains_normalized_reference(value, ref_norm):
+                            matched_ref = True
+                            break
+                if not matched_ean:
+                    for key in ("gtin13", "gtin", "ean"):
+                        value = normalize_text(str(entry.get(key) or ""))
+                        if value and ean_norm and self._contains_normalized_reference(value, ean_norm):
+                            matched_ean = True
+                            break
+
+        if not matched_ref and len(spec_items) > 1:
             matched_ref = self._contains_normalized_reference(spec_items[1], ref_norm)
         if not matched_ref and ref_norm:
             matched_ref = any(self._contains_normalized_reference(item, ref_norm) for item in spec_items)
+        if not matched_ean and ean_norm:
+            matched_ean = any(self._contains_normalized_reference(item, ean_norm) for item in spec_items)
         return StarsMusicMatch(
             url=url,
             title=title.strip() or text.strip(),
-            matched_ref=matched_ref,
+            matched_ref=matched_ref or matched_ean,
         )
 
     def _contains_normalized_reference(self, text_norm: str, reference_norm: str) -> bool:

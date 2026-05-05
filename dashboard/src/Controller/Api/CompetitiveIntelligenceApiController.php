@@ -19,6 +19,8 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/competitive')]
 final class CompetitiveIntelligenceApiController extends AbstractController
 {
+    private const RUN_ALL_LOCK_NAME = 'run-all.lock';
+
     #[Route('/products/next-batch', name: 'api_competitive_products_next_batch', methods: ['GET'])]
     public function nextBatch(
         Request $request,
@@ -131,6 +133,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         ]);
     }
 
+    #[Route('/run-all', name: 'api_competitive_run_all', methods: ['GET', 'POST'])]
     #[Route('/run-both', name: 'api_competitive_run_both', methods: ['GET', 'POST'])]
     public function runBoth(
         Request $request,
@@ -148,10 +151,14 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         $maxParallel = max(0, (int) $request->query->get('max_parallel', 2));
         $afterIdWoodbrass = max(0, (int) $request->query->get('after_id_woodbrass', 0));
         $afterIdStarsMusic = max(0, (int) $request->query->get('after_id_starsmusic', 0));
+        $afterIdThomann = max(0, (int) $request->query->get('after_id_thomann', 0));
+        $afterIdMichenaud = max(0, (int) $request->query->get('after_id_michenaud', 0));
 
         $competitorIds = [
             'woodbrass' => 1,
             'stars_music' => 2,
+            'thomann' => 3,
+            'michenaud' => 4,
         ];
 
         $competitors = [];
@@ -166,42 +173,78 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             $competitors[$key] = $competitor;
         }
 
-        try {
-            $projectDir = (string) $this->getParameter('kernel.project_dir');
-            $apiBaseUrl = $request->getSchemeAndHttpHost();
-            $apiToken = (string) $this->getParameter('competitive_intelligence_api_token');
-
-            $runs = [
-                'woodbrass' => $batchRunner->start(
-                    $projectDir,
-                    $apiBaseUrl,
-                    $apiToken,
-                    $competitorIds['woodbrass'],
-                    $limit,
-                    $afterIdWoodbrass,
-                    $langId,
-                    $shopId,
-                    $debug,
-                    $maxParallel,
-                ),
-                'stars_music' => $batchRunner->start(
-                    $projectDir,
-                    $apiBaseUrl,
-                    $apiToken,
-                    $competitorIds['stars_music'],
-                    $limit,
-                    $afterIdStarsMusic,
-                    $langId,
-                    $shopId,
-                    $debug,
-                    $maxParallel,
-                ),
-            ];
-        } catch (\Throwable $e) {
+        $lockHandle = $this->acquireRunAllLock();
+        if ($lockHandle === null) {
             return $this->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
-            ], 500);
+                'error' => 'run-all is already running.',
+            ], 409);
+        }
+
+        try {
+            try {
+                $projectDir = (string) $this->getParameter('kernel.project_dir');
+                $apiBaseUrl = $request->getSchemeAndHttpHost();
+                $apiToken = (string) $this->getParameter('competitive_intelligence_api_token');
+
+                $runs = [
+                    'woodbrass' => $batchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['woodbrass'],
+                        $limit,
+                        $afterIdWoodbrass,
+                        $langId,
+                        $shopId,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'stars_music' => $batchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['stars_music'],
+                        $limit,
+                        $afterIdStarsMusic,
+                        $langId,
+                        $shopId,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'thomann' => $batchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['thomann'],
+                        $limit,
+                        $afterIdThomann,
+                        $langId,
+                        $shopId,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'michenaud' => $batchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['michenaud'],
+                        $limit,
+                        $afterIdMichenaud,
+                        $langId,
+                        $shopId,
+                        $debug,
+                        $maxParallel,
+                    ),
+                ];
+            } catch (\Throwable $e) {
+                return $this->json([
+                    'ok' => false,
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+        } finally {
+            $this->releaseRunAllLock($lockHandle);
         }
 
         return $this->json([
@@ -235,8 +278,68 @@ final class CompetitiveIntelligenceApiController extends AbstractController
                     'log_file' => $runs['stars_music']['log_file'] ?? null,
                     'after_id' => $afterIdStarsMusic,
                 ],
+                'thomann' => [
+                    'competitor' => [
+                        'id' => $competitors['thomann']->getId(),
+                        'name' => $competitors['thomann']->getName(),
+                        'domain' => $competitors['thomann']->getDomain(),
+                    ],
+                    'pid' => $runs['thomann']['pid'],
+                    'command' => $runs['thomann']['command'],
+                    'log_file' => $runs['thomann']['log_file'] ?? null,
+                    'after_id' => $afterIdThomann,
+                ],
+                'michenaud' => [
+                    'competitor' => [
+                        'id' => $competitors['michenaud']->getId(),
+                        'name' => $competitors['michenaud']->getName(),
+                        'domain' => $competitors['michenaud']->getDomain(),
+                    ],
+                    'pid' => $runs['michenaud']['pid'],
+                    'command' => $runs['michenaud']['command'],
+                    'log_file' => $runs['michenaud']['log_file'] ?? null,
+                    'after_id' => $afterIdMichenaud,
+                ],
             ],
         ]);
+    }
+
+    /**
+     * @return resource|null
+     */
+    private function acquireRunAllLock()
+    {
+        $projectDir = (string) $this->getParameter('kernel.project_dir');
+        $lockDir = $projectDir . '/competitive_intelligence_python/var/lock/competitive-intelligence';
+        if (!is_dir($lockDir) && !mkdir($lockDir, 0775, true) && !is_dir($lockDir)) {
+            throw new \RuntimeException(sprintf('Unable to create lock directory "%s".', $lockDir));
+        }
+
+        $lockPath = $lockDir . '/' . self::RUN_ALL_LOCK_NAME;
+        $lockHandle = fopen($lockPath, 'c+');
+        if ($lockHandle === false) {
+            throw new \RuntimeException(sprintf('Unable to open lock file "%s".', $lockPath));
+        }
+
+        if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
+            fclose($lockHandle);
+            return null;
+        }
+
+        return $lockHandle;
+    }
+
+    /**
+     * @param resource|null $lockHandle
+     */
+    private function releaseRunAllLock($lockHandle): void
+    {
+        if (!is_resource($lockHandle)) {
+            return;
+        }
+
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
     }
 
     #[Route('/candidates', name: 'api_competitive_candidates_ingest', methods: ['POST'])]

@@ -11,6 +11,7 @@ final class PrestashopProductBatchProvider
 {
     public function __construct(
         private readonly Connection $prestashopConnection,
+        private readonly string $prestashopBaseUrl,
     ) {
     }
 
@@ -20,25 +21,24 @@ final class PrestashopProductBatchProvider
     public function getNextBatch(int $competitorId, int $limit = 50, int $afterId = 0, int $langId = 1, int $shopId = 1): array
     {
         $limit = max(1, min(200, $limit));
-        $afterId = max(0, $afterId);
 
         $feedTable = 'leo_netrivals_send_feed';
         $finalTable = 'tm2dn_dashboard.competitor_url_final';
         $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
 
         $sql = sprintf(
-            'SELECT f.id_product,
+             'SELECT f.id_product,
                     NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
                     NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
                     NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    f.price_tax_incl AS source_price,
                     COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
              FROM %s f
              LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
              LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
-             WHERE f.id_product > :after_id
-               AND final_row.id IS NULL
+             WHERE final_row.id IS NULL
+               AND tr.id_product IS NULL
                AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
-               AND (tr.result IS NULL OR tr.result NOT IN (\'not_found\', \'cloudflare\', \'search_input_not_found\'))
                AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
                AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
                AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
@@ -53,14 +53,12 @@ final class PrestashopProductBatchProvider
             $sql,
             [
                 'competitor_id' => $competitorId,
-                'after_id' => $afterId,
                 'limit' => $limit,
                 'lang_id' => $langId,
                 'shop_id' => $shopId,
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
-                'after_id' => ParameterType::INTEGER,
                 'limit' => ParameterType::INTEGER,
                 'lang_id' => ParameterType::INTEGER,
                 'shop_id' => ParameterType::INTEGER,
@@ -68,14 +66,16 @@ final class PrestashopProductBatchProvider
         );
 
         $items = array_map(
-            static function (array $row) use ($competitorId): array {
+            function (array $row) use ($competitorId, $shopId): array {
                 return [
                     'id_product' => (int) ($row['id_product'] ?? 0),
                     'supplier_reference' => trim((string) ($row['supplier_reference'] ?? '')),
                     'ean' => trim((string) ($row['ean'] ?? '')),
                     'brand' => trim((string) ($row['brand'] ?? '')),
+                    'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
                     'name' => trim((string) ($row['name'] ?? '')),
                     'competitor_id' => $competitorId,
+                    'source_image_url' => $this->getSourceImageUrl((int) ($row['id_product'] ?? 0), $shopId),
                 ];
             },
             $rows
@@ -93,6 +93,83 @@ final class PrestashopProductBatchProvider
             'competitor_id' => $competitorId,
             'has_more' => count($items) === $limit,
         ];
+    }
+
+    public function countEligibleProducts(int $competitorId, int $afterId = 0, int $langId = 1, int $shopId = 1): int
+    {
+        $feedTable = 'leo_netrivals_send_feed';
+        $finalTable = 'tm2dn_dashboard.competitor_url_final';
+        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
+
+        $sql = sprintf(
+             'SELECT COUNT(f.id_product) AS total
+             FROM %s f
+             LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
+             LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
+             WHERE final_row.id IS NULL
+               AND tr.id_product IS NULL
+               AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'',
+            $feedTable,
+            $finalTable,
+            $testResultTable
+        );
+
+        $total = $this->prestashopConnection->fetchOne(
+            $sql,
+            [
+                'competitor_id' => $competitorId,
+                'lang_id' => $langId,
+                'shop_id' => $shopId,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'lang_id' => ParameterType::INTEGER,
+                'shop_id' => ParameterType::INTEGER,
+            ]
+        );
+
+        return (int) $total;
+    }
+
+    private function getSourceImageUrl(int $productId, int $shopId): ?string
+    {
+        if ($productId <= 0 || trim($this->prestashopBaseUrl) === '') {
+            return null;
+        }
+
+        $sql = <<<'SQL'
+            SELECT COALESCE(ishop.id_image, i.id_image) AS id_image
+            FROM image i
+            LEFT JOIN image_shop ishop
+                ON ishop.id_image = i.id_image
+               AND ishop.id_shop = :shop_id
+            WHERE i.id_product = :product_id
+            ORDER BY COALESCE(ishop.cover, i.cover) DESC, i.position ASC, i.id_image ASC
+            LIMIT 1
+            SQL;
+
+        $idImage = (int) $this->prestashopConnection->fetchOne(
+            $sql,
+            [
+                'product_id' => $productId,
+                'shop_id' => $shopId,
+            ],
+            [
+                'product_id' => ParameterType::INTEGER,
+                'shop_id' => ParameterType::INTEGER,
+            ]
+        );
+
+        if ($idImage <= 0) {
+            return null;
+        }
+
+        $digits = str_split((string) $idImage);
+
+        return rtrim($this->prestashopBaseUrl, '/') . '/img/p/' . implode('/', $digits) . '/' . $idImage . '.jpg';
     }
 
 }

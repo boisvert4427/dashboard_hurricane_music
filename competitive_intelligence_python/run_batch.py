@@ -10,7 +10,9 @@ from competitive_intelligence.core.api_client import ApiClient
 from competitive_intelligence.core.config import Settings
 from competitive_intelligence.core.http_client import HttpClient
 from competitive_intelligence.competitors.generic_search import GenericSearchScraper
+from competitive_intelligence.competitors.michenaud import MichenaudScraper
 from competitive_intelligence.competitors.starsmusic import StarsMusicScraper
+from competitive_intelligence.competitors.thomann import ThomannScraper
 from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
 
 
@@ -102,6 +104,10 @@ def main() -> None:
                     scraper = WoodbrassScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
                 elif "stars-music" in domain or "stars music" in competitor_name or "starsmusic" in competitor_name:
                     scraper = StarsMusicScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+                elif "thomann" in domain or "thomann" in competitor_name:
+                    scraper = ThomannScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+                elif "michenaud" in domain or "michenaud" in competitor_name:
+                    scraper = MichenaudScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
                 else:
                     scraper = GenericSearchScraper(search_url_pattern=search_url_pattern, http=http)
 
@@ -157,13 +163,14 @@ def main() -> None:
                         if candidates:
                             best_candidate = candidates[0]
                             tests.append(
-                                {
-                                    "id_product": best_candidate.id_product,
-                                    "result": "matched" if best_candidate.score >= 100 else "pending",
-                                    "url": best_candidate.url,
-                                    "title": best_candidate.title,
-                                    "score": best_candidate.score,
-                                    "matched_query": best_candidate.matched_query,
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": "matched" if best_candidate.score > 90 else "pending",
+                                "url": best_candidate.url,
+                                "competitor_title": best_candidate.title,
+                                "score": best_candidate.score,
+                                "matched_query": best_candidate.matched_query,
+                                    "competitor_price": best_candidate.price,
                                 }
                             )
                         else:
@@ -175,15 +182,16 @@ def main() -> None:
                             )
 
                         for candidate in candidates:
-                            status = "valid" if candidate.score >= 100 else candidate.status
+                            status = "valid" if candidate.score > 90 else candidate.status
                             results.append(
                                 {
                                     "id_product": candidate.id_product,
                                     "url": candidate.url,
-                                    "title": candidate.title,
                                     "source": candidate.source,
                                     "score": candidate.score,
                                     "matched_query": candidate.matched_query,
+                                    "competitor_title": candidate.title,
+                                    "competitor_price": candidate.price,
                                     "status": status,
                                 }
                             )

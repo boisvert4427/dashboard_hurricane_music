@@ -184,6 +184,7 @@ La phase 1 repose sur une API interne Symfony et un worker Python séparé.
 
 ```text
 GET  /api/competitive/run-batch
+GET  /api/competitive/run-all
 GET  /api/competitive/run-both
 GET  /api/competitive/products/next-batch
 POST /api/competitive/candidates
@@ -204,10 +205,10 @@ Le batch runner bloque une deuxième exécution simultanée pour le même `compe
 Orchestrateur parallèle:
 
 ```text
-/api/competitive/run-both?limit=5&after_id_woodbrass=0&after_id_starsmusic=0&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
 ```
 
-Il lance Woodbrass et Stars Music en parallèle, chacun avec son propre `after_id`.
+Il lance Woodbrass, Stars Music, Thomann et Michenaud.
 
 ### Authentification
 
@@ -226,6 +227,8 @@ Concurrents actifs:
 
 - `1` = Woodbrass
 - `2` = Stars Music
+- `3` = Thomann
+- `4` = Michenaud
 
 ### Worker Python
 
@@ -241,7 +244,16 @@ La table `competitor_url_test_result` enregistre:
 - `search_input_not_found`
 - `error`
 
-Les lots suivants ignorent les produits déjà marqués `not_found`, `cloudflare` ou `search_input_not_found`.
+Les lots suivants ignorent les produits déjà testés pour ce concurrent, afin de ne pas recycler le même `id_product`.
+
+### Champs de test
+
+Les résultats de test stockent:
+
+- `competitor_title`
+- `competitor_price`
+
+La colonne `title` a été supprimée de `competitor_url_test_result`.
 
 ### Tables métier
 

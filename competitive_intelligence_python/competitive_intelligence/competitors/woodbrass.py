@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from ..core.browser import browser_context
-from ..core.normalization import normalize_text
+from ..core.normalization import normalize_text, simplify_name
 from ..core.scoring import ProductFacts
 from .base import Candidate, CompetitorScraper
 
@@ -26,6 +26,9 @@ class WoodbrassMatch:
 class WoodbrassScraper(CompetitorScraper):
     SEARCH_INPUT_TIMEOUT_MS = 12000
     SEARCH_RESULT_TIMEOUT_MS = 3000
+    ALGOLIA_APP_ID = "F94UOU1BDS"
+    ALGOLIA_API_KEY = "215f25fe764a4c9f287e726db062368f"
+    ALGOLIA_INDEX = "production_woodbrass_products_fr"
 
     def __init__(self, search_url_pattern: str, http, debug: bool = False, debug_dir: str = "debug"):
         super().__init__(search_url_pattern=search_url_pattern, http=http)
@@ -44,63 +47,174 @@ class WoodbrassScraper(CompetitorScraper):
             name=str(product.get("name") or ""),
         )
         product_id = int(product["id_product"])
-
         queries = [
+            facts.ean,
             facts.supplier_reference,
+            f"{facts.brand} {facts.supplier_reference}".strip(),
+            simplify_name(facts.name),
+            facts.name,
         ]
 
         candidates: list[Candidate] = []
         seen_urls: set[str] = set()
 
-        with browser_context(user_agent=None) as context:
-            search_page = context.new_page()
-            product_page = context.new_page()
-            search_page.goto("https://www.woodbrass.com/", wait_until="domcontentloaded")
-            search_page.wait_for_timeout(500)
-            self._accept_cookies(search_page)
-            self._dismiss_overlays(search_page)
+        for query in [q for q in queries if q]:
+            for hit in self._search_algolia(query):
+                url = str(hit.get("url") or "").strip()
+                title = str(hit.get("name") or "").strip()
+                if not url or not title:
+                    continue
+                if not self._is_woodbrass_url(url):
+                    continue
+                if url in seen_urls:
+                    continue
 
-            if self._is_cloudflare_page(search_page):
-                self._dump_debug(search_page, "", "cloudflare-challenge", product_id=product_id)
-                raise RuntimeError("Woodbrass Cloudflare challenge encountered.")
+                verified, page_title = self._verify_product_page(url, facts)
+                if not verified:
+                    continue
 
-            for query in [q for q in queries if q]:
-                query_matched = False
-                self._dump_search_state(search_page, query, "search-before", product_id=product_id)
-                for result in self._search_and_extract(search_page, product_page, query, product_id=product_id):
-                    product_result = self._open_product_page_by_url(product_page, result.url, product_id=product_id)
-                    if product_result is None:
-                        continue
-
-                    match = self._match_product_page(product_result, facts)
-                    if not match.matched_ref and not match.matched_ean:
-                        continue
-
-                    normalized_url = result.url.strip()
-                    if normalized_url in seen_urls:
-                        continue
-
-                    score = 100
-
-                    seen_urls.add(normalized_url)
-                    candidates.append(
-                        Candidate(
-                            id_product=product_id,
-                            url=normalized_url,
-                            title=match.title,
-                            source="woodbrass_product_page",
-                            score=score,
-                            matched_query=query,
-                        )
+                score = 100
+                seen_urls.add(url)
+                candidates.append(
+                    Candidate(
+                        id_product=product_id,
+                        url=url,
+                        title=page_title or title,
+                        source="woodbrass_algolia",
+                        score=score,
+                        matched_query=query,
                     )
-                    query_matched = True
-                    break
-
-                if query_matched:
-                    break
+                )
 
         candidates.sort(key=lambda item: item.score, reverse=True)
         return candidates[:5]
+
+    def _search_algolia(self, query: str) -> list[dict[str, object]]:
+        payload = {
+            "params": f"query={quote_plus(query)}&hitsPerPage=5",
+        }
+        url = f"https://{self.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{self.ALGOLIA_INDEX}/query"
+        try:
+            response = self.http.post(
+                url,
+                json=payload,
+                headers={
+                    "X-Algolia-API-Key": self.ALGOLIA_API_KEY,
+                    "X-Algolia-Application-Id": self.ALGOLIA_APP_ID,
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+        except Exception:
+            return []
+
+        try:
+            data = response.json()
+        except Exception:
+            return []
+
+        hits = data.get("hits", [])
+        if isinstance(hits, list):
+            return [hit for hit in hits if isinstance(hit, dict)]
+        return []
+
+    def _score_hit(self, hit: dict[str, object], query: str, facts: ProductFacts) -> int:
+        title = str(hit.get("name") or "")
+        manufacturer = str(hit.get("manufacturer") or "")
+        supplier_reference = str(hit.get("supplier_reference") or "")
+        ean = str(hit.get("ean") or "")
+
+        score = 0
+        title_norm = normalize_text(title)
+        query_norm = normalize_text(query)
+        brand_norm = normalize_text(facts.brand)
+        name_norm = normalize_text(facts.name)
+        supplier_norm = normalize_text(facts.supplier_reference)
+        ean_norm = normalize_text(facts.ean)
+        manufacturer_norm = normalize_text(manufacturer)
+
+        if ean_norm and ean_norm == normalize_text(ean):
+            score += 100
+        elif ean_norm and ean_norm in title_norm:
+            score += 95
+
+        if supplier_norm and supplier_norm == normalize_text(supplier_reference):
+            score += 70
+        elif supplier_norm and supplier_norm in title_norm:
+            score += 55
+
+        if brand_norm and brand_norm in title_norm:
+            score += 25
+        if brand_norm and brand_norm in normalize_text(manufacturer_norm):
+            score += 15
+
+        name_tokens = [token for token in name_norm.split() if len(token) > 2]
+        matched_tokens = sum(1 for token in name_tokens if token in title_norm)
+        if name_tokens:
+            score += min(30, matched_tokens * 6)
+
+        if query_norm and query_norm in title_norm:
+            score += 20
+
+        accessory_tokens = {
+            "case",
+            "cover",
+            "bundle",
+            "pack",
+            "sleeve",
+            "bag",
+            "stand",
+            "mount",
+            "holder",
+            "adapter",
+            "protector",
+            "protection",
+            "decksaver",
+            "flight",
+            "rack",
+            "lid",
+        }
+        if any(token in title_norm for token in accessory_tokens):
+            score -= 35
+
+        if "used" in title_norm or "occasion" in title_norm or "reconditionne" in title_norm or "b stock" in title_norm:
+            score -= 50
+
+        return max(0, min(100, int(round(score))))
+
+    def _verify_product_page(self, url: str, facts: ProductFacts) -> tuple[bool, str]:
+        try:
+            response = self.http.get(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+                    "Referer": "https://www.woodbrass.com/",
+                },
+            )
+            response.raise_for_status()
+        except Exception:
+            return False, ""
+
+        html = response.text
+        soup = BeautifulSoup(html, "html.parser")
+        page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        text = normalize_text(soup.get_text(" ", strip=True))
+        raw_html = normalize_text(html)
+
+        reference = normalize_text(facts.supplier_reference)
+        ean = normalize_text(facts.ean)
+
+        if reference and (reference in text or reference in raw_html):
+            return True, page_title
+        if ean and (ean in text or ean in raw_html):
+            return True, page_title
+
+        return False, page_title
 
     def _search_and_extract(self, search_page, product_page, query: str, product_id: int | None = None) -> Iterable[Candidate]:
         selector = "input.ais-SearchBox-input.search-input.keywords"
