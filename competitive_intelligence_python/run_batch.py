@@ -12,7 +12,7 @@ from competitive_intelligence.core.http_client import HttpClient
 from competitive_intelligence.competitors.generic_search import GenericSearchScraper
 from competitive_intelligence.competitors.michenaud import MichenaudScraper
 from competitive_intelligence.competitors.starsmusic import StarsMusicScraper
-from competitive_intelligence.competitors.thomann import NoBrandMatchError, ThomannScraper
+from competitive_intelligence.competitors.thomann import ThomannScraper
 from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
 
 
@@ -136,16 +136,6 @@ def main() -> None:
                             flush=True,
                         )
                     except Exception as exc:
-                        if isinstance(exc, NoBrandMatchError):
-                            print(
-                                {
-                                    "event": "product_ignored",
-                                    "id_product": product_id,
-                                    "reason": str(exc),
-                                },
-                                flush=True,
-                            )
-                            continue
                         error_text = str(exc).lower()
                         if "cloudflare" in error_text or "cloudfare" in error_text:
                             test_result = "cloudflare"

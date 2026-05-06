@@ -23,10 +23,6 @@ class ThomannResult:
     price: float | None = None
 
 
-class NoBrandMatchError(RuntimeError):
-    pass
-
-
 class ThomannScraper(CompetitorScraper):
     SEARCH_RESULT_TIMEOUT_MS = 5000
     BASE_URL = "https://www.thomann.fr"
@@ -96,7 +92,6 @@ class ThomannScraper(CompetitorScraper):
 
         best_result: ThomannResult | None = None
         best_query = product_name
-        found_any_result = False
         brand_match_found = False
 
         for query in queries:
@@ -121,7 +116,6 @@ class ThomannScraper(CompetitorScraper):
                 continue
 
             for url, title, manufacturer in parsed_results:
-                found_any_result = True
                 if not self._brand_matches(brand, manufacturer):
                     continue
 
@@ -133,7 +127,7 @@ class ThomannScraper(CompetitorScraper):
                     best_query = query
 
         if brand and not brand_match_found:
-            raise NoBrandMatchError("Thomann brand does not match source brand.")
+            return []
 
         if best_result is None:
             return []
