@@ -1,0 +1,102 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Validation concurrentielle | Dashboard Hurricane Music{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Validation concurrentielle</div>
+                    <div class="brand-subtitle">Comparer vos données avec le candidat concurrent, puis valider ou rejeter</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Retour veille</a>
+                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+            </div>
+        </header>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Pending à traiter</h2>
+                <p>
+                    <strong>{{ pending_total }}</strong> ligne(s) en attente de validation.
+                    Page <strong>{{ pending_page }}</strong> / <strong>{{ pending_pages }}</strong>.
+                </p>
+                <p>Un rejet retire la piste courante et remet le produit dans le flux de test, tout en bloquant la même URL pour ce concurrent.</p>
+            </div>
+
+            {% if pending_pages > 1 %}
+                <div class="status-pills" style="margin-bottom: 16px;">
+                    {% if pending_page > 1 %}
+                        <a class="pill pill-accent" href="{{ path('app_competitive_validation', {page: pending_page - 1}) }}">Page précédente</a>
+                    {% endif %}
+                    {% if pending_page < pending_pages %}
+                        <a class="pill pill-accent" href="{{ path('app_competitive_validation', {page: pending_page + 1}) }}">Page suivante</a>
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            <div class="detail-table-wrap">
+                <table class="detail-table module-table">
+                    <thead>
+                        <tr>
+                            <th>Produit</th>
+                            <th>Vos infos</th>
+                            <th>Candidat concurrent</th>
+                            <th>Score</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in pending_rows %}
+                            <tr>
+                                <td>
+                                    <strong>#{{ row.product_id }}</strong>
+                                    <div class="module-competitor-domain">{{ row.competitor.name }}</div>
+                                </td>
+                                <td>
+                                    <div><strong>{{ row.source.name ?? 'n/a' }}</strong></div>
+                                    <div>Prix: {{ row.source.source_price ?? 'n/a' }}</div>
+                                    <div class="module-url-cell">Ref: {{ row.source.supplier_reference ?? 'n/a' }}</div>
+                                    <div class="module-url-cell">EAN: {{ row.source.ean ?? 'n/a' }}</div>
+                                </td>
+                                <td>
+                                    <div><strong>{{ row.competitor_title ?? 'n/a' }}</strong></div>
+                                    <div>Score concurrent: <strong>{{ row.score ?? 'n/a' }}</strong></div>
+                                    <div>Prix: {{ row.competitor_price ?? 'n/a' }}</div>
+                                    <div class="module-url-cell">
+                                        <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.url }}</a>
+                                    </div>
+                                </td>
+                                <td><strong>{{ row.score }}</strong></td>
+                                <td>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
+                                            <input type="hidden" name="status" value="valid">
+                                            <button class="button button-primary" type="submit">Valider</button>
+                                        </form>
+                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
+                                            <input type="hidden" name="status" value="postponed">
+                                            <button class="button button-secondary" type="submit">Remettre à plus tard</button>
+                                        </form>
+                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
+                                            <input type="hidden" name="status" value="rejected">
+                                            <button class="button button-secondary" type="submit">Rejeter</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td class="detail-empty" colspan="5">Aucun pending à valider.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+{% endblock %}

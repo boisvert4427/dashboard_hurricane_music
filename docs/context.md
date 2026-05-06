@@ -187,8 +187,8 @@ GET  /api/competitive/run-batch
 GET  /api/competitive/run-all
 GET  /api/competitive/run-both
 GET  /api/competitive/products/next-batch
-POST /api/competitive/candidates
-POST /api/competitive/candidates/{id}/status
+GET  /veille-concurrentielle/validation
+GET  /veille-concurrentielle/recherche
 ```
 
 ### Déclenchement
@@ -220,8 +220,9 @@ Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_A
 2. Symfony fournit un lot à Python.
 3. Python lance le scraper du concurrent.
 4. Python renvoie des candidats scorés.
-5. Symfony stocke les candidats en base.
-6. Validation humaine ensuite.
+5. Symfony stocke les résultats de test et les URLs finales en base.
+6. La validation humaine se fait directement sur `competitor_url_test_result`.
+7. `competitor_url_candidate` est legacy et n’est plus dans le flux métier actif.
 
 Concurrents actifs:
 
@@ -243,8 +244,14 @@ La table `competitor_url_test_result` enregistre:
 - `cloudflare`
 - `search_input_not_found`
 - `error`
+- `pending`
+- `valid`
+- `rejected`
+- `postponed`
+- `ignored`
 
 Les lots suivants ignorent les produits déjà testés pour ce concurrent, afin de ne pas recycler le même `id_product`.
+Les produits rejetés ne sont plus renvoyés par le batch provider.
 
 ### Champs de test
 
@@ -254,13 +261,15 @@ Les résultats de test stockent:
 - `competitor_price`
 
 La colonne `title` a été supprimée de `competitor_url_test_result`.
+`score < 30` est traité comme `not_found`.
+`score >= 90` avec `matched` écrit aussi dans `competitor_url_final`.
 
 ### Tables métier
 
 - `competitor`
-- `competitor_url_candidate`
 - `competitor_url_final`
 - `competitor_url_test_result`
+- `competitor_url_rejected_url`
 - `leo_netrivals_send_feed`
 
 ### Rôle
@@ -271,6 +280,7 @@ La colonne `title` a été supprimée de `competitor_url_test_result`.
 4. pousser les candidats et les tests dans Symfony
 5. laisser la validation humaine décider du statut final
 6. limiter la concurrence globale via `max_parallel` si nécessaire
+7. éviter de relancer plusieurs `run-all` en parallèle
 
 ### Volume
 
@@ -349,6 +359,14 @@ La home affiche:
 - bloc d’alertes métier
 - filtres de lecture
 - comparaisons N-1 et mois précédent
+
+La veille concurrentielle affiche:
+
+- un récap global par concurrent
+- un compteur de `pending` aligné avec la validation
+- une page de validation paginée
+- une page de recherche par id, nom, marque, ref, ean
+- une page de concurrents
 
 Le détail affiche:
 

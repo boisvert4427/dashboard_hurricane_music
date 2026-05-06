@@ -23,6 +23,10 @@ class ThomannResult:
     price: float | None = None
 
 
+class NoBrandMatchError(RuntimeError):
+    pass
+
+
 class ThomannScraper(CompetitorScraper):
     SEARCH_RESULT_TIMEOUT_MS = 5000
     BASE_URL = "https://www.thomann.fr"
@@ -92,6 +96,8 @@ class ThomannScraper(CompetitorScraper):
 
         best_result: ThomannResult | None = None
         best_query = product_name
+        found_any_result = False
+        brand_match_found = False
 
         for query in queries:
             if not query:
@@ -115,11 +121,19 @@ class ThomannScraper(CompetitorScraper):
                 continue
 
             for url, title, manufacturer in parsed_results:
+                found_any_result = True
+                if not self._brand_matches(brand, manufacturer):
+                    continue
+
+                brand_match_found = True
                 price = self._extract_price_from_product_page(url)
                 similarity = self._similarity_score(core_name, brand, title, manufacturer, source_price, price)
                 if best_result is None or similarity > best_result.similarity:
                     best_result = ThomannResult(title=title, url=url, similarity=similarity, price=price)
                     best_query = query
+
+        if brand and not brand_match_found:
+            raise NoBrandMatchError("Thomann brand does not match source brand.")
 
         if best_result is None:
             return []
@@ -234,6 +248,40 @@ class ThomannScraper(CompetitorScraper):
         manufacturer_tokens = self._meaningful_tokens(manufacturer, None)
         query_hand = self._handedness(query_tokens)
         title_hand = self._handedness(title_tokens)
+        generic_tokens = {
+            "overdrive",
+            "distortion",
+            "delay",
+            "reverb",
+            "chorus",
+            "phaser",
+            "flanger",
+            "pedal",
+            "guitar",
+            "bass",
+            "drum",
+            "microphone",
+            "headphone",
+            "monitor",
+            "speaker",
+            "controller",
+            "keyboard",
+            "mixer",
+            "case",
+            "bag",
+            "bundle",
+            "pack",
+            "set",
+            "system",
+            "kit",
+            "stand",
+            "adapter",
+            "cover",
+            "sleeve",
+            "pro",
+            "mini",
+            "max",
+        }
 
         if not query_tokens or not title_tokens:
             return 0
@@ -241,6 +289,10 @@ class ThomannScraper(CompetitorScraper):
         query_set = set(query_tokens)
         title_set = set(title_tokens)
         common_tokens = [token for token in query_tokens if token in title_set]
+        strong_common_tokens = [
+            token for token in common_tokens
+            if token not in generic_tokens and len(token) > 3 and not token.isdigit()
+        ]
 
         query_coverage = len(common_tokens) / len(query_tokens)
         title_coverage = len(common_tokens) / len(title_tokens)
@@ -250,7 +302,13 @@ class ThomannScraper(CompetitorScraper):
             " ".join(title_tokens),
         ).ratio()
 
-        score = (query_coverage * 65) + (title_coverage * 15) + (sequence_similarity * 20)
+        score = (query_coverage * 45) + (title_coverage * 10) + (sequence_similarity * 10)
+        if strong_common_tokens:
+            score += min(30, len(strong_common_tokens) * 10)
+        elif common_tokens:
+            score -= 18
+        else:
+            score -= 25
 
         accessory_tokens = {
             "case",
@@ -289,6 +347,11 @@ class ThomannScraper(CompetitorScraper):
         title_norm = normalize_text(candidate_title)
         if product_norm and title_norm and product_norm in title_norm:
             score += 20
+
+        if not strong_common_tokens and sequence_similarity < 0.55:
+            score = min(score, 55)
+        elif strong_common_tokens and sequence_similarity < 0.45:
+            score -= 10
 
         if query_hand and title_hand:
             if query_hand == title_hand:
@@ -447,3 +510,11 @@ class ThomannScraper(CompetitorScraper):
 
     def _is_thomann_url(self, url: str) -> bool:
         return url.startswith(f"{self.BASE_URL}/")
+
+    def _brand_matches(self, source_brand: str, manufacturer: str) -> bool:
+        source_tokens = set(self._meaningful_tokens(source_brand, None))
+        manufacturer_tokens = set(self._meaningful_tokens(manufacturer, None))
+        if not source_tokens or not manufacturer_tokens:
+            return True
+
+        return bool(source_tokens.intersection(manufacturer_tokens))

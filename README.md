@@ -41,9 +41,13 @@ La phase 1 est un URL Finder:
 
 - Symfony orchestre le lot de produits
 - Python cherche les URLs chez les concurrents
-- Symfony stocke les candidats et les résultats de test
+- Symfony stocke les résultats de test et les URLs finales
+- `competitor_url_candidate` n’est plus dans le flux métier actif
 - les tests gardent `competitor_title` et `competitor_price` quand ils sont disponibles
-- la validation humaine passe ensuite les candidats en `valid` ou `rejected`
+- la validation humaine travaille directement sur `competitor_url_test_result`
+- les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
+- `score < 30` est traité comme `not_found`
+- `score >= 90` et `matched` passe directement en `valid` et écrit aussi dans `competitor_url_final`
 
 ### URL de lancement
 
@@ -52,6 +56,7 @@ La phase 1 est un URL Finder:
 ```
 
 Le batch runner refuse désormais de lancer deux exécutions concurrentes pour le même `competitor_id` / `lang_id` / `shop_id`.
+Le lancer global `/api/competitive/run-all` possède aussi un verrou global, pour éviter deux runs complets en parallèle.
 
 ### URL de lecture de lot
 
@@ -60,6 +65,17 @@ Le batch runner refuse désormais de lancer deux exécutions concurrentes pour l
 ```
 
 Les produits déjà testés pour ce concurrent sont exclus du prochain lot, afin d’éviter de recycler le même `id_product`.
+Les produits `rejected` ne sont plus repris par le batch provider.
+
+### Validation concurrentielle
+
+- la page `/veille-concurrentielle/validation` liste uniquement les `pending` ouverts
+- elle est paginée
+- elle affiche le total des `pending`
+- `Valider` pousse la ligne en `valid` et écrit l’URL finale
+- `Rejeter` sort la ligne du flux et enregistre l’URL rejetée
+- `Remettre à plus tard` passe en `postponed` sans la faire remonter dans la liste
+- `competitor_url_test_result` reste la source de vérité pour la validation humaine
 
 ### Worker Python
 
@@ -70,6 +86,7 @@ competitive_intelligence_python/run_batch.py
 ```
 
 Le worker enregistre les statuts de test dans `competitor_url_test_result`, y compris les cas `cloudflare` et `search_input_not_found`.
+Les images peuvent être récupérées côté validation pour comparaison humaine, mais elles ne sont pas encore utilisées dans le scoring.
 
 ## Fichiers utiles
 
@@ -142,6 +159,7 @@ curl -H 'X-COMPETITIVE-TOKEN: TON_TOKEN' \
 ```
 
 Cela lance Woodbrass, Stars Music, Thomann et Michenaud.
+`run-both` reste un alias legacy.
 
 ### Vider le cache
 

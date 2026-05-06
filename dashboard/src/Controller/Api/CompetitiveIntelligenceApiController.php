@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\Entity\Competitor;
-use App\Service\CompetitiveIntelligence\CompetitiveCandidateIngestionService;
 use App\Service\CompetitiveIntelligence\CompetitiveBatchRunner;
-use App\Service\CompetitiveIntelligence\CompetitiveCandidateStatusService;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultIngestionService;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use Doctrine\ORM\EntityManagerInterface;
@@ -345,7 +343,6 @@ final class CompetitiveIntelligenceApiController extends AbstractController
     #[Route('/candidates', name: 'api_competitive_candidates_ingest', methods: ['POST'])]
     public function ingest(
         Request $request,
-        CompetitiveCandidateIngestionService $ingestionService,
         CompetitiveTestResultIngestionService $testResultIngestionService,
     ): JsonResponse {
         if (!$this->isAuthorized($request)) {
@@ -358,7 +355,6 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         }
 
         try {
-            $stats = $ingestionService->ingest($payload);
             $testStats = ['inserted' => 0, 'updated' => 0, 'ignored' => 0];
             if (array_key_exists('tests', $payload)) {
                 $testStats = $testResultIngestionService->ingest($payload);
@@ -372,9 +368,6 @@ final class CompetitiveIntelligenceApiController extends AbstractController
 
         return $this->json([
             'ok' => true,
-            'inserted' => $stats['inserted'],
-            'updated' => $stats['updated'],
-            'ignored' => $stats['ignored'],
             'test_inserted' => $testStats['inserted'],
             'test_updated' => $testStats['updated'],
             'test_ignored' => $testStats['ignored'],

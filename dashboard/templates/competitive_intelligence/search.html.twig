@@ -1,0 +1,95 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Recherche concurrentielle | Dashboard Hurricane Music{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Recherche concurrentielle</div>
+                    <div class="brand-subtitle">Un champ, des résultats PrestaShop, puis tous les matchs concurrents par produit</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Retour veille</a>
+                <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
+                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+            </div>
+        </header>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Recherche produit</h2>
+                <p>Recherche par `id`, `référence`, `EAN`, `marque` ou `nom` dans le feed PrestaShop.</p>
+            </div>
+
+            <form method="get" action="{{ path('app_competitive_search') }}" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
+                <input
+                    type="text"
+                    name="q"
+                    value="{{ query }}"
+                    placeholder="Ex: 405696, 3760123456789, Gibson, RD Custom..."
+                    style="flex:1 1 420px; min-width:260px;"
+                >
+                <button class="button button-primary" type="submit">Rechercher</button>
+            </form>
+
+            {% if query == '' %}
+                <div class="module-empty-card">Saisis un identifiant, une référence, un EAN ou un nom produit.</div>
+            {% elseif rows is empty %}
+                <div class="module-empty-card">Aucun produit trouvé pour "{{ query }}".</div>
+            {% else %}
+                <div class="workflow-grid" style="margin-bottom:24px;">
+                    {% for row in rows %}
+                        <article class="workflow-card">
+                            <div class="workflow-step">{{ row.product.id_product }}</div>
+                            <h3>{{ row.product.name }}</h3>
+                            <p>
+                                Marque: <strong>{{ row.product.brand ?? 'n/a' }}</strong><br>
+                                Réf: <strong>{{ row.product.supplier_reference ?? 'n/a' }}</strong><br>
+                                EAN: <strong>{{ row.product.ean ?? 'n/a' }}</strong><br>
+                                Prix: <strong>{{ row.product.source_price ?? 'n/a' }}</strong>
+                            </p>
+                        </article>
+                    {% endfor %}
+                </div>
+
+                {% for row in rows %}
+                    <section class="section" style="margin-top:0;">
+                        <div class="section-head">
+                            <h2>#{{ row.product.id_product }} - {{ row.product.name }}</h2>
+                            <p>{{ row.product.brand ?? 'n/a' }} | {{ row.product.supplier_reference ?? 'n/a' }} | {{ row.product.ean ?? 'n/a' }}</p>
+                        </div>
+
+                        <div class="detail-table-wrap">
+                            <table class="detail-table module-table">
+                                <thead>
+                                    <tr>
+                                        <th>Concurrent</th>
+                                        <th>URL finale</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for final in row.finals %}
+                                        <tr>
+                                            <td><strong>{{ final.competitor.name }}</strong><div class="module-competitor-domain">{{ final.competitor.domain }}</div></td>
+                                            <td class="module-url-cell">
+                                                <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.url }}</a>
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td class="detail-empty" colspan="2">Aucune URL finale enregistrée pour ce produit.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                {% endfor %}
+            {% endif %}
+        </section>
+    </main>
+{% endblock %}

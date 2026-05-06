@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Service\CompetitiveIntelligence;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
 
@@ -132,6 +133,124 @@ final class PrestashopProductBatchProvider
         );
 
         return (int) $total;
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     *
+     * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string}>
+     */
+    public function getProductSnapshotsByIds(array $productIds): array
+    {
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static fn (int $value): bool => $value > 0)));
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $this->prestashopConnection->fetchAllAssociative(
+            'SELECT f.id_product,
+                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
+                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
+                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    f.price_tax_incl AS source_price,
+                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
+             FROM leo_netrivals_send_feed f
+             WHERE f.id_product IN (:ids)',
+            ['ids' => $productIds],
+            ['ids' => ArrayParameterType::INTEGER]
+        );
+
+        $snapshots = [];
+        foreach ($rows as $row) {
+            $productId = (int) ($row['id_product'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+
+            $snapshots[$productId] = [
+                'id_product' => $productId,
+                'name' => trim((string) ($row['name'] ?? '')),
+                'brand' => $this->nullableString($row['brand'] ?? null),
+                'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
+                'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
+                'ean' => $this->nullableString($row['ean'] ?? null),
+            ];
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string}>
+     */
+    public function searchProducts(string $query, int $limit = 20): array
+    {
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+
+        $limit = max(1, min(50, $limit));
+        $normalized = mb_strtolower($query);
+        $isNumericId = ctype_digit($query);
+
+        $where = [
+            "NULLIF(TRIM(COALESCE(f.reference, '')), '') LIKE :needle",
+            "NULLIF(TRIM(COALESCE(f.ean13, '')), '') LIKE :needle",
+            "NULLIF(TRIM(COALESCE(f.manufacturer_name, '')), '') LIKE :needle",
+            "NULLIF(TRIM(COALESCE(f.product_name, '')), '') LIKE :needle",
+        ];
+        $params = ['needle' => '%' . $query . '%'];
+        $types = ['needle' => ParameterType::STRING];
+
+        if ($isNumericId) {
+            $where[] = 'f.id_product = :id_product';
+            $params['id_product'] = (int) $query;
+            $types['id_product'] = ParameterType::INTEGER;
+        }
+
+        $sql = sprintf(
+            'SELECT f.id_product,
+                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
+                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
+                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    f.price_tax_incl AS source_price,
+                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
+             FROM leo_netrivals_send_feed f
+             WHERE %s
+             ORDER BY CASE WHEN LOWER(COALESCE(f.product_name, \'\')) LIKE :needle THEN 0 ELSE 1 END,
+                      f.id_product DESC
+             LIMIT %d',
+            implode(' OR ', $where),
+            $limit
+        );
+
+        $rows = $this->prestashopConnection->fetchAllAssociative($sql, $params, $types);
+
+        $snapshots = [];
+        foreach ($rows as $row) {
+            $productId = (int) ($row['id_product'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+            $snapshots[$productId] = [
+                'id_product' => $productId,
+                'name' => trim((string) ($row['name'] ?? '')),
+                'brand' => $this->nullableString($row['brand'] ?? null),
+                'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
+                'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
+                'ean' => $this->nullableString($row['ean'] ?? null),
+            ];
+        }
+
+        return $snapshots;
+    }
+
+    private function nullableString(mixed $value): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     private function getSourceImageUrl(int $productId, int $shopId): ?string

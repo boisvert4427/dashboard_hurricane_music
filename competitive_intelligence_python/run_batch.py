@@ -12,7 +12,7 @@ from competitive_intelligence.core.http_client import HttpClient
 from competitive_intelligence.competitors.generic_search import GenericSearchScraper
 from competitive_intelligence.competitors.michenaud import MichenaudScraper
 from competitive_intelligence.competitors.starsmusic import StarsMusicScraper
-from competitive_intelligence.competitors.thomann import ThomannScraper
+from competitive_intelligence.competitors.thomann import NoBrandMatchError, ThomannScraper
 from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
 
 
@@ -124,7 +124,6 @@ def main() -> None:
                         },
                         flush=True,
                     )
-                    results: list[dict[str, object]] = []
                     tests: list[dict[str, object]] = []
                     try:
                         candidates = scraper.search(product)
@@ -137,6 +136,16 @@ def main() -> None:
                             flush=True,
                         )
                     except Exception as exc:
+                        if isinstance(exc, NoBrandMatchError):
+                            print(
+                                {
+                                    "event": "product_ignored",
+                                    "id_product": product_id,
+                                    "reason": str(exc),
+                                },
+                                flush=True,
+                            )
+                            continue
                         error_text = str(exc).lower()
                         if "cloudflare" in error_text or "cloudfare" in error_text:
                             test_result = "cloudflare"
@@ -162,17 +171,25 @@ def main() -> None:
                     else:
                         if candidates:
                             best_candidate = candidates[0]
-                            tests.append(
-                            {
-                                "id_product": best_candidate.id_product,
-                                "result": "matched" if best_candidate.score > 90 else "pending",
-                                "url": best_candidate.url,
-                                "competitor_title": best_candidate.title,
-                                "score": best_candidate.score,
-                                "matched_query": best_candidate.matched_query,
-                                    "competitor_price": best_candidate.price,
-                                }
-                            )
+                            if best_candidate.score < 30:
+                                tests.append(
+                                    {
+                                        "id_product": best_candidate.id_product,
+                                        "result": "not_found",
+                                    }
+                                )
+                            else:
+                                tests.append(
+                                    {
+                                        "id_product": best_candidate.id_product,
+                                        "result": "matched" if best_candidate.score > 90 else "pending",
+                                        "url": best_candidate.url,
+                                        "competitor_title": best_candidate.title,
+                                        "score": best_candidate.score,
+                                        "matched_query": best_candidate.matched_query,
+                                        "competitor_price": best_candidate.price,
+                                    }
+                                )
                         else:
                             tests.append(
                                 {
@@ -183,26 +200,13 @@ def main() -> None:
 
                         for candidate in candidates:
                             status = "valid" if candidate.score > 90 else candidate.status
-                            results.append(
-                                {
-                                    "id_product": candidate.id_product,
-                                    "url": candidate.url,
-                                    "source": candidate.source,
-                                    "score": candidate.score,
-                                    "matched_query": candidate.matched_query,
-                                    "competitor_title": candidate.title,
-                                    "competitor_price": candidate.price,
-                                    "status": status,
-                                }
-                            )
-
-                    total_candidates += len(results)
+                    total_candidates += len(candidates)
                     total_tests += len(tests)
                     print(
                         {
                             "event": "product_submit",
                             "id_product": product_id,
-                            "results": len(results),
+                            "results": len(candidates),
                             "tests": len(tests),
                         },
                         flush=True,
@@ -210,7 +214,6 @@ def main() -> None:
                     api.submit_candidates(
                         {
                             "competitor_id": competitor["id"],
-                            "results": results,
                             "tests": tests,
                         }
                     )

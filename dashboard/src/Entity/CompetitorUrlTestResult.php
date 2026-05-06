@@ -17,6 +17,11 @@ class CompetitorUrlTestResult
     public const RESULT_CLOUDFLARE = 'cloudflare';
     public const RESULT_SEARCH_INPUT_NOT_FOUND = 'search_input_not_found';
     public const RESULT_ERROR = 'error';
+    public const REVIEW_PENDING = 'pending';
+    public const REVIEW_POSTPONED = 'postponed';
+    public const REVIEW_VALID = 'valid';
+    public const REVIEW_REJECTED = 'rejected';
+    public const REVIEW_IGNORED = 'ignored';
 
     #[ORM\Id]
     #[ORM\Column(name: 'id_product', type: 'integer')]
@@ -42,6 +47,9 @@ class CompetitorUrlTestResult
     #[ORM\Column(type: 'decimal', precision: 10, scale: 2, nullable: true)]
     private ?string $competitorPrice = null;
 
+    #[ORM\Column(length: 16, options: ['default' => self::REVIEW_PENDING])]
+    private string $validationStatus = self::REVIEW_PENDING;
+
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $matchedQuery = null;
 
@@ -59,6 +67,7 @@ class CompetitorUrlTestResult
         ?string $competitorTitle = null,
         ?int $score = null,
         ?string $competitorPrice = null,
+        string $validationStatus = self::REVIEW_PENDING,
         ?string $matchedQuery = null,
         ?string $message = null,
     ) {
@@ -69,6 +78,7 @@ class CompetitorUrlTestResult
         $this->competitorTitle = $competitorTitle;
         $this->score = $score;
         $this->competitorPrice = $competitorPrice;
+        $this->validationStatus = $validationStatus;
         $this->matchedQuery = $matchedQuery;
         $this->message = $message;
         $this->lastTestedAt = new \DateTimeImmutable();
@@ -140,6 +150,18 @@ class CompetitorUrlTestResult
     public function setCompetitorPrice(?string $competitorPrice): self
     {
         $this->competitorPrice = $competitorPrice;
+
+        return $this;
+    }
+
+    public function getValidationStatus(): string
+    {
+        return $this->validationStatus;
+    }
+
+    public function setValidationStatus(string $validationStatus): self
+    {
+        $this->validationStatus = $validationStatus;
 
         return $this;
     }

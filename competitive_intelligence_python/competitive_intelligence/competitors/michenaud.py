@@ -207,17 +207,61 @@ class MichenaudScraper(CompetitorScraper):
         manufacturer_tokens = self._meaningful_tokens(manufacturer, None)
         query_hand = self._handedness(query_tokens)
         title_hand = self._handedness(title_tokens)
+        generic_tokens = {
+            "overdrive",
+            "distortion",
+            "delay",
+            "reverb",
+            "chorus",
+            "phaser",
+            "flanger",
+            "pedal",
+            "guitar",
+            "bass",
+            "drum",
+            "microphone",
+            "headphone",
+            "monitor",
+            "speaker",
+            "controller",
+            "keyboard",
+            "mixer",
+            "case",
+            "bag",
+            "bundle",
+            "pack",
+            "set",
+            "system",
+            "kit",
+            "stand",
+            "adapter",
+            "cover",
+            "sleeve",
+            "pro",
+            "mini",
+            "max",
+        }
 
         if not query_tokens or not title_tokens:
             return 0
 
         title_set = set(title_tokens)
         common_tokens = [token for token in query_tokens if token in title_set]
+        strong_common_tokens = [
+            token for token in common_tokens
+            if token not in generic_tokens and len(token) > 3 and not token.isdigit()
+        ]
         query_coverage = len(common_tokens) / len(query_tokens)
         title_coverage = len(common_tokens) / len(title_tokens)
         sequence_similarity = difflib.SequenceMatcher(None, " ".join(query_tokens), " ".join(title_tokens)).ratio()
 
-        score = (query_coverage * 65) + (title_coverage * 15) + (sequence_similarity * 20)
+        score = (query_coverage * 45) + (title_coverage * 10) + (sequence_similarity * 10)
+        if strong_common_tokens:
+            score += min(30, len(strong_common_tokens) * 10)
+        elif common_tokens:
+            score -= 18
+        else:
+            score -= 25
 
         accessory_tokens = {
             "case",
@@ -255,6 +299,11 @@ class MichenaudScraper(CompetitorScraper):
         title_norm = normalize_text(candidate_title)
         if product_norm and title_norm and product_norm in title_norm:
             score += 20
+
+        if not strong_common_tokens and sequence_similarity < 0.55:
+            score = min(score, 55)
+        elif strong_common_tokens and sequence_similarity < 0.45:
+            score -= 10
 
         if query_hand and title_hand:
             if query_hand == title_hand:

@@ -7,6 +7,7 @@ namespace App\Service\CompetitiveIntelligence;
 use App\Entity\Competitor;
 use App\Entity\CompetitorUrlCandidate;
 use App\Entity\CompetitorUrlFinal;
+use App\Entity\CompetitorUrlRejectedUrl;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class CompetitiveCandidateIngestionService
@@ -39,6 +40,7 @@ final class CompetitiveCandidateIngestionService
         $ignored = 0;
         $candidateRepository = $this->entityManager->getRepository(CompetitorUrlCandidate::class);
         $finalRepository = $this->entityManager->getRepository(CompetitorUrlFinal::class);
+        $rejectedRepository = $this->entityManager->getRepository(CompetitorUrlRejectedUrl::class);
         $bestFinalByProductId = [];
 
         foreach ($results as $result) {
@@ -54,6 +56,15 @@ final class CompetitiveCandidateIngestionService
                 continue;
             }
 
+            $rejected = $rejectedRepository->findOneBy([
+                'competitor' => $competitor,
+                'url' => $url,
+            ]);
+            if ($rejected instanceof CompetitorUrlRejectedUrl) {
+                $ignored++;
+                continue;
+            }
+
             $existing = $candidateRepository->findOneBy([
                 'productId' => $productId,
                 'competitor' => $competitor,
@@ -61,6 +72,11 @@ final class CompetitiveCandidateIngestionService
             ]);
 
             if ($existing instanceof CompetitorUrlCandidate) {
+                if ($existing->getStatus() === CompetitorUrlCandidate::STATUS_REJECTED) {
+                    $ignored++;
+                    continue;
+                }
+
                 $existing
                     ->setTitle($this->truncateNullableString($result['title'] ?? null, 255))
                     ->setSource($this->truncateNullableString($result['source'] ?? null, 50))

@@ -15,11 +15,14 @@ Responsibilities:
 - `StarsMusicScraper`
 - `ThomannScraper`
 - `MichenaudScraper`
-- it searches using the competitor search URL
-- it inspects the first product links
-- it opens the product pages and verifies the supplier reference or EAN before saving
-- Thomann uses the embedded `search.index` payload from the search page and scores the closest title at `90`.
+- Woodbrass and Stars rely on a light HTTP search flow and validate the final page by reference / EAN when available.
+- Thomann uses the embedded `search.index` payload from the search page and scores the closest title.
+- Michenaud uses its search page and validates the final page by reference / EAN when available.
 - Thomann and Michenaud also capture price when available.
+- `score < 30` is treated as `not_found`.
+- `matched` with score high enough is written as `valid` and upserted into `competitor_url_final`.
+- `rejected` does not come back in the batch provider anymore.
+- `postponed` stays in validation and is hidden from the main validation list.
 
 ## Run
 
@@ -70,6 +73,7 @@ The dashboard also exposes a combined launcher:
 ```
 
 That route starts Woodbrass, Stars Music, Thomann, and Michenaud together.
+`run-all` has its own global lock, so two combined runs cannot start at the same time.
 
 ### Result fields
 
@@ -80,5 +84,6 @@ The worker sends the following test-result fields back to Symfony:
 - `matched_query`
 - `score`
 - `result`
+- `validation_status`
 
 The `title` field is no longer stored on `competitor_url_test_result`.
