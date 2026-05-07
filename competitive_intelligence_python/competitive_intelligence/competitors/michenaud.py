@@ -10,7 +10,8 @@ from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
 
-from ..core.normalization import normalize_text, simplify_name
+from ..core.catalog_intelligence import _extract_year_hint, _looks_like_guitar
+from ..core.normalization import normalize_text
 from .base import Candidate, CompetitorScraper
 
 
@@ -19,6 +20,8 @@ class MichenaudResult:
     title: str
     url: str
     similarity: int
+    competitor_brand: str | None = None
+    breadcrumb: str | None = None
     price: float | None = None
 
 
@@ -51,10 +54,11 @@ class MichenaudScraper(CompetitorScraper):
             seen.add(candidate_url)
 
             title = self._extract_title(item)
+            manufacturer = self._extract_manufacturer(item)
             price = self._extract_price(item)
             if not title:
                 title = link.get_text(" ", strip=True)
-            yield candidate_url, title, "", price
+            yield candidate_url, title, manufacturer, price
 
     def search(self, product: dict[str, object]) -> list[Candidate]:
         product_name = str(product.get("name") or "").strip()
@@ -66,19 +70,9 @@ class MichenaudScraper(CompetitorScraper):
             return []
 
         core_name = self._extract_core_name(product_name)
-        queries = [
-            str(product.get("supplier_reference") or "").strip(),
-            str(product.get("ean") or "").strip(),
-            core_name,
-            simplify_name(core_name),
-            product_name,
-        ]
+        queries = [product_name]
 
-        simplified = simplify_name(core_name)
-        if simplified and simplified not in queries:
-            queries.append(simplified)
-
-        best_result: MichenaudResult | None = None
+        results: list[MichenaudResult] = []
         best_query = product_name
 
         for query in queries:
@@ -99,40 +93,58 @@ class MichenaudScraper(CompetitorScraper):
                 continue
 
             for url, title, manufacturer, price in parsed_results:
-                verified, page_title = self._verify_product_page(url, product, source_price)
-                if not verified:
-                    continue
-
                 similarity = self._similarity_score(
                     core_name,
                     brand,
-                    title or page_title,
+                    title,
                     manufacturer,
                     source_price,
                     price,
+                    None,
                 )
-                if best_result is None or similarity > best_result.similarity:
-                    best_result = MichenaudResult(
-                        title=title or page_title,
+                results.append(
+                    MichenaudResult(
+                        title=title,
                         url=url,
                         similarity=similarity,
+                        competitor_brand=manufacturer or None,
+                        breadcrumb=None,
                         price=price,
                     )
+                )
+                if not best_query:
                     best_query = query
 
-        if best_result is None:
+        if not results:
             return []
+
+        enriched_results: list[MichenaudResult] = []
+        for result in sorted(results, key=lambda item: item.similarity, reverse=True)[:3]:
+            _, page_title, breadcrumb = self._verify_product_page(result.url, product, source_price)
+            enriched_results.append(
+                MichenaudResult(
+                    title=result.title or page_title,
+                    url=result.url,
+                    similarity=result.similarity,
+                    competitor_brand=result.competitor_brand,
+                    breadcrumb=breadcrumb,
+                    price=result.price,
+                )
+            )
 
         return [
             Candidate(
                 id_product=product_id,
-                url=best_result.url.strip(),
-                title=best_result.title,
+                url=result.url.strip(),
+                title=result.title,
                 source="michenaud_search_result",
-                score=best_result.similarity,
+                score=result.similarity,
                 matched_query=best_query,
-                price=best_result.price,
+                competitor_brand=result.competitor_brand,
+                breadcrumb=result.breadcrumb,
+                price=result.price,
             )
+            for result in enriched_results
         ]
 
     def _verify_product_page(
@@ -140,7 +152,7 @@ class MichenaudScraper(CompetitorScraper):
         url: str,
         product: dict[str, object],
         source_price: float | None = None,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, str | None]:
         try:
             response = self.http.get(
                 url,
@@ -156,28 +168,35 @@ class MichenaudScraper(CompetitorScraper):
             )
             response.raise_for_status()
         except Exception:
-            return False, ""
+            return False, "", None
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
         page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
         text = normalize_text(soup.get_text(" ", strip=True))
         raw_html = normalize_text(html)
+        breadcrumb = self._extract_breadcrumb(html)
 
         reference = normalize_text(str(product.get("supplier_reference") or ""))
         ean = normalize_text(str(product.get("ean") or ""))
         if reference and (reference in text or reference in raw_html):
-            return True, page_title
+            return True, page_title, breadcrumb
         if ean and (ean in text or ean in raw_html):
-            return True, page_title
+            return True, page_title, breadcrumb
 
-        return False, page_title
+        return False, page_title, breadcrumb
 
     def _extract_title(self, item) -> str:
         title = item.select_one(".grilleDes")
         if title is None:
             return ""
         return title.get_text(" ", strip=True)
+
+    def _extract_manufacturer(self, item) -> str:
+        manufacturer = item.select_one(".articleMarque")
+        if manufacturer is None:
+            return ""
+        return manufacturer.get_text(" ", strip=True)
 
     def _extract_price(self, item) -> float | None:
         price_el = item.select_one(".price")
@@ -193,6 +212,31 @@ class MichenaudScraper(CompetitorScraper):
         except ValueError:
             return None
 
+    def _extract_breadcrumb(self, html: str) -> str | None:
+        soup = BeautifulSoup(html, "html.parser")
+        selectors = [
+            "nav.breadcrumb",
+            "nav[aria-label*='breadcrumb' i]",
+            ".breadcrumb",
+            ".breadcrumbs",
+            "ol.breadcrumb",
+            "ul.breadcrumb",
+        ]
+
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+
+            text = node.get_text(" > ", strip=True)
+            text = re.sub(r"\s*(?:>+|»|/|›)\s*", " > ", text)
+            parts = [part.strip() for part in re.split(r"\s*>\s*", text) if part.strip()]
+            cleaned = [part for part in parts if len(part) > 1]
+            if cleaned:
+                return " > ".join(cleaned)
+
+        return None
+
     def _similarity_score(
         self,
         product_name: str,
@@ -201,67 +245,40 @@ class MichenaudScraper(CompetitorScraper):
         manufacturer: str = "",
         source_price: float | None = None,
         candidate_price: float | None = None,
+        breadcrumb: str | None = None,
     ) -> int:
-        query_tokens = self._meaningful_tokens(product_name, brand)
-        title_tokens = self._meaningful_tokens(candidate_title, None)
-        manufacturer_tokens = self._meaningful_tokens(manufacturer, None)
-        query_hand = self._handedness(query_tokens)
-        title_hand = self._handedness(title_tokens)
-        generic_tokens = {
-            "overdrive",
-            "distortion",
-            "delay",
-            "reverb",
-            "chorus",
-            "phaser",
-            "flanger",
-            "pedal",
-            "guitar",
-            "bass",
-            "drum",
-            "microphone",
-            "headphone",
-            "monitor",
-            "speaker",
-            "controller",
-            "keyboard",
-            "mixer",
-            "case",
-            "bag",
-            "bundle",
-            "pack",
-            "set",
-            "system",
-            "kit",
-            "stand",
-            "adapter",
-            "cover",
-            "sleeve",
-            "pro",
-            "mini",
-            "max",
-        }
+        brand_norm = normalize_text(brand)
+        manufacturer_norm = normalize_text(manufacturer)
+        product_norm = normalize_text(product_name)
+        title_norm = normalize_text(candidate_title)
 
-        if not query_tokens or not title_tokens:
-            return 0
+        query_signature = self._canonical_model_signature(product_name, brand)
+        title_signature = self._canonical_model_signature(candidate_title, manufacturer or brand)
 
-        title_set = set(title_tokens)
-        common_tokens = [token for token in query_tokens if token in title_set]
-        strong_common_tokens = [
-            token for token in common_tokens
-            if token not in generic_tokens and len(token) > 3 and not token.isdigit()
-        ]
-        query_coverage = len(common_tokens) / len(query_tokens)
-        title_coverage = len(common_tokens) / len(title_tokens)
-        sequence_similarity = difflib.SequenceMatcher(None, " ".join(query_tokens), " ".join(title_tokens)).ratio()
+        score = 0
 
-        score = (query_coverage * 45) + (title_coverage * 10) + (sequence_similarity * 10)
-        if strong_common_tokens:
-            score += min(30, len(strong_common_tokens) * 10)
-        elif common_tokens:
-            score -= 18
-        else:
-            score -= 25
+        if brand_norm and manufacturer_norm:
+            if brand_norm == manufacturer_norm or brand_norm in manufacturer_norm or manufacturer_norm in brand_norm:
+                score += 20
+            else:
+                score -= 10
+
+        if query_signature and title_signature:
+            if query_signature == title_signature:
+                score += 55
+            else:
+                signature_ratio = difflib.SequenceMatcher(None, query_signature, title_signature).ratio()
+                score += int(round(signature_ratio * 35))
+                if signature_ratio < 0.45:
+                    score -= 10
+        elif query_signature or title_signature:
+            score -= 8
+
+        if product_norm and title_norm and product_norm in title_norm:
+            score += 10
+
+        if brand_norm and title_norm and brand_norm in title_norm:
+            score += 5
 
         accessory_tokens = {
             "case",
@@ -284,41 +301,28 @@ class MichenaudScraper(CompetitorScraper):
             "adapter",
             "pedalboard",
         }
+        title_tokens = set(title_norm.split())
         if any(token in accessory_tokens for token in title_tokens):
             score -= 35
 
-        brand_tokens = set(normalize_text(brand).split()) if brand else set()
-        if manufacturer_tokens and brand_tokens:
-            manufacturer_set = set(manufacturer_tokens)
-            if manufacturer_set.intersection(brand_tokens):
-                score += 20
-            else:
-                score -= 20
-
-        product_norm = normalize_text(product_name)
-        title_norm = normalize_text(candidate_title)
-        if product_norm and title_norm and product_norm in title_norm:
-            score += 20
-
-        if not strong_common_tokens and sequence_similarity < 0.55:
-            score = min(score, 55)
-        elif strong_common_tokens and sequence_similarity < 0.45:
-            score -= 10
-
-        if query_hand and title_hand:
-            if query_hand == title_hand:
-                score += 12
-            else:
-                score -= 60
-        elif query_hand or title_hand:
-            score -= 15
-
         if source_price is not None and candidate_price is not None and source_price > 0 and candidate_price > 0:
             ratio = abs(candidate_price - source_price) / source_price
-            if ratio >= 0.35:
-                score -= 30
+            if ratio <= 0.05:
+                score += 10
+            elif ratio <= 0.15:
+                score += 5
+            elif ratio >= 0.35:
+                score -= 20
             elif ratio >= 0.20:
-                score -= 15
+                score -= 10
+
+        year_penalty = self._year_mismatch_penalty(product_name, candidate_title, brand, manufacturer)
+        if year_penalty:
+            score += year_penalty
+
+        breadcrumb_bonus = self._breadcrumb_bonus(product_name, breadcrumb)
+        if breadcrumb_bonus:
+            score += breadcrumb_bonus
 
         return max(0, min(100, int(round(score))))
 
@@ -376,7 +380,6 @@ class MichenaudScraper(CompetitorScraper):
             "ii": "2",
             "iii": "3",
             "iv": "4",
-            "v": "5",
             "vi": "6",
             "vii": "7",
             "viii": "8",
@@ -385,6 +388,114 @@ class MichenaudScraper(CompetitorScraper):
         for source, target in replacements.items():
             token = token.replace(source, target)
         return token
+
+    def _canonical_model_signature(self, value: str, brand: str | None = None) -> str:
+        normalized = normalize_text(value)
+        if not normalized:
+            return ""
+
+        brand_tokens = set(normalize_text(brand or "").split()) if brand else set()
+        stopwords = {"the", "and", "for", "with", "new", "series", "pack", "bundle", "set"}
+
+        tokens: list[str] = []
+        for token in normalized.split():
+            if token in brand_tokens:
+                continue
+            if token in stopwords:
+                continue
+            tokens.append(self._normalize_variant_token(token))
+
+        signature = "".join(token for token in tokens if token)
+        return signature
+
+    def _breadcrumb_bonus(self, product_name: str, breadcrumb: str | None) -> int:
+        if not breadcrumb:
+            return 0
+
+        product_norm = normalize_text(product_name)
+        breadcrumb_norm = normalize_text(breadcrumb)
+        if not product_norm or not breadcrumb_norm:
+            return 0
+
+        if product_norm in breadcrumb_norm or breadcrumb_norm in product_norm:
+            return 15
+
+        product_segments = [segment for segment in re.split(r"\s*>\s*", product_norm) if segment]
+        breadcrumb_segments = [segment for segment in re.split(r"\s*>\s*", breadcrumb_norm) if segment]
+        if not product_segments or not breadcrumb_segments:
+            return 0
+
+        overlap = set(product_segments).intersection(breadcrumb_segments)
+        if not overlap:
+            return 0
+
+        return min(20, len(overlap) * 5)
+
+    def _year_mismatch_penalty(self, product_name: str, candidate_title: str, brand: str, manufacturer: str) -> int:
+        source_year = self._extract_year_hint(product_name)
+        candidate_year = self._extract_year_hint(candidate_title)
+        if source_year is None or candidate_year is None:
+            return 0
+
+        if source_year == candidate_year:
+            return 0
+
+        if not self._looks_like_guitar(product_name, candidate_title):
+            return 0
+
+        penalty = -25
+        brand_norm = normalize_text(brand)
+        manufacturer_norm = normalize_text(manufacturer)
+        if "gibson" in brand_norm or "gibson" in manufacturer_norm:
+            penalty = -40
+
+        return penalty
+
+    def _extract_year_hint(self, value: str) -> int | None:
+        normalized = normalize_text(value)
+        if not normalized:
+            return None
+
+        match = re.search(r"\b(19\d{2}|20\d{2})\b", normalized)
+        if match:
+            year = int(match.group(1))
+            if 1900 <= year <= 2099:
+                return year
+
+        compact = normalized.replace(" ", "")
+        match = re.search(r"(?<!\d)'?([5-9]\d)(?!\d)", compact)
+        if match and self._looks_like_guitar(normalized):
+            return 1900 + int(match.group(1))
+
+        return None
+
+    def _looks_like_guitar(self, *values: str) -> bool:
+        text = normalize_text(" ".join(values))
+        guitar_markers = {
+            "guitar",
+            "guitare",
+            "electric guitar",
+            "electric guitare",
+            "les paul",
+            "sg",
+            "strat",
+            "stratocaster",
+            "tele",
+            "telecaster",
+            "super strat",
+            "flying v",
+            "explorer",
+            "firebird",
+            "junior",
+            "custom",
+            "standard",
+            "studio",
+            "special",
+        }
+        if any(marker in text for marker in guitar_markers):
+            return True
+        return bool(re.search(r"\b(gibson|fender|prs|epiphone|ibanez|yamaha|schecter|musicman)\b", text))
+
 
     def _as_float(self, value: object) -> float | None:
         try:

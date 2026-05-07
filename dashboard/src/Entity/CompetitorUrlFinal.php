@@ -24,11 +24,15 @@ class CompetitorUrlFinal
     #[ORM\Column(length: 2048)]
     private string $url;
 
-    public function __construct(int $id, Competitor $competitor, string $url)
+    #[ORM\Column(type: 'decimal', precision: 10, scale: 2, nullable: true)]
+    private ?string $competitorPrice = null;
+
+    public function __construct(int $id, Competitor $competitor, string $url, ?string $competitorPrice = null)
     {
         $this->id = $id;
         $this->competitor = $competitor;
         $this->url = $url;
+        $this->competitorPrice = $competitorPrice;
     }
 
     public function getId(): int
@@ -49,6 +53,18 @@ class CompetitorUrlFinal
     public function setUrl(string $url): self
     {
         $this->url = $url;
+
+        return $this;
+    }
+
+    public function getCompetitorPrice(): ?string
+    {
+        return $this->competitorPrice;
+    }
+
+    public function setCompetitorPrice(?string $competitorPrice): self
+    {
+        $this->competitorPrice = $competitorPrice;
 
         return $this;
     }

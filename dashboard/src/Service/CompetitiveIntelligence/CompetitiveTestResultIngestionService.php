@@ -13,6 +13,7 @@ final class CompetitiveTestResultIngestionService
 {
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
+        private readonly CompetitivePriceHistoryService $priceHistoryService,
     ) {
     }
 
@@ -70,34 +71,49 @@ final class CompetitiveTestResultIngestionService
             }
 
             if ($existing instanceof CompetitorUrlTestResult) {
+                $competitorPrice = $this->nullableDecimalString($test['competitor_price'] ?? null);
                 $existing
                     ->setResult($result)
                     ->setUrl($this->truncateNullableString($test['url'] ?? null, 2048))
                     ->setCompetitorTitle($this->truncateNullableString($test['competitor_title'] ?? null, 255))
+                    ->setCompetitorBrand($this->truncateNullableString($test['competitor_brand'] ?? null, 255))
+                    ->setCompetitorBreadcrumb($this->truncateNullableString($test['competitor_breadcrumb'] ?? null, 1024))
                     ->setScore($score)
-                    ->setCompetitorPrice($this->nullableDecimalString($test['competitor_price'] ?? null))
+                    ->setCompetitorPrice($competitorPrice)
                     ->setValidationStatus($this->resolveValidationStatus($result, $score, $test['url'] ?? null))
                     ->setMatchedQuery($this->truncateNullableString($test['matched_query'] ?? null, 255))
                     ->setMessage($this->truncateNullableString($test['message'] ?? null, 255))
                     ->touch();
-                $this->upsertFinalIfNeeded($finalRepository, $competitor, $existing);
+                $this->upsertFinalIfNeeded($finalRepository, $competitor, $existing, $competitorPrice);
                 $updated++;
                 continue;
             }
 
+            $competitorPrice = $this->nullableDecimalString($test['competitor_price'] ?? null);
             $this->entityManager->persist(new CompetitorUrlTestResult(
                 $productId,
                 $competitor,
                 $result,
                 $this->truncateNullableString($test['url'] ?? null, 2048),
                 $this->truncateNullableString($test['competitor_title'] ?? null, 255),
+                $this->truncateNullableString($test['competitor_brand'] ?? null, 255),
+                $this->truncateNullableString($test['competitor_breadcrumb'] ?? null, 1024),
                 $score,
                 $this->nullableDecimalString($test['competitor_price'] ?? null),
                 $this->resolveValidationStatus($result, $score, $test['url'] ?? null),
                 $this->truncateNullableString($test['matched_query'] ?? null, 255),
                 $this->truncateNullableString($test['message'] ?? null, 255),
             ));
-            $this->upsertFinalIfNeeded($finalRepository, $competitor, null, $productId, $this->truncateNullableString($test['url'] ?? null, 2048), $score, $result);
+            $this->upsertFinalIfNeeded(
+                $finalRepository,
+                $competitor,
+                null,
+                $productId,
+                $this->truncateNullableString($test['url'] ?? null, 2048),
+                $score,
+                $result,
+                $competitorPrice,
+            );
             $inserted++;
         }
 
@@ -159,12 +175,13 @@ final class CompetitiveTestResultIngestionService
     /**
      * @param object $finalRepository
      */
-    private function upsertFinalIfNeeded(object $finalRepository, Competitor $competitor, ?CompetitorUrlTestResult $testResult = null, int $productId = 0, ?string $url = null, ?int $score = null, ?string $result = null): void
+    private function upsertFinalIfNeeded(object $finalRepository, Competitor $competitor, ?CompetitorUrlTestResult $testResult = null, int $productId = 0, ?string $url = null, ?int $score = null, ?string $result = null, ?string $competitorPrice = null): void
     {
         $productId = $testResult?->getProductId() ?? $productId;
         $url = $testResult?->getUrl() ?? $url;
         $score = $testResult?->getScore() ?? $score;
         $result = $testResult?->getResult() ?? $result;
+        $competitorPrice = $testResult?->getCompetitorPrice() ?? $competitorPrice;
 
         if ($productId <= 0 || $url === null || trim($url) === '') {
             return;
@@ -183,9 +200,14 @@ final class CompetitiveTestResultIngestionService
             if ($existing->getUrl() !== $url) {
                 $existing->setUrl($url);
             }
+            if ($competitorPrice !== null) {
+                $existing->setCompetitorPrice($competitorPrice);
+                $this->priceHistoryService->recordObservation($competitor, $productId, $url, $competitorPrice, 'test_result');
+            }
             return;
         }
 
-        $this->entityManager->persist(new CompetitorUrlFinal($productId, $competitor, $url));
+        $this->entityManager->persist(new CompetitorUrlFinal($productId, $competitor, $url, $competitorPrice));
+        $this->priceHistoryService->recordObservation($competitor, $productId, $url, $competitorPrice, 'test_result');
     }
 }

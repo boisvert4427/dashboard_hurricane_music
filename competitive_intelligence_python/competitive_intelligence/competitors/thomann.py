@@ -11,6 +11,7 @@ from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
 
+from ..core.catalog_intelligence import _extract_year_hint, _looks_like_guitar
 from ..core.normalization import normalize_text, simplify_name
 from .base import Candidate, CompetitorScraper
 
@@ -20,6 +21,8 @@ class ThomannResult:
     title: str
     url: str
     similarity: int
+    competitor_brand: str | None = None
+    breadcrumb: str | None = None
     price: float | None = None
 
 
@@ -116,14 +119,32 @@ class ThomannScraper(CompetitorScraper):
                 continue
 
             for url, title, manufacturer in parsed_results:
+                if self._is_b_stock_title(title):
+                    continue
                 if not self._brand_matches(brand, manufacturer):
                     continue
 
                 brand_match_found = True
-                price = self._extract_price_from_product_page(url)
-                similarity = self._similarity_score(core_name, brand, title, manufacturer, source_price, price)
+                price, breadcrumb = self._extract_product_page_metadata(url)
+                similarity = self._similarity_score(
+                    core_name,
+                    brand,
+                    title,
+                    manufacturer,
+                    source_price,
+                    price,
+                    str(product.get("category_path") or product.get("category") or ""),
+                    breadcrumb,
+                )
                 if best_result is None or similarity > best_result.similarity:
-                    best_result = ThomannResult(title=title, url=url, similarity=similarity, price=price)
+                    best_result = ThomannResult(
+                        title=title,
+                        url=url,
+                        similarity=similarity,
+                        competitor_brand=manufacturer or None,
+                        breadcrumb=breadcrumb,
+                        price=price,
+                    )
                     best_query = query
 
         if brand and not brand_match_found:
@@ -140,9 +161,20 @@ class ThomannScraper(CompetitorScraper):
                     source="thomann_search_result",
                     score=best_result.similarity,
                     matched_query=best_query,
+                    competitor_brand=best_result.competitor_brand,
+                    breadcrumb=best_result.breadcrumb,
                     price=best_result.price,
                 )
             ]
+
+    def _is_b_stock_title(self, title: str) -> bool:
+        title_norm = normalize_text(title)
+        return (
+            "b-stock" in title_norm
+            or "b stock" in title_norm
+            or "bstock" in title_norm
+            or "bundle" in title_norm
+        )
 
     def _extract_search_index_payload(self, html: str) -> list[object] | None:
         marker = "tho.bootstrapModule('search.index',"
@@ -236,8 +268,10 @@ class ThomannScraper(CompetitorScraper):
         manufacturer: str = "",
         source_price: float | None = None,
         candidate_price: float | None = None,
+        category_path: str = "",
+        breadcrumb: str | None = None,
     ) -> int:
-        query_tokens = self._meaningful_tokens(product_name, brand)
+        query_tokens = self._meaningful_tokens(product_name, None)
         title_tokens = self._meaningful_tokens(candidate_title, None)
         manufacturer_tokens = self._meaningful_tokens(manufacturer, None)
         query_hand = self._handedness(query_tokens)
@@ -362,28 +396,59 @@ class ThomannScraper(CompetitorScraper):
             elif ratio >= 0.20:
                 score -= 15
 
+        year_penalty = self._year_mismatch_penalty(product_name, candidate_title, brand, manufacturer)
+        if year_penalty:
+            score += year_penalty
+
         return max(0, min(100, int(round(score))))
 
-    def _extract_price_from_product_page(self, url: str) -> float | None:
+    def _extract_product_page_metadata(self, url: str) -> tuple[float | None, str | None]:
         try:
             response = self.scraper.get(url, timeout=30)
             if response.status_code >= 400:
-                return None
+                return None, None
         except Exception:
-            return None
+            return None, None
 
         html = response.text
         match = re.search(r'itemprop="price"\s+content="([0-9]+(?:[.,][0-9]+)?)"', html, re.I)
         if not match:
             match = re.search(r'priceContainer".{0,180}?([0-9][0-9 .,\u00A0]*)\s*€', html, re.I | re.S)
-        if not match:
-            return None
+        price = None
+        if match:
+            value = match.group(1).replace("\u00A0", "").replace(" ", "").replace(",", ".")
+            try:
+                price = float(value)
+            except ValueError:
+                price = None
 
-        value = match.group(1).replace("\u00A0", "").replace(" ", "").replace(",", ".")
-        try:
-            return float(value)
-        except ValueError:
-            return None
+        breadcrumb = self._extract_breadcrumb(html)
+        return price, breadcrumb
+
+    def _extract_breadcrumb(self, html: str) -> str | None:
+        soup = BeautifulSoup(html, "html.parser")
+        selectors = [
+            "nav.breadcrumb",
+            "nav[aria-label*='breadcrumb' i]",
+            ".breadcrumb",
+            ".breadcrumbs",
+            "ol.breadcrumb",
+            "ul.breadcrumb",
+        ]
+
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+
+            text = node.get_text(" > ", strip=True)
+            text = re.sub(r"\s*(?:>+|»|/|›)\s*", " > ", text)
+            parts = [part.strip() for part in re.split(r"\s*>\s*", text) if part.strip()]
+            cleaned = [part for part in parts if len(part) > 1]
+            if cleaned:
+                return " > ".join(cleaned)
+
+        return None
 
     def _as_float(self, value: object) -> float | None:
         try:
@@ -512,3 +577,106 @@ class ThomannScraper(CompetitorScraper):
             return True
 
         return bool(source_tokens.intersection(manufacturer_tokens))
+
+    def _breadcrumb_category_bonus(self, category_path: str, breadcrumb: str | None) -> int:
+        if not category_path or not breadcrumb:
+            return 0
+
+        source_segments = [segment for segment in self._split_path(category_path) if segment]
+        candidate_segments = [segment for segment in self._split_path(breadcrumb) if segment]
+        if not source_segments or not candidate_segments:
+            return 0
+
+        source_leaf = source_segments[-1]
+        candidate_leaf = candidate_segments[-1]
+        score = 0
+
+        if source_leaf == candidate_leaf:
+            score += 15
+        elif source_leaf in candidate_leaf or candidate_leaf in source_leaf:
+            score += 10
+
+        source_core = [segment for segment in source_segments if segment not in {"racine", "accueil", "home"}]
+        candidate_core = [
+            segment
+            for segment in candidate_segments
+            if segment not in {"racine", "accueil", "home", "category", "categories"}
+        ]
+        overlap = set(source_core).intersection(candidate_core)
+        if overlap:
+            score += min(12, len(overlap) * 4)
+
+        return min(score, 25)
+
+    def _split_path(self, value: str) -> list[str]:
+        normalized = normalize_text(value)
+        if not normalized:
+            return []
+
+        parts = re.split(r"\s*>\s*", normalized)
+        return [part.strip() for part in parts if part.strip()]
+
+    def _year_mismatch_penalty(self, product_name: str, candidate_title: str, brand: str, manufacturer: str) -> int:
+        source_year = self._extract_year_hint(product_name)
+        candidate_year = self._extract_year_hint(candidate_title)
+        if source_year is None or candidate_year is None:
+            return 0
+
+        if source_year == candidate_year:
+            return 0
+
+        if not self._looks_like_guitar(product_name, candidate_title):
+            return 0
+
+        penalty = -25
+        brand_norm = normalize_text(brand)
+        manufacturer_norm = normalize_text(manufacturer)
+        if "gibson" in brand_norm or "gibson" in manufacturer_norm:
+            penalty = -40
+
+        return penalty
+
+    def _extract_year_hint(self, value: str) -> int | None:
+        normalized = normalize_text(value)
+        if not normalized:
+            return None
+
+        match = re.search(r"\b(19\d{2}|20\d{2})\b", normalized)
+        if match:
+            year = int(match.group(1))
+            if 1900 <= year <= 2099:
+                return year
+
+        compact = normalized.replace(" ", "")
+        match = re.search(r"(?<!\d)'?([5-9]\d)(?!\d)", compact)
+        if match and self._looks_like_guitar(normalized):
+            return 1900 + int(match.group(1))
+
+        return None
+
+    def _looks_like_guitar(self, *values: str) -> bool:
+        text = normalize_text(" ".join(values))
+        guitar_markers = {
+            "guitar",
+            "guitare",
+            "electric guitar",
+            "electric guitare",
+            "les paul",
+            "sg",
+            "strat",
+            "stratocaster",
+            "tele",
+            "telecaster",
+            "super strat",
+            "flying v",
+            "explorer",
+            "firebird",
+            "junior",
+            "custom",
+            "standard",
+            "studio",
+            "special",
+        }
+        if any(marker in text for marker in guitar_markers):
+            return True
+        return bool(re.search(r"\b(gibson|fender|prs|epiphone|ibanez|yamaha|schecter|musicman)\b", text))

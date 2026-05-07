@@ -13,6 +13,7 @@ final class CompetitiveTestResultReviewService
 {
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
+        private readonly CompetitivePriceHistoryService $priceHistoryService,
     ) {
     }
 
@@ -63,6 +64,16 @@ final class CompetitiveTestResultReviewService
             if ($existing->getUrl() !== (string) $testResult->getUrl()) {
                 $existing->setUrl((string) $testResult->getUrl());
             }
+            if ($testResult->getCompetitorPrice() !== null) {
+                $existing->setCompetitorPrice($testResult->getCompetitorPrice());
+                $this->priceHistoryService->recordObservation(
+                    $competitor,
+                    $testResult->getProductId(),
+                    (string) $testResult->getUrl(),
+                    $testResult->getCompetitorPrice(),
+                    'review',
+                );
+            }
             return;
         }
 
@@ -70,7 +81,15 @@ final class CompetitiveTestResultReviewService
             $testResult->getProductId(),
             $competitor,
             (string) $testResult->getUrl(),
+            $testResult->getCompetitorPrice(),
         ));
+        $this->priceHistoryService->recordObservation(
+            $competitor,
+            $testResult->getProductId(),
+            (string) $testResult->getUrl(),
+            $testResult->getCompetitorPrice(),
+            'review',
+        );
     }
 
     private function deleteFinal(CompetitorUrlTestResult $testResult): void

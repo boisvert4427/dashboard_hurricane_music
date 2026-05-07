@@ -8,6 +8,8 @@ Responsibilities:
 - run one scraper adapter per competitor
 - score candidate URLs
 - send candidates back to Symfony
+- optionally use OpenAI for Thomann and Michenaud ranking
+- scrape prices for final competitor URLs in a separate pass
 
 ## Current adapter
 
@@ -16,13 +18,17 @@ Responsibilities:
 - `ThomannScraper`
 - `MichenaudScraper`
 - Woodbrass and Stars rely on a light HTTP search flow and validate the final page by reference / EAN when available.
-- Thomann uses the embedded `search.index` payload from the search page and scores the closest title.
-- Michenaud uses its search page and validates the final page by reference / EAN when available.
-- Thomann and Michenaud also capture price when available.
+- Thomann uses the embedded `search.index` payload from the search page and sends the best 3 candidates to OpenAI when available.
+- Michenaud uses its search page and can also send the best 3 candidates to OpenAI when available.
+- Thomann and Michenaud filter candidates by brand before OpenAI ranking.
+- Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
+- Thomann and Michenaud capture title, brand, breadcrumb, and price when available.
 - `score < 30` is treated as `not_found`.
-- `matched` with score high enough is written as `valid` and upserted into `competitor_url_final`.
+- Thomann and Michenaud generally stay `pending` unless the batch marks them high confidence.
+- `matched` with high enough score is written as `valid` and upserted into `competitor_url_final`.
 - `rejected` does not come back in the batch provider anymore.
 - `postponed` stays in validation and is hidden from the main validation list.
+- Final prices are captured only from `competitor_url_final` entries and appended to `competitor_url_price_history`.
 
 ## Run
 
@@ -69,17 +75,21 @@ Debug mode can be enabled with `debug=1`, which writes screenshots and HTML snap
 The dashboard also exposes a combined launcher:
 
 ```text
-/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=change-me-too
+/api/competitive/run-all?limit=5&price_limit=10&lang_id=1&shop_id=1&max_parallel=2&token=change-me-too
 ```
 
 That route starts Woodbrass, Stars Music, Thomann, and Michenaud together.
 `run-all` has its own global lock, so two combined runs cannot start at the same time.
+`limit` controls the URL matching batch.
+`price_limit` controls the final price batch.
 
 ### Result fields
 
 The worker sends the following test-result fields back to Symfony:
 
 - `competitor_title`
+- `competitor_brand`
+- `competitor_breadcrumb`
 - `competitor_price`
 - `matched_query`
 - `score`

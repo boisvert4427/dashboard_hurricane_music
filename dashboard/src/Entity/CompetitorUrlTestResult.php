@@ -41,6 +41,12 @@ class CompetitorUrlTestResult
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $competitorTitle = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $competitorBrand = null;
+
+    #[ORM\Column(length: 1024, nullable: true)]
+    private ?string $competitorBreadcrumb = null;
+
     #[ORM\Column(type: 'smallint', nullable: true)]
     private ?int $score = null;
 
@@ -65,6 +71,8 @@ class CompetitorUrlTestResult
         string $result,
         ?string $url = null,
         ?string $competitorTitle = null,
+        ?string $competitorBrand = null,
+        ?string $competitorBreadcrumb = null,
         ?int $score = null,
         ?string $competitorPrice = null,
         string $validationStatus = self::REVIEW_PENDING,
@@ -76,6 +84,8 @@ class CompetitorUrlTestResult
         $this->result = $result;
         $this->url = $url;
         $this->competitorTitle = $competitorTitle;
+        $this->competitorBrand = $competitorBrand;
+        $this->competitorBreadcrumb = $competitorBreadcrumb;
         $this->score = $score;
         $this->competitorPrice = $competitorPrice;
         $this->validationStatus = $validationStatus;
@@ -126,6 +136,30 @@ class CompetitorUrlTestResult
     public function setCompetitorTitle(?string $competitorTitle): self
     {
         $this->competitorTitle = $competitorTitle;
+
+        return $this;
+    }
+
+    public function getCompetitorBrand(): ?string
+    {
+        return $this->competitorBrand;
+    }
+
+    public function setCompetitorBrand(?string $competitorBrand): self
+    {
+        $this->competitorBrand = $competitorBrand;
+
+        return $this;
+    }
+
+    public function getCompetitorBreadcrumb(): ?string
+    {
+        return $this->competitorBreadcrumb;
+    }
+
+    public function setCompetitorBreadcrumb(?string $competitorBreadcrumb): self
+    {
+        $this->competitorBreadcrumb = $competitorBreadcrumb;
 
         return $this;
     }

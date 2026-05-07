@@ -42,3 +42,29 @@ class ApiClient:
                 raise RuntimeError(f"submit_candidates failed ({response.status_code}): {body}")
             response.raise_for_status()
         return response.json()
+
+    def fetch_next_final_price_batch(self, competitor_id: int, limit: int, after_id: int) -> dict[str, Any]:
+        response = self.http.get(
+            f"{self.base_url}/api/competitive/final-prices/next-batch",
+            params={
+                "competitor_id": competitor_id,
+                "limit": limit,
+                "after_id": after_id,
+            },
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def submit_final_prices(self, payload: dict[str, Any]) -> dict[str, Any]:
+        response = self.http.post(
+            f"{self.base_url}/api/competitive/final-prices",
+            json=payload,
+            headers=self._headers(),
+        )
+        if response.status_code >= 400:
+            body = response.text.strip()
+            if body:
+                raise RuntimeError(f"submit_final_prices failed ({response.status_code}): {body}")
+            response.raise_for_status()
+        return response.json()

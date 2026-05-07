@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\Competitor;
+use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
@@ -32,6 +33,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         $testResultReport = $this->getTestResultReport($entityManager, $competitors, $batchProvider);
         $testResultTotals = $this->getTestResultTotals($testResultReport);
         $theoreticalTotal = array_sum(array_column($testResultReport, 'theoretical'));
+        $priceScrapesLast24h = $this->countPriceScrapesLast24h($entityManager);
 
         $recentCandidates = $entityManager->getRepository(CompetitorUrlTestResult::class)
             ->createQueryBuilder('t')
@@ -46,6 +48,8 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'productId' => $result->getProductId(),
                 'competitor' => $result->getCompetitor(),
                 'url' => $result->getUrl(),
+                'competitorBrand' => $result->getCompetitorBrand(),
+                'competitorBreadcrumb' => $result->getCompetitorBreadcrumb(),
                 'score' => $result->getScore(),
                 'status' => $result->getValidationStatus(),
                 'updatedAt' => $result->getLastTestedAt(),
@@ -59,6 +63,7 @@ final class CompetitiveIntelligenceController extends AbstractController
             'test_result_report' => $testResultReport,
             'test_result_totals' => $testResultTotals,
             'theoretical_total' => $theoreticalTotal,
+            'price_scrapes_last_24h' => $priceScrapesLast24h,
             'recent_candidates' => $recentCandidates,
         ]);
     }
@@ -285,6 +290,7 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'url' => $testResult->getUrl(),
                 'competitor_title' => $testResult->getCompetitorTitle(),
                 'competitor_price' => $testResult->getCompetitorPrice(),
+                'competitor_breadcrumb' => $testResult->getCompetitorBreadcrumb(),
                 'score' => $testResult->getScore(),
                 'status' => $testResult->getValidationStatus(),
                 'updated_at' => $testResult->getLastTestedAt(),
@@ -297,7 +303,7 @@ final class CompetitiveIntelligenceController extends AbstractController
     /**
      * @param array<int, int> $productIds
      *
-     * @return array<int, array{competitor_title:?string, competitor_price:?string, url:?string, score:?int, result:?string}>
+     * @return array<int, array{competitor_title:?string, competitor_brand:?string, competitor_breadcrumb:?string, competitor_price:?string, url:?string, score:?int, result:?string}>
      */
     private function getTestResultSnapshots(EntityManagerInterface $entityManager, array $productIds): array
     {
@@ -308,7 +314,7 @@ final class CompetitiveIntelligenceController extends AbstractController
 
         $rows = $entityManager->getRepository(CompetitorUrlTestResult::class)
             ->createQueryBuilder('t')
-            ->select('t.productId AS product_id, t.url AS url, t.competitorTitle AS competitor_title, t.competitorPrice AS competitor_price, t.score AS score, t.result AS result')
+            ->select('t.productId AS product_id, t.url AS url, t.competitorTitle AS competitor_title, t.competitorBrand AS competitor_brand, t.competitorBreadcrumb AS competitor_breadcrumb, t.competitorPrice AS competitor_price, t.score AS score, t.result AS result')
             ->andWhere('t.productId IN (:ids)')
             ->setParameter('ids', $productIds)
             ->getQuery()
@@ -324,6 +330,8 @@ final class CompetitiveIntelligenceController extends AbstractController
             $snapshots[$productId] = [
                 'url' => $row['url'] ?? null,
                 'competitor_title' => $row['competitor_title'] ?? null,
+                'competitor_brand' => $row['competitor_brand'] ?? null,
+                'competitor_breadcrumb' => $row['competitor_breadcrumb'] ?? null,
                 'competitor_price' => $row['competitor_price'] ?? null,
                 'score' => isset($row['score']) ? (int) $row['score'] : null,
                 'result' => $row['result'] ?? null,
@@ -365,6 +373,7 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'id' => $row->getId(),
                 'competitor' => $row->getCompetitor(),
                 'url' => $row->getUrl(),
+                'competitor_price' => $row->getCompetitorPrice(),
             ];
         }
 
@@ -521,5 +530,18 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         return $totals;
+    }
+
+    private function countPriceScrapesLast24h(EntityManagerInterface $entityManager): int
+    {
+        $cutoff = new \DateTimeImmutable('-24 hours');
+
+        return (int) $entityManager->getRepository(CompetitorUrlPriceHistory::class)
+            ->createQueryBuilder('p')
+            ->select('COUNT(p.id)')
+            ->andWhere('p.observedAt >= :cutoff')
+            ->setParameter('cutoff', $cutoff)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 }

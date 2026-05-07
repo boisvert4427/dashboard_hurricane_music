@@ -11,7 +11,7 @@ Dashboard interne de pilotage pour Hurricane Music.
 - répartition par canal
 - import ETL depuis les tables métier
 - part du global sur les sous-ensembles
-- module de veille concurrentielle URL Finder
+- module de veille concurrentielle matching URL + passe prix
 
 ## Règle principale
 
@@ -37,17 +37,28 @@ php bin/console app:etl:import-invoice-lines
 
 ## Veille concurrentielle
 
-La phase 1 est un URL Finder:
+La veille concurrentielle fonctionne en 2 passes:
 
-- Symfony orchestre le lot de produits
-- Python cherche les URLs chez les concurrents
-- Symfony stocke les résultats de test et les URLs finales
-- `competitor_url_candidate` n’est plus dans le flux métier actif
-- les tests gardent `competitor_title` et `competitor_price` quand ils sont disponibles
-- la validation humaine travaille directement sur `competitor_url_test_result`
-- les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
-- `score < 30` est traité comme `not_found`
-- `score >= 90` et `matched` passe directement en `valid` et écrit aussi dans `competitor_url_final`
+1. matching URL
+   - Symfony orchestre le lot de produits
+   - Python cherche les URLs chez les concurrents
+   - Thomann et Michenaud utilisent OpenAI pour arbitrer les meilleurs candidats
+   - l'API ne reçoit que les 3 premiers candidats utiles
+   - les candidats Thomann / Michenaud sont filtrés par marque avant appel API
+   - Thomann rejette d'office les titres `b-stock`, `b stock`, `bstock` et `bundle`
+   - Symfony stocke les résultats de test et les URLs finales
+   - `competitor_url_candidate` n’est plus dans le flux métier actif
+   - les tests gardent `competitor_title`, `competitor_brand`, `competitor_breadcrumb` et `competitor_price` quand ils sont disponibles
+   - la validation humaine travaille directement sur `competitor_url_test_result`
+   - les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
+   - `score < 30` est traité comme `not_found`
+   - Thomann et Michenaud sortent en `pending` par défaut, et passent en `matched` seulement si la confiance API est suffisante
+
+2. passe prix
+   - Symfony ne reprend que les `competitor_url_final`
+   - l'historique est append-only dans `competitor_url_price_history`
+   - `competitor_url_final` garde le prix courant
+   - la sélection priorise les finals absents de l'historique, puis les plus anciens derniers scrapes de prix
 
 ### URL de lancement
 
@@ -86,6 +97,7 @@ competitive_intelligence_python/run_batch.py
 ```
 
 Le worker enregistre les statuts de test dans `competitor_url_test_result`, y compris les cas `cloudflare` et `search_input_not_found`.
+Le worker peut aussi alimenter la passe prix finale via `run_final_prices.py`.
 Les images peuvent être récupérées côté validation pour comparaison humaine, mais elles ne sont pas encore utilisées dans le scoring.
 
 ## Fichiers utiles
@@ -155,11 +167,14 @@ curl -H 'X-COMPETITIVE-TOKEN: TON_TOKEN' \
 ### Lancer tous les concurrents
 
 ```text
-/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+/api/competitive/run-all?limit=5&price_limit=10&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
 ```
 
 Cela lance Woodbrass, Stars Music, Thomann et Michenaud.
 `run-both` reste un alias legacy.
+
+`limit` pilote le batch de matching URL.
+`price_limit` pilote le batch de scraping prix sur les URLs finales.
 
 ### Vider le cache
 

@@ -28,10 +28,11 @@ final class PrestashopProductBatchProvider
         $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
 
         $sql = sprintf(
-             'SELECT f.id_product,
+            'SELECT f.id_product,
                     NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
                     NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
                     NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    \'\' AS category_path,
                     f.price_tax_incl AS source_price,
                     COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
              FROM %s f
@@ -66,17 +67,26 @@ final class PrestashopProductBatchProvider
             ]
         );
 
+        $snapshots = $this->getProductSnapshotsByIds(array_map(
+            static fn (array $row): int => (int) ($row['id_product'] ?? 0),
+            $rows
+        ), $langId, $shopId);
+
         $items = array_map(
-            function (array $row) use ($competitorId, $shopId): array {
+            function (array $row) use ($competitorId, $shopId, $snapshots): array {
+                $productId = (int) ($row['id_product'] ?? 0);
+                $snapshot = $snapshots[$productId] ?? [];
                 return [
-                    'id_product' => (int) ($row['id_product'] ?? 0),
+                    'id_product' => $productId,
                     'supplier_reference' => trim((string) ($row['supplier_reference'] ?? '')),
                     'ean' => trim((string) ($row['ean'] ?? '')),
                     'brand' => trim((string) ($row['brand'] ?? '')),
+                    'category_path' => trim((string) ($snapshot['category_path'] ?? '')),
+                    'category' => trim((string) ($snapshot['category'] ?? $snapshot['category_path'] ?? '')),
                     'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
                     'name' => trim((string) ($row['name'] ?? '')),
                     'competitor_id' => $competitorId,
-                    'source_image_url' => $this->getSourceImageUrl((int) ($row['id_product'] ?? 0), $shopId),
+                    'source_image_url' => $this->getSourceImageUrl($productId, $shopId),
                 ];
             },
             $rows
@@ -140,7 +150,7 @@ final class PrestashopProductBatchProvider
      *
      * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string}>
      */
-    public function getProductSnapshotsByIds(array $productIds): array
+    public function getProductSnapshotsByIds(array $productIds, int $langId = 1, int $shopId = 1): array
     {
         $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static fn (int $value): bool => $value > 0)));
         if ($productIds === []) {
@@ -152,12 +162,27 @@ final class PrestashopProductBatchProvider
                     NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
                     NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
                     NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    p.id_category_default AS category_id,
                     f.price_tax_incl AS source_price,
                     COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
              FROM leo_netrivals_send_feed f
+             LEFT JOIN product p ON p.id_product = f.id_product
              WHERE f.id_product IN (:ids)',
-            ['ids' => $productIds],
-            ['ids' => ArrayParameterType::INTEGER]
+            [
+                'ids' => $productIds,
+            ],
+            [
+                'ids' => ArrayParameterType::INTEGER,
+            ]
+        );
+
+        $categoryPaths = $this->buildCategoryPathsByCategoryIds(
+            array_map(
+                static fn (array $row): int => (int) ($row['category_id'] ?? 0),
+                $rows
+            ),
+            $langId,
+            $shopId
         );
 
         $snapshots = [];
@@ -167,10 +192,15 @@ final class PrestashopProductBatchProvider
                 continue;
             }
 
+            $categoryId = (int) ($row['category_id'] ?? 0);
+            $categoryPath = $categoryPaths[$categoryId] ?? null;
+
             $snapshots[$productId] = [
                 'id_product' => $productId,
                 'name' => trim((string) ($row['name'] ?? '')),
                 'brand' => $this->nullableString($row['brand'] ?? null),
+                'category_path' => $categoryPath,
+                'category' => $categoryPath,
                 'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
                 'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
                 'ean' => $this->nullableString($row['ean'] ?? null),
@@ -183,7 +213,7 @@ final class PrestashopProductBatchProvider
     /**
      * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string}>
      */
-    public function searchProducts(string $query, int $limit = 20): array
+    public function searchProducts(string $query, int $limit = 20, int $langId = 1, int $shopId = 1): array
     {
         $query = trim($query);
         if ($query === '') {
@@ -214,9 +244,11 @@ final class PrestashopProductBatchProvider
                     NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
                     NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
                     NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    p.id_category_default AS category_id,
                     f.price_tax_incl AS source_price,
                     COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
              FROM leo_netrivals_send_feed f
+             LEFT JOIN product p ON p.id_product = f.id_product
              WHERE %s
              ORDER BY CASE WHEN LOWER(COALESCE(f.product_name, \'\')) LIKE :needle THEN 0 ELSE 1 END,
                       f.id_product DESC
@@ -227,16 +259,29 @@ final class PrestashopProductBatchProvider
 
         $rows = $this->prestashopConnection->fetchAllAssociative($sql, $params, $types);
 
+        $categoryPaths = $this->buildCategoryPathsByCategoryIds(
+            array_map(
+                static fn (array $row): int => (int) ($row['category_id'] ?? 0),
+                $rows
+            ),
+            $langId,
+            $shopId
+        );
+
         $snapshots = [];
         foreach ($rows as $row) {
             $productId = (int) ($row['id_product'] ?? 0);
             if ($productId <= 0) {
                 continue;
             }
+            $categoryId = (int) ($row['category_id'] ?? 0);
+            $categoryPath = $categoryPaths[$categoryId] ?? null;
             $snapshots[$productId] = [
                 'id_product' => $productId,
                 'name' => trim((string) ($row['name'] ?? '')),
                 'brand' => $this->nullableString($row['brand'] ?? null),
+                'category_path' => $categoryPath,
+                'category' => $categoryPath,
                 'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
                 'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
                 'ean' => $this->nullableString($row['ean'] ?? null),
@@ -251,6 +296,101 @@ final class PrestashopProductBatchProvider
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    /**
+     * @param array<int, int> $categoryIds
+     *
+     * @return array<int, string|null>
+     */
+    private function buildCategoryPathsByCategoryIds(array $categoryIds, int $langId, int $shopId): array
+    {
+        $categoryIds = array_values(array_unique(array_filter(array_map('intval', $categoryIds), static fn (int $value): bool => $value > 0)));
+        if ($categoryIds === []) {
+            return [];
+        }
+
+        $categories = [];
+        $toLoad = $categoryIds;
+
+        while ($toLoad !== []) {
+            $rows = $this->prestashopConnection->fetchAllAssociative(
+                'SELECT c.id_category,
+                        c.id_parent,
+                        NULLIF(TRIM(COALESCE(cl.name, \'\')), \'\') AS name
+                 FROM category c
+                 LEFT JOIN category_lang cl
+                     ON cl.id_category = c.id_category
+                    AND cl.id_lang = :lang_id
+                    AND cl.id_shop = :shop_id
+                 WHERE c.id_category IN (:ids)',
+                [
+                    'ids' => $toLoad,
+                    'lang_id' => $langId,
+                    'shop_id' => $shopId,
+                ],
+                [
+                    'ids' => ArrayParameterType::INTEGER,
+                    'lang_id' => ParameterType::INTEGER,
+                    'shop_id' => ParameterType::INTEGER,
+                ]
+            );
+
+            $toLoad = [];
+            foreach ($rows as $row) {
+                $categoryId = (int) ($row['id_category'] ?? 0);
+                if ($categoryId <= 0) {
+                    continue;
+                }
+
+                $categories[$categoryId] = [
+                    'id_parent' => (int) ($row['id_parent'] ?? 0),
+                    'name' => $this->nullableString($row['name'] ?? null),
+                ];
+
+                $parentId = (int) ($row['id_parent'] ?? 0);
+                if ($parentId > 0 && !isset($categories[$parentId])) {
+                    $toLoad[] = $parentId;
+                }
+            }
+
+            $toLoad = array_values(array_unique($toLoad));
+        }
+
+        $paths = [];
+        foreach ($categoryIds as $categoryId) {
+            $paths[$categoryId] = $this->buildCategoryPathFromCategoryMap($categoryId, $categories);
+        }
+
+        return $paths;
+    }
+
+    /**
+     * @param array<int, array{id_parent:int,name:?string}> $categories
+     */
+    private function buildCategoryPathFromCategoryMap(int $categoryId, array $categories): ?string
+    {
+        $segments = [];
+        $seen = [];
+        $currentId = $categoryId;
+
+        while ($currentId > 0 && !isset($seen[$currentId])) {
+            $seen[$currentId] = true;
+            if (!isset($categories[$currentId])) {
+                break;
+            }
+
+            $name = $categories[$currentId]['name'] ?? null;
+            if ($name !== null && $name !== '') {
+                array_unshift($segments, $name);
+            }
+
+            $currentId = (int) ($categories[$currentId]['id_parent'] ?? 0);
+        }
+
+        $path = trim(implode(' > ', $segments));
+
+        return $path === '' ? null : $path;
     }
 
     private function getSourceImageUrl(int $productId, int $shopId): ?string

@@ -178,7 +178,7 @@ Le token est défini dans `dashboard/.env.local` via `ETL_WEB_TOKEN`.
 
 ## Veille concurrentielle
 
-La phase 1 repose sur une API interne Symfony et un worker Python séparé.
+La veille concurrentielle repose sur une API interne Symfony et un worker Python séparé.
 
 ### Routes API
 
@@ -187,6 +187,8 @@ GET  /api/competitive/run-batch
 GET  /api/competitive/run-all
 GET  /api/competitive/run-both
 GET  /api/competitive/products/next-batch
+GET  /api/competitive/final-prices/next-batch
+POST /api/competitive/final-prices
 GET  /veille-concurrentielle/validation
 GET  /veille-concurrentielle/recherche
 ```
@@ -205,10 +207,12 @@ Le batch runner bloque une deuxième exécution simultanée pour le même `compe
 Orchestrateur parallèle:
 
 ```text
-/api/competitive/run-all?limit=5&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+/api/competitive/run-all?limit=5&price_limit=10&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
 ```
 
 Il lance Woodbrass, Stars Music, Thomann et Michenaud.
+`limit` pilote le batch de matching URL.
+`price_limit` pilote le batch de scraping prix sur les URLs finales.
 
 ### Authentification
 
@@ -223,6 +227,7 @@ Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_A
 5. Symfony stocke les résultats de test et les URLs finales en base.
 6. La validation humaine se fait directement sur `competitor_url_test_result`.
 7. `competitor_url_candidate` est legacy et n’est plus dans le flux métier actif.
+8. `competitor_url_price_history` stocke l'historique append-only des prix finals.
 
 Concurrents actifs:
 
@@ -253,16 +258,40 @@ La table `competitor_url_test_result` enregistre:
 Les lots suivants ignorent les produits déjà testés pour ce concurrent, afin de ne pas recycler le même `id_product`.
 Les produits rejetés ne sont plus renvoyés par le batch provider.
 
+### Règles de matching
+
+- Thomann et Michenaud peuvent utiliser OpenAI pour classer les meilleurs candidats.
+- L'API reçoit seulement les 3 premiers candidats utiles.
+- Les candidats Thomann / Michenaud sont filtrés par marque avant appel API.
+- Thomann rejette d'office les titres qui contiennent `b-stock`, `b stock`, `bstock` ou `bundle`.
+- `score < 30` devient `not_found`.
+- Les résultats Thomann / Michenaud restent `pending` par défaut et peuvent passer à `matched` seulement avec une confiance suffisante.
+
+### Passe prix
+
+- La passe prix ne traite que les `competitor_url_final`.
+- Le prix courant est stocké sur `competitor_url_final`.
+- L'historique de prix est append-only dans `competitor_url_price_history`.
+- La sélection priorise les finals absents de l'historique, puis les plus vieux derniers scrapes de prix.
+
 ### Champs de test
 
 Les résultats de test stockent:
 
 - `competitor_title`
+- `competitor_brand`
+- `competitor_breadcrumb`
 - `competitor_price`
+- `score`
+- `result`
+- `matched_query`
+- `validation_status`
 
 La colonne `title` a été supprimée de `competitor_url_test_result`.
 `score < 30` est traité comme `not_found`.
-`score >= 90` avec `matched` écrit aussi dans `competitor_url_final`.
+Les flux heuristiques peuvent encore passer en `matched` au-dessus de 90.
+Pour Thomann et Michenaud, l'auto-match API se déclenche seulement très haut, autour de 95.
+Quand un test passe en `valid`, Symfony écrit aussi dans `competitor_url_final`.
 
 ### Tables métier
 
@@ -337,7 +366,7 @@ Le numéro de facture de référence est `IDFAC`.
 ## Règles projet à garder
 
 - ne pas mélanger le code Python dans Symfony
-- ne pas faire de scraping prix dans la phase 1
+- ne pas mélanger le scraping prix dans le matching URL
 - ne pas lancer les 8 500 produits d’un coup
 - privilégier des lots progressifs
 - garder les statuts de test explicites

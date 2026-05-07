@@ -12,30 +12,36 @@
 1. Symfony selects products from PrestaShop by batch.
 2. Symfony starts the Python worker.
 3. Python searches competitor sites for candidate URLs.
-4. Python scores candidates and pushes test payloads back to Symfony.
-5. Symfony stores the source of truth in:
+4. Thomann and Michenaud send up to 3 candidates to OpenAI for ranking.
+5. Thomann / Michenaud candidates are filtered by brand before API scoring.
+6. Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
+7. Python pushes test payloads back to Symfony.
+8. Symfony stores the source of truth in:
    - `competitor_url_final`
    - `competitor_url_test_result`
    - `competitor_url_rejected_url`
-6. `competitor_url_candidate` is legacy and no longer part of the active workflow.
-7. Human validation now works directly on `competitor_url_test_result`.
-8. Validation statuses are:
+9. `competitor_url_price_history` stores append-only price observations for finals.
+10. `competitor_url_candidate` is legacy and no longer part of the active workflow.
+11. Human validation now works directly on `competitor_url_test_result`.
+12. Validation statuses are:
    - `pending`
    - `valid`
    - `rejected`
    - `postponed`
    - `ignored`
-9. A running batch is lock-protected per `competitor_id` / `lang_id` / `shop_id` so the cron can skip instead of stacking workers.
-10. `run-all` has a global lock too, so only one combined run can start at a time.
-11. The batch source is `leo_netrivals_send_feed` in the PrestaShop database, not the `product` table.
-12. Next-batch selection excludes products already tested for that competitor, so retries do not recycle the same `id_product`.
-13. `rejected` products are no longer re-queued by the batch provider.
-14. Current competitors are:
+13. A running batch is lock-protected per `competitor_id` / `lang_id` / `shop_id` so the cron can skip instead of stacking workers.
+14. `run-all` has a global lock too, so only one combined run can start at a time.
+15. The batch source is `leo_netrivals_send_feed` in the PrestaShop database, not the `product` table.
+16. Next-batch selection excludes products already tested for that competitor, so retries do not recycle the same `id_product`.
+17. `rejected` products are no longer re-queued by the batch provider.
+18. Price scraping only runs on `competitor_url_final`, not on search results.
+19. `competitor_url_price_history` is the source of truth for price history priority.
+20. Current competitors are:
    - `1` = Woodbrass
    - `2` = Stars Music
    - `3` = Thomann
    - `4` = Michenaud
-15. Debug mode writes PNG screenshots only under `debug/`.
+21. Debug mode writes PNG screenshots only under `debug/`.
 
 ## Key Routes
 
@@ -43,6 +49,8 @@
 - `GET /api/competitive/run-all`
 - `GET /api/competitive/run-both` (legacy alias)
 - `GET /api/competitive/products/next-batch`
+- `GET /api/competitive/final-prices/next-batch`
+- `POST /api/competitive/final-prices`
 - `GET /veille-concurrentielle/validation`
 - `GET /veille-concurrentielle/recherche`
 
@@ -59,16 +67,22 @@
   - `search_input_not_found`
   - `error`
 - `score < 30` is written as `not_found`.
-- `score >= 90` and `matched` becomes `valid` and is pushed to `competitor_url_final`.
+- Thomann and Michenaud can use OpenAI for the final choice among the top 3 candidates.
+- For Thomann and Michenaud, `score >= 95` can become `matched` automatically in the batch.
+- Heuristic flows still use `score >= 90` for `matched`, while Thomann and Michenaud can auto-match at around `95` when OpenAI is enabled.
+- `matched` becomes `valid` and is pushed to `competitor_url_final` in Symfony.
 - `validationStatus = pending` is what the validation page shows.
 - `postponed` hides the row from the validation list without rejecting it.
 - Keep final URLs keyed by PrestaShop `id_product`.
 - Keep `competitor_title` as the canonical competitor-side title in test results.
+- Keep `competitor_brand` and `competitor_breadcrumb` when the scraper can provide them.
+- Keep `competitor_price` and append it to `competitor_url_price_history` when available.
 - `title` was removed from `competitor_url_test_result`.
 - `competitor_price` is optional and may be null.
 - Exclude already tested products from the next batch selection for the same competitor.
 - `rejected` does not come back in the batch provider anymore.
 - `max_parallel` can be used to cap how many batches run at once across competitors.
+- `run-all` accepts `limit` for matching and `price_limit` for the final price crawl.
 
 ## Operational Notes
 
@@ -79,6 +93,7 @@
 - Debug mode writes PNG artifacts under `debug/`.
 - The validation page is paginated and shows the total pending count.
 - The home recap is aligned with the validation pending count.
+- The final price crawl should stay limited and only target finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals.
 
 ## Code References
 

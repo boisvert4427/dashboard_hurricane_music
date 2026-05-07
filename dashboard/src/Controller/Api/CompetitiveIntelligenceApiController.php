@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\Entity\Competitor;
+use App\Service\CompetitiveIntelligence\CompetitiveFinalPriceIngestionService;
 use App\Service\CompetitiveIntelligence\CompetitiveBatchRunner;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultIngestionService;
+use App\Service\CompetitiveIntelligence\FinalPriceBatchRunner;
+use App\Service\CompetitiveIntelligence\FinalUrlPriceBatchProvider;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -136,6 +139,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
     public function runBoth(
         Request $request,
         CompetitiveBatchRunner $batchRunner,
+        FinalPriceBatchRunner $finalPriceBatchRunner,
         EntityManagerInterface $entityManager,
     ): JsonResponse {
         if (!$this->isAuthorized($request)) {
@@ -147,10 +151,15 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         $shopId = max(1, (int) $request->query->get('shop_id', 1));
         $debug = in_array(strtolower((string) $request->query->get('debug', '0')), ['1', 'true', 'yes', 'on'], true);
         $maxParallel = max(0, (int) $request->query->get('max_parallel', 2));
+        $priceLimit = max(1, (int) $request->query->get('price_limit', $limit));
         $afterIdWoodbrass = max(0, (int) $request->query->get('after_id_woodbrass', 0));
         $afterIdStarsMusic = max(0, (int) $request->query->get('after_id_starsmusic', 0));
         $afterIdThomann = max(0, (int) $request->query->get('after_id_thomann', 0));
         $afterIdMichenaud = max(0, (int) $request->query->get('after_id_michenaud', 0));
+        $priceAfterIdWoodbrass = max(0, (int) $request->query->get('price_after_id_woodbrass', 0));
+        $priceAfterIdStarsMusic = max(0, (int) $request->query->get('price_after_id_starsmusic', 0));
+        $priceAfterIdThomann = max(0, (int) $request->query->get('price_after_id_thomann', 0));
+        $priceAfterIdMichenaud = max(0, (int) $request->query->get('price_after_id_michenaud', 0));
 
         $competitorIds = [
             'woodbrass' => 1,
@@ -235,6 +244,48 @@ final class CompetitiveIntelligenceApiController extends AbstractController
                         $maxParallel,
                     ),
                 ];
+                $priceRuns = [
+                    'woodbrass' => $finalPriceBatchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['woodbrass'],
+                        $priceLimit,
+                        $priceAfterIdWoodbrass,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'stars_music' => $finalPriceBatchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['stars_music'],
+                        $priceLimit,
+                        $priceAfterIdStarsMusic,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'thomann' => $finalPriceBatchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['thomann'],
+                        $priceLimit,
+                        $priceAfterIdThomann,
+                        $debug,
+                        $maxParallel,
+                    ),
+                    'michenaud' => $finalPriceBatchRunner->start(
+                        $projectDir,
+                        $apiBaseUrl,
+                        $apiToken,
+                        $competitorIds['michenaud'],
+                        $priceLimit,
+                        $priceAfterIdMichenaud,
+                        $debug,
+                        $maxParallel,
+                    ),
+                ];
             } catch (\Throwable $e) {
                 return $this->json([
                     'ok' => false,
@@ -253,6 +304,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             'shop_id' => $shopId,
             'debug' => $debug,
             'max_parallel' => $maxParallel,
+            'price_limit' => $priceLimit,
             'runs' => [
                 'woodbrass' => [
                     'competitor' => [
@@ -299,6 +351,128 @@ final class CompetitiveIntelligenceApiController extends AbstractController
                     'after_id' => $afterIdMichenaud,
                 ],
             ],
+            'price_runs' => [
+                'woodbrass' => [
+                    'competitor' => [
+                        'id' => $competitors['woodbrass']->getId(),
+                        'name' => $competitors['woodbrass']->getName(),
+                        'domain' => $competitors['woodbrass']->getDomain(),
+                    ],
+                    'pid' => $priceRuns['woodbrass']['pid'],
+                    'command' => $priceRuns['woodbrass']['command'],
+                    'log_file' => $priceRuns['woodbrass']['log_file'] ?? null,
+                    'after_id' => $priceAfterIdWoodbrass,
+                ],
+                'stars_music' => [
+                    'competitor' => [
+                        'id' => $competitors['stars_music']->getId(),
+                        'name' => $competitors['stars_music']->getName(),
+                        'domain' => $competitors['stars_music']->getDomain(),
+                    ],
+                    'pid' => $priceRuns['stars_music']['pid'],
+                    'command' => $priceRuns['stars_music']['command'],
+                    'log_file' => $priceRuns['stars_music']['log_file'] ?? null,
+                    'after_id' => $priceAfterIdStarsMusic,
+                ],
+                'thomann' => [
+                    'competitor' => [
+                        'id' => $competitors['thomann']->getId(),
+                        'name' => $competitors['thomann']->getName(),
+                        'domain' => $competitors['thomann']->getDomain(),
+                    ],
+                    'pid' => $priceRuns['thomann']['pid'],
+                    'command' => $priceRuns['thomann']['command'],
+                    'log_file' => $priceRuns['thomann']['log_file'] ?? null,
+                    'after_id' => $priceAfterIdThomann,
+                ],
+                'michenaud' => [
+                    'competitor' => [
+                        'id' => $competitors['michenaud']->getId(),
+                        'name' => $competitors['michenaud']->getName(),
+                        'domain' => $competitors['michenaud']->getDomain(),
+                    ],
+                    'pid' => $priceRuns['michenaud']['pid'],
+                    'command' => $priceRuns['michenaud']['command'],
+                    'log_file' => $priceRuns['michenaud']['log_file'] ?? null,
+                    'after_id' => $priceAfterIdMichenaud,
+                ],
+            ],
+        ]);
+    }
+
+    #[Route('/final-prices/next-batch', name: 'api_competitive_final_prices_next_batch', methods: ['GET'])]
+    public function nextFinalPriceBatch(
+        Request $request,
+        FinalUrlPriceBatchProvider $batchProvider,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        if (!$this->isAuthorized($request)) {
+            return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
+        }
+
+        $competitorId = max(1, (int) $request->query->get('competitor_id', 0));
+        $limit = max(1, (int) $request->query->get('limit', 50));
+        $afterId = max(0, (int) $request->query->get('after_id', 0));
+
+        $competitor = $entityManager->getRepository(Competitor::class)->find($competitorId);
+        if (!$competitor instanceof Competitor) {
+            return $this->json([
+                'ok' => false,
+                'error' => sprintf('Unknown competitor_id "%d".', $competitorId),
+            ], 404);
+        }
+
+        try {
+            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId);
+        } catch (\Throwable $e) {
+            return $this->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        return $this->json(array_merge([
+            'ok' => true,
+            'competitor' => [
+                'id' => $competitor->getId(),
+                'name' => $competitor->getName(),
+                'domain' => $competitor->getDomain(),
+                'search_url_pattern' => $competitor->getSearchUrlPattern(),
+            ],
+        ], $batch));
+    }
+
+    #[Route('/final-prices', name: 'api_competitive_final_prices_ingest', methods: ['POST'])]
+    public function ingestFinalPrices(
+        Request $request,
+        CompetitiveFinalPriceIngestionService $finalPriceIngestionService,
+    ): JsonResponse {
+        if (!$this->isAuthorized($request)) {
+            return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
+        }
+
+        $payload = json_decode((string) $request->getContent(), true);
+        if (!is_array($payload)) {
+            return $this->json(['ok' => false, 'error' => 'Invalid JSON payload.'], 400);
+        }
+
+        try {
+            $stats = ['inserted' => 0, 'updated' => 0, 'ignored' => 0];
+            if (array_key_exists('observations', $payload)) {
+                $stats = $finalPriceIngestionService->ingest($payload);
+            }
+        } catch (\Throwable $e) {
+            return $this->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 400);
+        }
+
+        return $this->json([
+            'ok' => true,
+            'price_inserted' => $stats['inserted'],
+            'price_updated' => $stats['updated'],
+            'price_ignored' => $stats['ignored'],
         ]);
     }
 

@@ -69,6 +69,7 @@
                                     <tr>
                                         <th>Concurrent</th>
                                         <th>URL finale</th>
+                                        <th>Prix</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -78,10 +79,11 @@
                                             <td class="module-url-cell">
                                                 <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.url }}</a>
                                             </td>
+                                            <td>{{ final.competitor_price ?? 'n/a' }}</td>
                                         </tr>
                                     {% else %}
                                         <tr>
-                                            <td class="detail-empty" colspan="2">Aucune URL finale enregistrée pour ce produit.</td>
+                                            <td class="detail-empty" colspan="3">Aucune URL finale enregistrée pour ce produit.</td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>
