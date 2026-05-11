@@ -43,7 +43,7 @@ La veille concurrentielle fonctionne en 2 passes:
    - Symfony orchestre le lot de produits
    - Python cherche les URLs chez les concurrents
    - Thomann et Michenaud utilisent OpenAI pour arbitrer les meilleurs candidats
-   - l'API ne reçoit que les 3 premiers candidats utiles
+   - l'API reçoit un seul appel par batch avec les 3 premiers candidats utiles par produit
    - les candidats Thomann / Michenaud sont filtrés par marque avant appel API
    - Thomann rejette d'office les titres `b-stock`, `b stock`, `bstock` et `bundle`
    - Symfony stocke les résultats de test et les URLs finales
@@ -59,6 +59,14 @@ La veille concurrentielle fonctionne en 2 passes:
    - l'historique est append-only dans `competitor_url_price_history`
    - `competitor_url_final` garde le prix courant
    - la sélection priorise les finals absents de l'historique, puis les plus anciens derniers scrapes de prix
+
+### Où on en est rendu
+
+- le scrape image reste en mode direct sur le script PHP `fix-pending-image-urls`
+- ce batch est locké pour éviter deux lancements simultanés
+- Thomann tourne avec une pause aléatoire de 2 à 5 secondes avant chaque fetch
+- l’image n’est gardée que si l’URL finale de la page correspond bien à l’URL candidate
+- le worker Python image séparé a été tenté puis abandonné, le flux actif est revenu au scrape direct
 
 ### URL de lancement
 

@@ -18,11 +18,14 @@ Responsibilities:
 - `ThomannScraper`
 - `MichenaudScraper`
 - Woodbrass and Stars rely on a light HTTP search flow and validate the final page by reference / EAN when available.
-- Thomann uses the embedded `search.index` payload from the search page and sends the best 3 candidates to OpenAI when available.
-- Michenaud uses its search page and can also send the best 3 candidates to OpenAI when available.
+- Thomann uses the embedded `search.index` payload from the search page and participates in one OpenAI request per batch when available.
+- Michenaud uses its search page and participates in one OpenAI request per batch when available.
 - Thomann and Michenaud filter candidates by brand before OpenAI ranking.
 - Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
 - Thomann and Michenaud capture title, brand, breadcrumb, and price when available.
+- Thomann currently pauses 2 to 5 seconds between page fetches to reduce burstiness.
+- Image URLs are kept only when the resolved final URL still matches the candidate URL.
+- OpenAI receives up to 3 candidates per product, but the worker only makes one ranking call per batch.
 - `score < 30` is treated as `not_found`.
 - Thomann and Michenaud generally stay `pending` unless the batch marks them high confidence.
 - `matched` with high enough score is written as `valid` and upserted into `competitor_url_final`.
@@ -97,3 +100,7 @@ The worker sends the following test-result fields back to Symfony:
 - `validation_status`
 
 The `title` field is no longer stored on `competitor_url_test_result`.
+
+## Current state
+
+The separate Python image repair worker was tested and then rolled back. The active image flow is direct scraping again through the PHP batch launcher, with a file lock and a random pause per fetch.

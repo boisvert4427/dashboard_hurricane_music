@@ -12,7 +12,7 @@
 1. Symfony selects products from PrestaShop by batch.
 2. Symfony starts the Python worker.
 3. Python searches competitor sites for candidate URLs.
-4. Thomann and Michenaud send up to 3 candidates to OpenAI for ranking.
+4. Thomann and Michenaud send one OpenAI request per batch, carrying up to 3 candidates per product for ranking.
 5. Thomann / Michenaud candidates are filtered by brand before API scoring.
 6. Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
 7. Python pushes test payloads back to Symfony.
@@ -42,6 +42,9 @@
    - `3` = Thomann
    - `4` = Michenaud
 21. Debug mode writes PNG screenshots only under `debug/`.
+22. The image repair batch `fix-pending-image-urls` is back on the direct PHP script, with a file lock and a 2-5 second random pause per fetch.
+23. Thomann price/image fetches now pause randomly between 2 and 5 seconds before each request.
+24. The separate Python image worker was tried and then rolled back; the active flow is direct scraping again.
 
 ## Key Routes
 
@@ -53,6 +56,7 @@
 - `POST /api/competitive/final-prices`
 - `GET /veille-concurrentielle/validation`
 - `GET /veille-concurrentielle/recherche`
+- `GET /api/competitive/fix-pending-image-urls` (direct PHP batch, lock-protected)
 
 ## Important Rules
 
@@ -73,6 +77,7 @@
 - `matched` becomes `valid` and is pushed to `competitor_url_final` in Symfony.
 - `validationStatus = pending` is what the validation page shows.
 - `postponed` hides the row from the validation list without rejecting it.
+- The validation page now works in batches of 50 rows, defaults each row to `rejected`, and has a bulk action to switch the whole page to `valid` before sending.
 - Keep final URLs keyed by PrestaShop `id_product`.
 - Keep `competitor_title` as the canonical competitor-side title in test results.
 - Keep `competitor_brand` and `competitor_breadcrumb` when the scraper can provide them.
@@ -91,9 +96,10 @@
 - If a site is blocked or returns a challenge, record it as a test result and move on.
 - Use debug mode only when diagnosing a specific site or product.
 - Debug mode writes PNG artifacts under `debug/`.
-- The validation page is paginated and shows the total pending count.
+- The validation page is paginated in blocks of 50 and shows the total pending count.
 - The home recap is aligned with the validation pending count.
 - The final price crawl should stay limited and only target finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals.
+- For image repair, keep the batch small and respect the direct-scrape lock/pause behavior on Thomann.
 
 ## Code References
 

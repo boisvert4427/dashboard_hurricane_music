@@ -228,6 +228,10 @@ Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_A
 6. La validation humaine se fait directement sur `competitor_url_test_result`.
 7. `competitor_url_candidate` est legacy et n’est plus dans le flux métier actif.
 8. `competitor_url_price_history` stocke l'historique append-only des prix finals.
+9. La validation se fait désormais par lots de 50 lignes, avec un défaut à `rejected` et un bouton de masse pour tout passer en `valid` avant envoi.
+10. Le script image a été remis en scrape direct, avec un lock fichier et une pause aléatoire pour éviter les lancements simultanés.
+11. Thomann est traité plus lentement qu’avant, avec une pause aléatoire entre 2 et 5 secondes avant chaque fetch.
+12. L’image n’est gardée que si l’URL finale de la page correspond bien à l’URL candidate.
 
 Concurrents actifs:
 
@@ -239,6 +243,7 @@ Concurrents actifs:
 ### Worker Python
 
 Le squelette Python est dans `competitive_intelligence_python/`.
+Le worker image séparé a été essayé puis retiré; le flux image actif est revenu au PHP direct.
 
 ### Statuts de test
 
@@ -257,11 +262,12 @@ La table `competitor_url_test_result` enregistre:
 
 Les lots suivants ignorent les produits déjà testés pour ce concurrent, afin de ne pas recycler le même `id_product`.
 Les produits rejetés ne sont plus renvoyés par le batch provider.
+La page de validation est paginée par blocs de 50 lignes.
 
 ### Règles de matching
 
 - Thomann et Michenaud peuvent utiliser OpenAI pour classer les meilleurs candidats.
-- L'API reçoit seulement les 3 premiers candidats utiles.
+- L'API reçoit un seul appel par batch, avec jusqu'à 3 candidats utiles par produit.
 - Les candidats Thomann / Michenaud sont filtrés par marque avant appel API.
 - Thomann rejette d'office les titres qui contiennent `b-stock`, `b stock`, `bstock` ou `bundle`.
 - `score < 30` devient `not_found`.
