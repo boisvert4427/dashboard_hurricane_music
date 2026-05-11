@@ -148,7 +148,7 @@ final class PrestashopProductBatchProvider
     /**
      * @param array<int, int> $productIds
      *
-     * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string}>
+     * @return array<int, array{id_product:int,name:string,brand:?string,source_price:?float,supplier_reference:?string,ean:?string,source_image_url:?string}>
      */
     public function getProductSnapshotsByIds(array $productIds, int $langId = 1, int $shopId = 1): array
     {
@@ -204,6 +204,7 @@ final class PrestashopProductBatchProvider
                 'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
                 'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
                 'ean' => $this->nullableString($row['ean'] ?? null),
+                'source_image_url' => $this->getSourceImageUrl($productId, $shopId),
             ];
         }
 
@@ -428,7 +429,7 @@ final class PrestashopProductBatchProvider
 
         $digits = str_split((string) $idImage);
 
-        return rtrim($this->prestashopBaseUrl, '/') . '/img/p/' . implode('/', $digits) . '/' . $idImage . '.jpg';
+        return rtrim($this->prestashopBaseUrl, '/') . '/img/p/' . implode('/', $digits) . '/' . $idImage . '-large_default.jpg';
     }
 
 }

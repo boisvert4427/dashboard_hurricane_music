@@ -17,7 +17,7 @@ final class CompetitiveTestResultReviewService
     ) {
     }
 
-    public function updateReviewStatus(int $productId, int $competitorId, string $status): CompetitorUrlTestResult
+    public function updateReviewStatus(int $productId, int $competitorId, string $status, bool $flush = true): CompetitorUrlTestResult
     {
         $repository = $this->entityManager->getRepository(CompetitorUrlTestResult::class);
         $testResult = $repository->findOneBy([
@@ -46,7 +46,9 @@ final class CompetitiveTestResultReviewService
             $this->insertRejectedUrlIfNeeded($testResult);
         }
 
-        $this->entityManager->flush();
+        if ($flush) {
+            $this->entityManager->flush();
+        }
 
         return $testResult;
     }

@@ -20,12 +20,13 @@
 
         <section class="section">
             <div class="section-head">
-                <h2>Pending à traiter</h2>
+                <h2>Lot de validation</h2>
                 <p>
-                    <strong>{{ pending_total }}</strong> ligne(s) en attente de validation.
+                    <strong>{{ pending_total }}</strong> ligne(s) en attente.
                     Page <strong>{{ pending_page }}</strong> / <strong>{{ pending_pages }}</strong>.
+                    La page est calibrée pour <strong>{{ pending_limit }}</strong> résultats et tout démarre sur <strong>rejeter</strong>.
                 </p>
-                <p>Un rejet retire la piste courante et remet le produit dans le flux de test, tout en bloquant la même URL pour ce concurrent.</p>
+                <p>Le bouton de masse permet de basculer toute la page en valid avant l’envoi des 50 résultats d’un coup.</p>
             </div>
 
             {% if pending_pages > 1 %}
@@ -39,64 +40,179 @@
                 </div>
             {% endif %}
 
-            <div class="detail-table-wrap">
-                <table class="detail-table module-table">
-                    <thead>
-                        <tr>
-                            <th>Produit</th>
-                            <th>Vos infos</th>
-                            <th>Candidat concurrent</th>
-                            <th>Score</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in pending_rows %}
+            <form method="post" action="{{ path('app_competitive_validation_bulk_update') }}" id="validation-bulk-form" class="validation-batch-form">
+                <input type="hidden" name="page" value="{{ pending_page }}">
+
+                <div class="validation-batch-toolbar">
+                    <div>
+                        <div class="validation-batch-title">Actions de masse</div>
+                        <p class="validation-batch-copy">Tout commence sur rejeté. Utilise le bouton de masse pour passer la page entière en valid, puis envoie les 50 résultats en une seule fois.</p>
+                    </div>
+                    <div class="validation-batch-actions">
+                        <button class="button button-primary button-block validation-submit-button" type="submit">Envoyer les {{ pending_rows|length }} résultats</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="rejected">Tout rejeter</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="postponed">Tout reporter</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="valid">Tout valider</button>
+                    </div>
+                </div>
+
+                <div class="detail-table-wrap">
+                    <table class="detail-table module-table validation-table">
+                        <thead>
                             <tr>
-                                <td>
-                                    <strong>#{{ row.product_id }}</strong>
-                                    <div class="module-competitor-domain">{{ row.competitor.name }}</div>
-                                </td>
-                                <td>
-                                    <div><strong>{{ row.source.name ?? 'n/a' }}</strong></div>
-                                    <div>Prix: {{ row.source.source_price ?? 'n/a' }}</div>
-                                    <div class="module-url-cell">Ref: {{ row.source.supplier_reference ?? 'n/a' }}</div>
-                                    <div class="module-url-cell">EAN: {{ row.source.ean ?? 'n/a' }}</div>
-                                </td>
-                                <td>
-                                    <div><strong>{{ row.competitor_title ?? 'n/a' }}</strong></div>
-                                    <div>Score concurrent: <strong>{{ row.score ?? 'n/a' }}</strong></div>
-                                    <div>Prix: {{ row.competitor_price ?? 'n/a' }}</div>
-                                    <div class="module-url-cell">
-                                        <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.url }}</a>
-                                    </div>
-                                </td>
-                                <td><strong>{{ row.score }}</strong></td>
-                                <td>
-                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
-                                            <input type="hidden" name="status" value="valid">
-                                            <button class="button button-primary" type="submit">Valider</button>
-                                        </form>
-                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
-                                            <input type="hidden" name="status" value="postponed">
-                                            <button class="button button-secondary" type="submit">Remettre à plus tard</button>
-                                        </form>
-                                        <form method="post" action="{{ path('app_competitive_validation_update', {productId: row.product_id, competitorId: row.competitor.id}) }}">
-                                            <input type="hidden" name="status" value="rejected">
-                                            <button class="button button-secondary" type="submit">Rejeter</button>
-                                        </form>
-                                    </div>
-                                </td>
+                                <th>Photo</th>
+                                <th>Produit</th>
+                                <th>Vos infos</th>
+                                <th>Candidat concurrent</th>
+                                <th>Score</th>
+                                <th>Statut</th>
                             </tr>
-                        {% else %}
-                            <tr>
-                                <td class="detail-empty" colspan="5">Aucun pending à valider.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            {% for row in pending_rows %}
+                                <tr>
+                                    <td>
+                                        {% if row.source is not null and row.source.source_image_url is not null %}
+                                            <img
+                                                class="validation-product-image"
+                                                src="{{ row.source.source_image_url }}"
+                                                alt="{{ row.source.name ?? 'Photo produit' }}"
+                                                loading="lazy"
+                                            >
+                                        {% else %}
+                                            <div class="validation-product-image validation-product-image-empty">n/a</div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <strong>#{{ row.product_id }}</strong>
+                                        <div class="module-competitor-domain">{{ row.competitor.name }}</div>
+                                    </td>
+                                    <td>
+                                        <div><strong>{{ row.source.name ?? 'n/a' }}</strong></div>
+                                        <div>Prix: {{ row.source.source_price ?? 'n/a' }}</div>
+                                        <div class="module-url-cell">Ref: {{ row.source.supplier_reference ?? 'n/a' }}</div>
+                                        <div class="module-url-cell">EAN: {{ row.source.ean ?? 'n/a' }}</div>
+                                    </td>
+                                    <td>
+                                        <div><strong>{{ row.competitor_title ?? 'n/a' }}</strong></div>
+                                        <div>Score concurrent: <strong>{{ row.score ?? 'n/a' }}</strong></div>
+                                        <div>Prix: {{ row.competitor_price ?? 'n/a' }}</div>
+                                        <div class="module-url-cell">
+                                            <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.url }}</a>
+                                        </div>
+                                    </td>
+                                    <td><strong>{{ row.score }}</strong></td>
+                                    <td>
+                                        <div class="validation-status-label">
+                                            <span class="validation-status-label-text">Décision</span>
+                                            <input
+                                                type="hidden"
+                                                id="status-{{ row.product_id }}-{{ row.competitor.id }}"
+                                                name="statuses[{{ row.product_id }}][{{ row.competitor.id }}]"
+                                                value="rejected"
+                                                data-validation-status-value
+                                            >
+                                            <div class="validation-status-group" role="group" aria-label="Décision pour le produit {{ row.product_id }}">
+                                                <button
+                                                    class="status-pill status-pill-rejected is-active"
+                                                    type="button"
+                                                    data-validation-status-button="rejected"
+                                                    aria-pressed="true"
+                                                    title="Rejeter"
+                                                >✕</button>
+                                                <button
+                                                    class="status-pill status-pill-postponed"
+                                                    type="button"
+                                                    data-validation-status-button="postponed"
+                                                    aria-pressed="false"
+                                                    title="Reporter"
+                                                >⏳</button>
+                                                <button
+                                                    class="status-pill status-pill-valid"
+                                                    type="button"
+                                                    data-validation-status-button="valid"
+                                                    aria-pressed="false"
+                                                    title="Valider"
+                                                >✓</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td class="detail-empty" colspan="6">Aucun pending à valider.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="validation-batch-toolbar validation-batch-toolbar-bottom">
+                    <div>
+                        <div class="validation-batch-title">Actions de fin de page</div>
+                        <p class="validation-batch-copy">Même logique qu’en haut: bascule toute la page en rejet, report ou valid puis envoie le lot d’un coup.</p>
+                    </div>
+                    <div class="validation-batch-actions">
+                        <button class="button button-primary button-block validation-submit-button" type="submit">Envoyer les {{ pending_rows|length }} résultats</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="rejected">Tout rejeter</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="postponed">Tout reporter</button>
+                        <button class="button button-secondary" type="button" data-validation-bulk="valid">Tout valider</button>
+                    </div>
+                </div>
+            </form>
         </section>
     </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('validation-bulk-form');
+            if (!form) {
+                return;
+            }
+
+            const statusInputs = Array.from(form.querySelectorAll('[data-validation-status-value]'));
+
+            const syncStatusButtons = function (container, value) {
+                container.querySelectorAll('[data-validation-status-button]').forEach(function (button) {
+                    const isActive = button.getAttribute('data-validation-status-button') === value;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+            };
+
+            const setAllStatuses = function (value) {
+                statusInputs.forEach(function (input) {
+                    input.value = value;
+                    const container = input.nextElementSibling;
+                    if (container && container.classList.contains('validation-status-group')) {
+                        syncStatusButtons(container, value);
+                    }
+                });
+            };
+
+            form.querySelectorAll('[data-validation-bulk]').forEach(function (button) {
+                button.addEventListener('click', function () {
+                    const value = button.getAttribute('data-validation-bulk');
+                    setAllStatuses(value);
+                });
+            });
+
+            form.querySelectorAll('[data-validation-status-button]').forEach(function (button) {
+                button.addEventListener('click', function () {
+                    const value = button.getAttribute('data-validation-status-button');
+                    const group = button.closest('.validation-status-group');
+                    const input = group ? group.previousElementSibling : null;
+
+                    if (!input || !input.matches('[data-validation-status-value]')) {
+                        return;
+                    }
+
+                    input.value = value;
+                    if (group) {
+                        syncStatusButtons(group, value);
+                    }
+                });
+            });
+        });
+    </script>
 {% endblock %}

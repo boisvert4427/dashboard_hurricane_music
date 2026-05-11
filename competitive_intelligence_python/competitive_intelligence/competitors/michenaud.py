@@ -6,7 +6,7 @@ import hashlib
 import re
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -21,6 +21,7 @@ class MichenaudResult:
     url: str
     similarity: int
     competitor_brand: str | None = None
+    image_url: str | None = None
     breadcrumb: str | None = None
     price: float | None = None
 
@@ -33,7 +34,7 @@ class MichenaudScraper(CompetitorScraper):
         self.debug = debug
         self.debug_dir = Path(debug_dir)
 
-    def parse_results(self, html: str, query: str) -> Iterable[tuple[str, str, str, float | None]]:
+    def parse_results(self, html: str, query: str) -> Iterable[tuple[str, str, str, float | None, str | None]]:
         soup = BeautifulSoup(html, "html.parser")
         seen: set[str] = set()
 
@@ -56,9 +57,10 @@ class MichenaudScraper(CompetitorScraper):
             title = self._extract_title(item)
             manufacturer = self._extract_manufacturer(item)
             price = self._extract_price(item)
+            image_url = self._extract_image_url(item)
             if not title:
                 title = link.get_text(" ", strip=True)
-            yield candidate_url, title, manufacturer, price
+            yield candidate_url, title, manufacturer, price, image_url
 
     def search(self, product: dict[str, object]) -> list[Candidate]:
         product_name = str(product.get("name") or "").strip()
@@ -92,7 +94,7 @@ class MichenaudScraper(CompetitorScraper):
             if not parsed_results:
                 continue
 
-            for url, title, manufacturer, price in parsed_results:
+            for url, title, manufacturer, price, image_url in parsed_results:
                 similarity = self._similarity_score(
                     core_name,
                     brand,
@@ -108,6 +110,7 @@ class MichenaudScraper(CompetitorScraper):
                         url=url,
                         similarity=similarity,
                         competitor_brand=manufacturer or None,
+                        image_url=image_url,
                         breadcrumb=None,
                         price=price,
                     )
@@ -119,18 +122,24 @@ class MichenaudScraper(CompetitorScraper):
             return []
 
         enriched_results: list[MichenaudResult] = []
-        for result in sorted(results, key=lambda item: item.similarity, reverse=True)[:3]:
-            _, page_title, breadcrumb = self._verify_product_page(result.url, product, source_price)
+        for result in parsed_results:
+            _, page_title, breadcrumb, page_image_url, final_url = self._verify_product_page(result.url, product, source_price)
+            if not self._urls_match(result.url, final_url):
+                continue
+
             enriched_results.append(
                 MichenaudResult(
                     title=result.title or page_title,
                     url=result.url,
                     similarity=result.similarity,
                     competitor_brand=result.competitor_brand,
+                    image_url=page_image_url or result.image_url,
                     breadcrumb=breadcrumb,
                     price=result.price,
                 )
             )
+            if len(enriched_results) >= 3:
+                break
 
         return [
             Candidate(
@@ -141,6 +150,7 @@ class MichenaudScraper(CompetitorScraper):
                 score=result.similarity,
                 matched_query=best_query,
                 competitor_brand=result.competitor_brand,
+                image_url=result.image_url,
                 breadcrumb=result.breadcrumb,
                 price=result.price,
             )
@@ -152,7 +162,7 @@ class MichenaudScraper(CompetitorScraper):
         url: str,
         product: dict[str, object],
         source_price: float | None = None,
-    ) -> tuple[bool, str, str | None]:
+    ) -> tuple[bool, str, str | None, str | None, str | None]:
         try:
             response = self.http.get(
                 url,
@@ -168,7 +178,7 @@ class MichenaudScraper(CompetitorScraper):
             )
             response.raise_for_status()
         except Exception:
-            return False, "", None
+            return False, "", None, None, None
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
@@ -176,15 +186,16 @@ class MichenaudScraper(CompetitorScraper):
         text = normalize_text(soup.get_text(" ", strip=True))
         raw_html = normalize_text(html)
         breadcrumb = self._extract_breadcrumb(html)
+        image_url = self._extract_image_url(soup)
 
         reference = normalize_text(str(product.get("supplier_reference") or ""))
         ean = normalize_text(str(product.get("ean") or ""))
         if reference and (reference in text or reference in raw_html):
-            return True, page_title, breadcrumb
+            return True, page_title, breadcrumb, image_url, str(response.url or url)
         if ean and (ean in text or ean in raw_html):
-            return True, page_title, breadcrumb
+            return True, page_title, breadcrumb, image_url, str(response.url or url)
 
-        return False, page_title, breadcrumb
+        return False, page_title, breadcrumb, image_url, str(response.url or url)
 
     def _extract_title(self, item) -> str:
         title = item.select_one(".grilleDes")
@@ -211,6 +222,52 @@ class MichenaudScraper(CompetitorScraper):
             return float(match.group(1).replace(",", "."))
         except ValueError:
             return None
+
+    def _extract_image_url(self, node) -> str | None:
+        selectors = [
+            'img#photoCover[src]',
+            'img#photoCover[data-src]',
+            '#photoCover[src]',
+            '#photoCover[data-src]',
+            '#photoCover img[src]',
+            '#photoCover img[data-src]',
+            'meta[property="og:image"]',
+            'meta[name="twitter:image"]',
+            'img[src]',
+            'img[data-src]',
+            'img[data-original]',
+        ]
+
+        for selector in selectors:
+            element = node.select_one(selector) if hasattr(node, "select_one") else None
+            if element is None:
+                continue
+
+            candidate = element.get("content") or element.get("src") or element.get("data-src") or element.get("data-original")
+            candidate = str(candidate or "").strip()
+            if candidate:
+                return urljoin(f"{self.BASE_URL}/", candidate)
+
+        return None
+
+    def _urls_match(self, expected_url: str, final_url: str | None) -> bool:
+        if not expected_url or not final_url:
+            return False
+
+        return self._normalize_url(expected_url) == self._normalize_url(final_url)
+
+    def _normalize_url(self, url: str) -> str:
+        parts = urlsplit(url)
+        path = parts.path or '/'
+        if path != '/' and path.endswith('/'):
+            path = path.rstrip('/')
+        return urlunsplit((
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            path,
+            parts.query,
+            '',
+        ))
 
     def _extract_breadcrumb(self, html: str) -> str | None:
         soup = BeautifulSoup(html, "html.parser")

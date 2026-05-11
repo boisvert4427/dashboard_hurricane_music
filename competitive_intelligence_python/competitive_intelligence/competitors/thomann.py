@@ -4,10 +4,12 @@ from dataclasses import dataclass
 import difflib
 import hashlib
 import json
+import random
 import re
+import time
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -22,8 +24,10 @@ class ThomannResult:
     url: str
     similarity: int
     competitor_brand: str | None = None
+    image_url: str | None = None
     breadcrumb: str | None = None
     price: float | None = None
+    matched_query: str | None = None
 
 
 class ThomannScraper(CompetitorScraper):
@@ -93,14 +97,14 @@ class ThomannScraper(CompetitorScraper):
         if simplified and simplified not in queries:
             queries.append(simplified)
 
-        best_result: ThomannResult | None = None
-        best_query = product_name
+        results: list[ThomannResult] = []
         brand_match_found = False
 
         for query in queries:
             if not query:
                 continue
             search_url = f"{self.BASE_URL}/search.html?sw={quote_plus(query)}"
+            self._human_pause()
             response = self.scraper.get(search_url, timeout=30)
             if response.status_code >= 400:
                 continue
@@ -125,7 +129,10 @@ class ThomannScraper(CompetitorScraper):
                     continue
 
                 brand_match_found = True
-                price, breadcrumb = self._extract_product_page_metadata(url)
+                self._human_pause()
+                price, breadcrumb, image_url, final_url = self._extract_product_page_metadata(url)
+                if not self._urls_match(url, final_url):
+                    continue
                 similarity = self._similarity_score(
                     core_name,
                     brand,
@@ -136,36 +143,40 @@ class ThomannScraper(CompetitorScraper):
                     str(product.get("category_path") or product.get("category") or ""),
                     breadcrumb,
                 )
-                if best_result is None or similarity > best_result.similarity:
-                    best_result = ThomannResult(
+                results.append(
+                    ThomannResult(
                         title=title,
                         url=url,
                         similarity=similarity,
                         competitor_brand=manufacturer or None,
+                        image_url=image_url,
                         breadcrumb=breadcrumb,
                         price=price,
+                        matched_query=query,
                     )
-                    best_query = query
+                )
 
         if brand and not brand_match_found:
             return []
 
-        if best_result is None:
+        if not results:
             return []
 
         return [
-                Candidate(
-                    id_product=product_id,
-                    url=best_result.url.strip(),
-                    title=best_result.title,
-                    source="thomann_search_result",
-                    score=best_result.similarity,
-                    matched_query=best_query,
-                    competitor_brand=best_result.competitor_brand,
-                    breadcrumb=best_result.breadcrumb,
-                    price=best_result.price,
-                )
-            ]
+            Candidate(
+                id_product=product_id,
+                url=result.url.strip(),
+                title=result.title,
+                source="thomann_search_result",
+                score=result.similarity,
+                matched_query=result.matched_query or product_name,
+                competitor_brand=result.competitor_brand,
+                image_url=result.image_url,
+                breadcrumb=result.breadcrumb,
+                price=result.price,
+            )
+            for result in sorted(results, key=lambda item: item.similarity, reverse=True)[:3]
+        ]
 
     def _is_b_stock_title(self, title: str) -> bool:
         title_norm = normalize_text(title)
@@ -175,6 +186,9 @@ class ThomannScraper(CompetitorScraper):
             or "bstock" in title_norm
             or "bundle" in title_norm
         )
+
+    def _human_pause(self) -> None:
+        time.sleep(random.uniform(2.0, 5.0))
 
     def _extract_search_index_payload(self, html: str) -> list[object] | None:
         marker = "tho.bootstrapModule('search.index',"
@@ -402,13 +416,13 @@ class ThomannScraper(CompetitorScraper):
 
         return max(0, min(100, int(round(score))))
 
-    def _extract_product_page_metadata(self, url: str) -> tuple[float | None, str | None]:
+    def _extract_product_page_metadata(self, url: str) -> tuple[float | None, str | None, str | None, str | None]:
         try:
             response = self.scraper.get(url, timeout=30)
             if response.status_code >= 400:
-                return None, None
+                return None, None, None, str(response.url or url)
         except Exception:
-            return None, None
+            return None, None, None, url
 
         html = response.text
         match = re.search(r'itemprop="price"\s+content="([0-9]+(?:[.,][0-9]+)?)"', html, re.I)
@@ -422,8 +436,60 @@ class ThomannScraper(CompetitorScraper):
             except ValueError:
                 price = None
 
+        soup = BeautifulSoup(html, "html.parser")
         breadcrumb = self._extract_breadcrumb(html)
-        return price, breadcrumb
+        image_url = self._extract_image_url(soup)
+        return price, breadcrumb, image_url, str(response.url or url)
+
+    def _extract_image_url(self, soup: BeautifulSoup) -> str | None:
+        selectors = [
+            'meta[property="og:image"]',
+            'meta[name="twitter:image"]',
+            'meta[property="og:image:secure_url"]',
+            'link[rel="image_src"]',
+            'img[itemprop="image"]',
+        ]
+
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+
+            candidate = node.get("content") or node.get("href") or node.get("src") or node.get("data-src")
+            candidate = str(candidate or "").strip()
+            if candidate:
+                return urljoin(f"{self.BASE_URL}/", candidate)
+
+        for selector in ("img[src]", "source[srcset]"):
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+
+            candidate = node.get("src") or node.get("srcset")
+            candidate = str(candidate or "").strip()
+            if candidate:
+                return urljoin(f"{self.BASE_URL}/", candidate.split(",")[0].split(" ")[0].strip())
+
+        return None
+
+    def _urls_match(self, expected_url: str, final_url: str | None) -> bool:
+        if not expected_url or not final_url:
+            return False
+
+        return self._normalize_url(expected_url) == self._normalize_url(final_url)
+
+    def _normalize_url(self, url: str) -> str:
+        parts = urlsplit(url)
+        path = parts.path or '/'
+        if path != '/' and path.endswith('/'):
+            path = path.rstrip('/')
+        return urlunsplit((
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            path,
+            parts.query,
+            '',
+        ))
 
     def _extract_breadcrumb(self, html: str) -> str | None:
         soup = BeautifulSoup(html, "html.parser")

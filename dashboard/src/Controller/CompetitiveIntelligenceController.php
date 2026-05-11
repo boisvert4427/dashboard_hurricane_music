@@ -8,6 +8,7 @@ use App\Entity\Competitor;
 use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Service\CompetitiveIntelligence\CompetitiveImageReviewService;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultReviewService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -25,6 +26,7 @@ final class CompetitiveIntelligenceController extends AbstractController
     ): Response
     {
         $statusCounts = $this->getCandidateStatusCounts($entityManager);
+        $pendingMissingImages = $this->getPendingMissingImageCountsByCompetitor($entityManager);
         $competitors = $this->getCompetitorRepository($entityManager)
             ->createQueryBuilder('c')
             ->orderBy('c.name', 'ASC')
@@ -59,6 +61,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         return $this->render('competitive_intelligence/home.html.twig', [
             'competitor_count' => count($competitors),
             'status_counts' => $statusCounts,
+            'pending_missing_images' => $pendingMissingImages,
             'competitors' => $competitors,
             'test_result_report' => $testResultReport,
             'test_result_totals' => $testResultTotals,
@@ -117,10 +120,11 @@ final class CompetitiveIntelligenceController extends AbstractController
         PrestashopProductBatchProvider $batchProvider,
     ): Response {
         $page = max(1, (int) $request->query->get('page', 1));
-        $limit = 20;
+        $limit = 50;
         $offset = ($page - 1) * $limit;
 
         $totalPending = $this->countPendingValidationRows($entityManager);
+        $pendingMissingImages = $this->getPendingMissingImageCountsByCompetitor($entityManager);
         $pendingRows = $this->getPendingValidationRows($entityManager, $limit, $offset);
         $sourceSnapshots = $batchProvider->getProductSnapshotsByIds(array_map(
             static fn (array $row): int => (int) $row['product_id'],
@@ -141,6 +145,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         return $this->render('competitive_intelligence/validation.html.twig', [
             'pending_rows' => $pendingRows,
             'pending_total' => $totalPending,
+            'pending_missing_images' => $pendingMissingImages,
             'pending_page' => $page,
             'pending_limit' => $limit,
             'pending_pages' => max(1, (int) ceil($totalPending / $limit)),
@@ -167,6 +172,80 @@ final class CompetitiveIntelligenceController extends AbstractController
         $reviewService->updateReviewStatus($productId, $competitorId, $status);
 
         return $this->redirectToRoute('app_competitive_validation');
+    }
+
+    #[Route('/validation/bulk', name: 'app_competitive_validation_bulk_update', methods: ['POST'])]
+    public function validationBulkUpdate(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        CompetitiveTestResultReviewService $reviewService,
+    ): Response {
+        $page = max(1, (int) $request->request->get('page', 1));
+        $statuses = $request->request->all('statuses');
+
+        if (!is_array($statuses)) {
+            return $this->redirectToRoute('app_competitive_validation', ['page' => $page]);
+        }
+
+        foreach ($statuses as $productId => $competitorStatuses) {
+            if (!is_array($competitorStatuses)) {
+                continue;
+            }
+
+            $productId = (int) $productId;
+            if ($productId <= 0) {
+                continue;
+            }
+
+            foreach ($competitorStatuses as $competitorId => $status) {
+                if (!is_string($status)) {
+                    continue;
+                }
+
+                $competitorId = (int) $competitorId;
+                if ($competitorId <= 0) {
+                    continue;
+                }
+
+                if (!in_array($status, [
+                    CompetitorUrlTestResult::REVIEW_POSTPONED,
+                    CompetitorUrlTestResult::REVIEW_VALID,
+                    CompetitorUrlTestResult::REVIEW_REJECTED,
+                ], true)) {
+                    continue;
+                }
+
+                $reviewService->updateReviewStatus($productId, $competitorId, $status, false);
+            }
+        }
+
+        $entityManager->flush();
+
+        return $this->redirectToRoute('app_competitive_validation', ['page' => $page]);
+    }
+
+    #[Route('/validation/image-review', name: 'app_competitive_validation_image_review', methods: ['POST'])]
+    public function validationImageReview(
+        Request $request,
+        CompetitiveImageReviewService $imageReviewService,
+    ): Response {
+        $page = max(1, (int) $request->request->get('page', 1));
+        $stats = $imageReviewService->reviewAllPending();
+
+        $this->addFlash(
+            'success',
+            sprintf(
+                'Vérification par image lancée: %d traités, %d validés, %d rejetés, %d reportés, %d sans image, %d erreur(s).',
+                $stats['processed'],
+                $stats['valid'],
+                $stats['rejected'],
+                $stats['postponed'],
+                $stats['missing_images'],
+                $stats['errors']
+            )
+        );
+
+        return $this->redirectToRoute('app_competitive_validation', ['page' => $page]);
     }
 
     /**
@@ -225,8 +304,10 @@ final class CompetitiveIntelligenceController extends AbstractController
             )
             ->select('COUNT(c.productId)')
             ->andWhere('c.validationStatus = :status')
+            ->andWhere('c.competitorPageStatus = :page_status')
             ->andWhere('final_row.id IS NULL')
             ->setParameter('status', CompetitorUrlTestResult::REVIEW_PENDING)
+            ->setParameter('page_status', CompetitorUrlTestResult::PAGE_OK)
             ->getQuery()
             ->getSingleScalarResult();
     }
@@ -246,11 +327,55 @@ final class CompetitiveIntelligenceController extends AbstractController
             )
             ->select('IDENTITY(c.competitor) AS competitor_id, COUNT(c.productId) AS total')
             ->andWhere('c.validationStatus = :status')
+            ->andWhere('c.competitorPageStatus = :page_status')
             ->andWhere('final_row.id IS NULL')
             ->setParameter('status', CompetitorUrlTestResult::REVIEW_PENDING)
+            ->setParameter('page_status', CompetitorUrlTestResult::PAGE_OK)
             ->groupBy('c.competitor')
             ->getQuery()
             ->getArrayResult();
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function getPendingMissingImageCountsByCompetitor(EntityManagerInterface $entityManager): array
+    {
+        $counts = [
+            'Thomann' => 0,
+            'Michenaud' => 0,
+        ];
+
+        $rows = $entityManager->getRepository(CompetitorUrlTestResult::class)
+            ->createQueryBuilder('c')
+            ->leftJoin('c.competitor', 'competitor')
+            ->leftJoin(
+                \App\Entity\CompetitorUrlFinal::class,
+                'final_row',
+                'WITH',
+                'final_row.id = c.productId AND final_row.competitor = c.competitor'
+            )
+            ->select('competitor.name AS competitor_name, COUNT(c.productId) AS total')
+            ->andWhere('c.validationStatus = :status')
+            ->andWhere('c.competitorPageStatus = :page_status')
+            ->andWhere('final_row.id IS NULL')
+            ->andWhere('competitor.name IN (:competitors)')
+            ->andWhere('(c.competitorImageUrl IS NULL OR c.competitorImageUrl = \'\')')
+            ->setParameter('status', CompetitorUrlTestResult::REVIEW_PENDING)
+            ->setParameter('page_status', CompetitorUrlTestResult::PAGE_OK)
+            ->setParameter('competitors', ['Thomann', 'Michenaud'])
+            ->groupBy('competitor.name')
+            ->getQuery()
+            ->getArrayResult();
+
+        foreach ($rows as $row) {
+            $competitorName = (string) ($row['competitor_name'] ?? '');
+            if (array_key_exists($competitorName, $counts)) {
+                $counts[$competitorName] = (int) ($row['total'] ?? 0);
+            }
+        }
+
+        return $counts;
     }
 
     /**
@@ -269,8 +394,10 @@ final class CompetitiveIntelligenceController extends AbstractController
             )
             ->addSelect('competitor')
             ->andWhere('c.validationStatus = :status')
+            ->andWhere('c.competitorPageStatus = :page_status')
             ->andWhere('final_row.id IS NULL')
             ->setParameter('status', CompetitorUrlTestResult::REVIEW_PENDING)
+            ->setParameter('page_status', CompetitorUrlTestResult::PAGE_OK)
             ->orderBy('c.score', 'DESC')
             ->addOrderBy('c.lastTestedAt', 'DESC')
             ->setMaxResults($limit)

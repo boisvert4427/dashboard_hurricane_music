@@ -95,6 +95,7 @@ def select_best_candidate_with_api(
             {
                 "title": candidate.title,
                 "manufacturer": candidate.competitor_brand,
+                "image_url": candidate.image_url,
                 "breadcrumb": candidate.breadcrumb,
                 "price": candidate.price,
                 "url": candidate.url,
@@ -199,7 +200,9 @@ def main() -> None:
                     scraper = GenericSearchScraper(search_url_pattern=search_url_pattern, http=http)
 
                 total_candidates = 0
-                total_tests = 0
+                tests_to_submit: list[dict[str, object]] = []
+                api_queue: list[dict[str, object]] = []
+
                 for product in batch["items"]:
                     product_id = int(product["id_product"])
                     print(
@@ -211,7 +214,7 @@ def main() -> None:
                         },
                         flush=True,
                     )
-                    tests: list[dict[str, object]] = []
+
                     try:
                         candidates = scraper.search(product)
                         if use_api_scoring:
@@ -233,12 +236,14 @@ def main() -> None:
                                     flush=True,
                                 )
                             candidates = filtered_candidates
+
+                        total_candidates += len(candidates)
                         print(
-                        {
-                            "event": "product_search_done",
-                            "id_product": product_id,
-                            "candidates": len(candidates),
-                        },
+                            {
+                                "event": "product_search_done",
+                                "id_product": product_id,
+                                "candidates": len(candidates),
+                            },
                             flush=True,
                         )
                     except Exception as exc:
@@ -249,7 +254,8 @@ def main() -> None:
                             test_result = "search_input_not_found"
                         else:
                             test_result = "not_found"
-                        tests.append(
+
+                        tests_to_submit.append(
                             {
                                 "id_product": product_id,
                                 "result": test_result,
@@ -264,70 +270,162 @@ def main() -> None:
                             },
                             flush=True,
                         )
-                    else:
-                        if candidates:
-                            candidate_pool = candidates[:3] if use_api_scoring else candidates[:1]
-                            best_candidate = candidate_pool[0]
-                            if use_api_scoring:
-                                selection = select_best_candidate_with_api(
-                                    catalog_comparator,
-                                    product,
-                                    candidate_pool,
-                                )
-                                if selection is not None:
-                                    best_candidate, api_selection = selection
-                                    best_candidate = replace(best_candidate, score=api_selection.confidence)
-                            if best_candidate.score < 30:
-                                tests.append(
-                                    {
-                                        "id_product": best_candidate.id_product,
-                                        "result": "not_found",
-                                    }
-                                )
-                            else:
-                                final_result = "pending"
-                                if use_api_scoring and best_candidate.score >= 95:
-                                    final_result = "matched"
-                                elif not use_api_scoring and best_candidate.score > 90:
-                                    final_result = "matched"
-                                tests.append(
-                                    {
-                                        "id_product": best_candidate.id_product,
-                                        "result": final_result,
-                                        "url": best_candidate.url,
-                                        "competitor_title": best_candidate.title,
-                                        "competitor_brand": best_candidate.competitor_brand,
-                                        "competitor_breadcrumb": best_candidate.breadcrumb,
-                                        "score": best_candidate.score,
-                                        "matched_query": best_candidate.matched_query,
-                                        "competitor_price": best_candidate.price,
-                                    }
-                                )
-                        else:
-                            tests.append(
-                                {
-                                    "id_product": int(product["id_product"]),
-                                    "result": "not_found",
-                                }
-                            )
+                        continue
 
-                        for candidate in candidates:
-                            status = "valid" if candidate.score > 90 else candidate.status
-                    total_candidates += len(candidates)
-                    total_tests += len(tests)
+                    if not candidates:
+                        tests_to_submit.append(
+                            {
+                                "id_product": product_id,
+                                "result": "not_found",
+                            }
+                        )
+                        print(
+                            {
+                                "event": "product_submit",
+                                "id_product": product_id,
+                                "results": 0,
+                                "tests": 1,
+                            },
+                            flush=True,
+                        )
+                        continue
+
+                    if use_api_scoring:
+                        api_queue.append(
+                            {
+                                "product": product,
+                                "product_id": product_id,
+                                "candidate_pool": candidates[:3],
+                                "candidate_count": len(candidates),
+                            }
+                        )
+                        print(
+                            {
+                                "event": "product_buffered_for_api",
+                                "id_product": product_id,
+                                "results": len(candidates),
+                            },
+                            flush=True,
+                        )
+                        continue
+
+                    best_candidate = candidates[0]
+                    if best_candidate.score < 30:
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": "not_found",
+                            }
+                        )
+                    else:
+                        final_result = "matched" if best_candidate.score > 90 else "pending"
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": final_result,
+                                "url": best_candidate.url,
+                                "competitor_title": best_candidate.title,
+                                "competitor_brand": best_candidate.competitor_brand,
+                                "competitor_image_url": best_candidate.image_url,
+                                "competitor_breadcrumb": best_candidate.breadcrumb,
+                                "score": best_candidate.score,
+                                "matched_query": best_candidate.matched_query,
+                                "competitor_price": best_candidate.price,
+                            }
+                        )
+
                     print(
                         {
                             "event": "product_submit",
                             "id_product": product_id,
                             "results": len(candidates),
-                            "tests": len(tests),
+                            "tests": 1,
                         },
                         flush=True,
                     )
+
+                if use_api_scoring and api_queue:
+                    batch_selection = catalog_comparator.select_best_candidates_batch(
+                        items=[
+                            {
+                                "product": item["product"],
+                                "candidates": item["candidate_pool"],
+                            }
+                            for item in api_queue
+                        ]
+                    )
+                    selection_map = {item.product_id: item for item in (batch_selection or [])}
+
+                    for item in api_queue:
+                        product = item["product"]
+                        product_id = int(item["product_id"])
+                        candidate_pool = item["candidate_pool"]
+
+                        if not candidate_pool:
+                            tests_to_submit.append(
+                                {
+                                    "id_product": product_id,
+                                    "result": "not_found",
+                                }
+                            )
+                            continue
+
+                        selection = selection_map.get(product_id)
+                        if selection is not None:
+                            index = max(0, min(len(candidate_pool) - 1, selection.best_index))
+                            best_candidate = replace(candidate_pool[index], score=selection.confidence)
+                        else:
+                            best_candidate = candidate_pool[0]
+
+                        source_price = _as_float(product.get("source_price"))
+                        candidate_price = _as_float(best_candidate.price)
+                        price_ratio = _price_ratio(source_price, candidate_price)
+                        if price_ratio is not None:
+                            if price_ratio >= 0.40 and best_candidate.score > 70:
+                                best_candidate = replace(best_candidate, score=70)
+                            elif price_ratio >= 0.25 and best_candidate.score > 85:
+                                best_candidate = replace(best_candidate, score=85)
+
+                        if best_candidate.score < 30:
+                            tests_to_submit.append(
+                                {
+                                    "id_product": best_candidate.id_product,
+                                    "result": "not_found",
+                                }
+                            )
+                            continue
+
+                        final_result = "matched" if best_candidate.score >= 95 else "pending"
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": final_result,
+                                "url": best_candidate.url,
+                                "competitor_title": best_candidate.title,
+                                "competitor_brand": best_candidate.competitor_brand,
+                                "competitor_image_url": best_candidate.image_url,
+                                "competitor_breadcrumb": best_candidate.breadcrumb,
+                                "score": best_candidate.score,
+                                "matched_query": best_candidate.matched_query,
+                                "competitor_price": best_candidate.price,
+                            }
+                        )
+
+                    print(
+                        {
+                            "event": "batch_api_scored",
+                            "items": len(api_queue),
+                            "selections": len(batch_selection or []),
+                        },
+                        flush=True,
+                    )
+
+                total_tests = len(tests_to_submit)
+                if tests_to_submit:
                     api.submit_candidates(
                         {
                             "competitor_id": competitor["id"],
-                            "tests": tests,
+                            "tests": tests_to_submit,
                         }
                     )
 

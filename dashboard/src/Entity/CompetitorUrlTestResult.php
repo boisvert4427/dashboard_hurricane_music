@@ -22,6 +22,8 @@ class CompetitorUrlTestResult
     public const REVIEW_VALID = 'valid';
     public const REVIEW_REJECTED = 'rejected';
     public const REVIEW_IGNORED = 'ignored';
+    public const PAGE_OK = 'ok';
+    public const PAGE_GONE = 'gone';
 
     #[ORM\Id]
     #[ORM\Column(name: 'id_product', type: 'integer')]
@@ -43,6 +45,12 @@ class CompetitorUrlTestResult
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $competitorBrand = null;
+
+    #[ORM\Column(length: 2048, nullable: true)]
+    private ?string $competitorImageUrl = null;
+
+    #[ORM\Column(length: 16, options: ['default' => self::PAGE_OK])]
+    private string $competitorPageStatus = self::PAGE_OK;
 
     #[ORM\Column(length: 1024, nullable: true)]
     private ?string $competitorBreadcrumb = null;
@@ -72,6 +80,8 @@ class CompetitorUrlTestResult
         ?string $url = null,
         ?string $competitorTitle = null,
         ?string $competitorBrand = null,
+        ?string $competitorImageUrl = null,
+        string $competitorPageStatus = self::PAGE_OK,
         ?string $competitorBreadcrumb = null,
         ?int $score = null,
         ?string $competitorPrice = null,
@@ -85,6 +95,8 @@ class CompetitorUrlTestResult
         $this->url = $url;
         $this->competitorTitle = $competitorTitle;
         $this->competitorBrand = $competitorBrand;
+        $this->competitorImageUrl = $competitorImageUrl;
+        $this->competitorPageStatus = $competitorPageStatus;
         $this->competitorBreadcrumb = $competitorBreadcrumb;
         $this->score = $score;
         $this->competitorPrice = $competitorPrice;
@@ -148,6 +160,30 @@ class CompetitorUrlTestResult
     public function setCompetitorBrand(?string $competitorBrand): self
     {
         $this->competitorBrand = $competitorBrand;
+
+        return $this;
+    }
+
+    public function getCompetitorImageUrl(): ?string
+    {
+        return $this->competitorImageUrl;
+    }
+
+    public function setCompetitorImageUrl(?string $competitorImageUrl): self
+    {
+        $this->competitorImageUrl = $competitorImageUrl;
+
+        return $this;
+    }
+
+    public function getCompetitorPageStatus(): string
+    {
+        return $this->competitorPageStatus;
+    }
+
+    public function setCompetitorPageStatus(string $competitorPageStatus): self
+    {
+        $this->competitorPageStatus = $competitorPageStatus;
 
         return $this;
     }

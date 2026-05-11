@@ -42,6 +42,15 @@ class CatalogCandidateSelection:
     notes: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class CatalogBatchCandidateSelection:
+    product_id: int
+    best_index: int
+    confidence: int
+    same_product: bool
+    notes: tuple[str, ...] = ()
+
+
 COLOR_ALIASES: dict[str, str] = {
     "bk": "black",
     "blk": "black",
@@ -264,6 +273,81 @@ class OpenAICatalogComparator:
 
         return self._to_selection(parsed, len(candidates))
 
+    def select_best_candidates_batch(
+        self,
+        *,
+        items: list[dict[str, Any]],
+    ) -> list[CatalogBatchCandidateSelection] | None:
+        if not self.enabled or not items:
+            return None
+
+        payload = self._build_batch_selection_prompt(items)
+        try:
+            response = self._session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You compare music catalog products. "
+                                "Return strict JSON only, no markdown, no prose."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": payload,
+                        },
+                    ],
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "catalog_batch_candidate_selection",
+                            "strict": True,
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["selections"],
+                                "properties": {
+                                    "selections": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "required": ["product_id", "best_index", "confidence", "same_product", "notes"],
+                                            "properties": {
+                                                "product_id": {"type": "integer", "minimum": 1},
+                                                "best_index": {"type": "integer", "minimum": 0},
+                                                "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+                                                "same_product": {"type": "boolean"},
+                                                "notes": {
+                                                    "type": "array",
+                                                    "items": {"type": "string"},
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+        except Exception:
+            return None
+
+        return self._to_batch_selections(parsed)
+
     def _build_prompt(self, product: dict[str, Any], candidate: dict[str, Any]) -> str:
         source_price = self._to_price(product.get("source_price"))
         candidate_price = self._to_price(candidate.get("price"))
@@ -348,6 +432,75 @@ class OpenAICatalogComparator:
             indent=2,
         )
 
+    def _build_batch_selection_prompt(self, items: list[dict[str, Any]]) -> str:
+        payload_items = []
+        for item in items:
+            product = item.get("product") if isinstance(item, dict) else None
+            candidates = item.get("candidates") if isinstance(item, dict) else None
+            if not isinstance(product, dict) or not isinstance(candidates, list):
+                continue
+
+            source_price = self._to_price(product.get("source_price"))
+            payload_items.append(
+                {
+                    "product": {
+                        "id_product": product.get("id_product"),
+                        "brand": product.get("brand"),
+                        "name": product.get("name"),
+                        "category_path": product.get("category_path") or product.get("category"),
+                        "reference": product.get("supplier_reference"),
+                        "ean": product.get("ean"),
+                        "source_price": product.get("source_price"),
+                    },
+                    "candidates": [
+                        {
+                            "index": index,
+                            "title": self._candidate_value(candidate, "title"),
+                            "manufacturer": self._candidate_value(candidate, "competitor_brand", "manufacturer"),
+                            "image_url": self._candidate_value(candidate, "image_url"),
+                            "breadcrumb": self._candidate_value(candidate, "breadcrumb"),
+                            "price": self._candidate_value(candidate, "price"),
+                            "price_ratio": self._price_ratio(source_price, self._to_price(self._candidate_value(candidate, "price"))),
+                            "url": self._candidate_value(candidate, "url"),
+                        }
+                        for index, candidate in enumerate(candidates)
+                    ],
+                }
+            )
+
+        return json.dumps(
+            {
+                "instructions": [
+                    "Compare each source product against its own candidate list.",
+                    "Return exactly one selection per product_id when at least one candidate is provided.",
+                    "Never return an empty selections array when items are present.",
+                    "If no candidate is a strong match, still choose the least bad candidate and set confidence low.",
+                    "Focus on brand, model, year, color, and instrument type.",
+                    "If the source category_path and competitor breadcrumb are available, compare them as a strong contextual signal.",
+                    "Treat color differences as a strong negative signal even when titles are nearly identical.",
+                    "Treat color abbreviations as meaningful: BK/BLK=black, WH=white, SB=sunburst, TB=transparent blue, NAT=natural, CH=cherry, etc.",
+                    "If color differs, do not choose that candidate unless the color difference is clearly irrelevant or the source has no color signal.",
+                    "Treat price as a strong sanity check. If both prices are present and the ratio differs by more than 25%, that is a strong negative signal.",
+                    "If both prices are present and the ratio differs by more than 40%, avoid selecting that candidate unless it is clearly a bundle, pack, multi-unit listing, or accessory that explains the gap.",
+                    "A 129 vs 649 price gap is usually not the same product.",
+                    "Treat 58 as 1958, 59 as 1959, etc. when the item is a guitar or clearly a vintage instrument.",
+                    "Return best_index as the zero-based index of the best candidate inside that product's candidate array.",
+                    "Return same_product=true only when the best candidate is the same real product, not just a similar family.",
+                ],
+                "items": payload_items,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    def _candidate_value(self, candidate: Any, *keys: str) -> Any:
+        for key in keys:
+            if isinstance(candidate, dict) and key in candidate:
+                return candidate.get(key)
+            if hasattr(candidate, key):
+                return getattr(candidate, key)
+        return None
+
     def _profile_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
@@ -391,6 +544,34 @@ class OpenAICatalogComparator:
             same_product=bool(data.get("same_product", False)),
             notes=tuple(str(item) for item in (data.get("notes") or []) if str(item).strip()),
         )
+
+    def _to_batch_selections(self, data: dict[str, Any]) -> list[CatalogBatchCandidateSelection]:
+        selections = data.get("selections")
+        if not isinstance(selections, list):
+            return []
+
+        items: list[CatalogBatchCandidateSelection] = []
+        for raw in selections:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                product_id = int(raw.get("product_id", 0))
+            except Exception:
+                continue
+            if product_id <= 0:
+                continue
+
+            items.append(
+                CatalogBatchCandidateSelection(
+                    product_id=product_id,
+                    best_index=max(0, int(raw.get("best_index", 0))),
+                    confidence=max(0, min(100, int(raw.get("confidence", 0)))),
+                    same_product=bool(raw.get("same_product", False)),
+                    notes=tuple(str(item) for item in (raw.get("notes") or []) if str(item).strip()),
+                )
+            )
+
+        return items
 
     def _to_profile(self, data: Any) -> CatalogProfile:
         if not isinstance(data, dict):

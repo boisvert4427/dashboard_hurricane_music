@@ -16,6 +16,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Process\Process;
 
 #[Route('/api/competitive')]
 final class CompetitiveIntelligenceApiController extends AbstractController
@@ -474,6 +475,47 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             'price_updated' => $stats['updated'],
             'price_ignored' => $stats['ignored'],
         ]);
+    }
+
+    #[Route('/fix-pending-image-urls', name: 'api_competitive_fix_pending_image_urls', methods: ['GET', 'POST'])]
+    public function fixPendingImageUrls(Request $request): JsonResponse
+    {
+        if (!$this->isAuthorized($request)) {
+            return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
+        }
+
+        $batchSize = max(1, (int) $request->query->get('batch_size', 10));
+        $projectDir = (string) $this->getParameter('kernel.project_dir');
+        $script = $projectDir . '/scripts/fix_pending_competitor_image_urls.php';
+
+        if (!is_file($script)) {
+            return $this->json([
+                'ok' => false,
+                'error' => sprintf('Script not found at "%s".', $script),
+            ], 500);
+        }
+
+        $command = [
+            'php',
+            $script,
+            '--batch-size=' . $batchSize,
+        ];
+        if (in_array(strtolower((string) $request->query->get('apply', '1')), ['1', 'true', 'yes', 'on'], true)) {
+            $command[] = '--apply';
+        }
+
+        $process = new Process($command, $projectDir, null, null, 1800);
+        $process->run();
+
+        return $this->json([
+            'ok' => $process->isSuccessful(),
+            'batch_size' => $batchSize,
+            'apply' => in_array(strtolower((string) $request->query->get('apply', '1')), ['1', 'true', 'yes', 'on'], true),
+            'exit_code' => $process->getExitCode(),
+            'output' => trim($process->getOutput()),
+            'error_output' => trim($process->getErrorOutput()),
+            'command' => implode(' ', array_map('escapeshellarg', $command)),
+        ], $process->isSuccessful() ? 200 : 500);
     }
 
     /**

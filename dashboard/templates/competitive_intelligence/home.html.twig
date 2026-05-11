@@ -73,6 +73,21 @@
                     <strong>{{ price_scrapes_last_24h }}</strong>
                     <span>Scrapes de prix sur les dernières 24h</span>
                 </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Sans image</div>
+                    <strong>{{ (pending_missing_images.Thomann ?? 0) + (pending_missing_images.Michenaud ?? 0) }}</strong>
+                    <span>Pending Thomann + Michenaud sans image</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Thomann sans image</div>
+                    <strong>{{ pending_missing_images.Thomann ?? 0 }}</strong>
+                    <span>URLs à corriger</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Michenaud sans image</div>
+                    <strong>{{ pending_missing_images.Michenaud ?? 0 }}</strong>
+                    <span>URLs à corriger</span>
+                </article>
             </div>
         </section>
 

@@ -21,6 +21,7 @@ class Candidate:
     score: int
     matched_query: str
     competitor_brand: str | None = None
+    image_url: str | None = None
     breadcrumb: str | None = None
     price: float | None = None
     status: str = "pending"

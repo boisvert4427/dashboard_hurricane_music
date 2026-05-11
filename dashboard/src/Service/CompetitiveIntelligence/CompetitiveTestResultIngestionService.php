@@ -77,6 +77,8 @@ final class CompetitiveTestResultIngestionService
                     ->setUrl($this->truncateNullableString($test['url'] ?? null, 2048))
                     ->setCompetitorTitle($this->truncateNullableString($test['competitor_title'] ?? null, 255))
                     ->setCompetitorBrand($this->truncateNullableString($test['competitor_brand'] ?? null, 255))
+                    ->setCompetitorImageUrl($this->truncateNullableString($test['competitor_image_url'] ?? null, 2048))
+                    ->setCompetitorPageStatus($this->normalizePageStatus($test['competitor_page_status'] ?? null))
                     ->setCompetitorBreadcrumb($this->truncateNullableString($test['competitor_breadcrumb'] ?? null, 1024))
                     ->setScore($score)
                     ->setCompetitorPrice($competitorPrice)
@@ -97,6 +99,8 @@ final class CompetitiveTestResultIngestionService
                 $this->truncateNullableString($test['url'] ?? null, 2048),
                 $this->truncateNullableString($test['competitor_title'] ?? null, 255),
                 $this->truncateNullableString($test['competitor_brand'] ?? null, 255),
+                $this->truncateNullableString($test['competitor_image_url'] ?? null, 2048),
+                $this->normalizePageStatus($test['competitor_page_status'] ?? null),
                 $this->truncateNullableString($test['competitor_breadcrumb'] ?? null, 1024),
                 $score,
                 $this->nullableDecimalString($test['competitor_price'] ?? null),
@@ -156,6 +160,16 @@ final class CompetitiveTestResultIngestionService
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    private function normalizePageStatus(mixed $value): string
+    {
+        $value = strtolower(trim((string) $value));
+        if ($value === CompetitorUrlTestResult::PAGE_GONE) {
+            return CompetitorUrlTestResult::PAGE_GONE;
+        }
+
+        return CompetitorUrlTestResult::PAGE_OK;
     }
 
     private function resolveValidationStatus(string $result, ?int $score, mixed $url = null): string
