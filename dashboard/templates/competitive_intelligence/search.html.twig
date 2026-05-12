@@ -44,8 +44,20 @@
                 <div class="workflow-grid" style="margin-bottom:24px;">
                     {% for row in rows %}
                         <article class="workflow-card">
-                            <div class="workflow-step">{{ row.product.id_product }}</div>
-                            <h3>{{ row.product.name }}</h3>
+                            <div style="display:flex; gap:12px; align-items:flex-start;">
+                                {% if row.source and row.source.source_image_url %}
+                                    <img
+                                        src="{{ row.source.source_image_url }}"
+                                        alt="{{ row.product.name }}"
+                                        loading="lazy"
+                                        style="width:84px; height:84px; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.08); background:#111; flex:0 0 auto;"
+                                    >
+                                {% endif %}
+                                <div style="min-width:0;">
+                                    <div class="workflow-step">{{ row.product.id_product }}</div>
+                                    <h3 style="margin-top:6px;">{{ row.product.name }}</h3>
+                                </div>
+                            </div>
                             <p>
                                 Marque: <strong>{{ row.product.brand ?? 'n/a' }}</strong><br>
                                 Réf: <strong>{{ row.product.supplier_reference ?? 'n/a' }}</strong><br>
@@ -59,17 +71,33 @@
                 {% for row in rows %}
                     <section class="section" style="margin-top:0;">
                         <div class="section-head">
-                            <h2>#{{ row.product.id_product }} - {{ row.product.name }}</h2>
-                            <p>{{ row.product.brand ?? 'n/a' }} | {{ row.product.supplier_reference ?? 'n/a' }} | {{ row.product.ean ?? 'n/a' }}</p>
+                            <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+                                {% if row.source and row.source.source_image_url %}
+                                    <img
+                                        src="{{ row.source.source_image_url }}"
+                                        alt="{{ row.product.name }}"
+                                        loading="lazy"
+                                        style="width:72px; height:72px; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.08); background:#111;"
+                                    >
+                                {% endif %}
+                                <div>
+                                    <h2 style="margin-bottom:4px;">#{{ row.product.id_product }} - {{ row.product.name }}</h2>
+                                    <p>{{ row.product.brand ?? 'n/a' }} | {{ row.product.supplier_reference ?? 'n/a' }} | {{ row.product.ean ?? 'n/a' }}</p>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="detail-table-wrap">
+                        <div class="detail-table-wrap" style="margin-bottom:20px;">
+                            <div class="section-head" style="margin-bottom:12px;">
+                                <h3 style="margin-bottom:0;">URLs finales</h3>
+                            </div>
                             <table class="detail-table module-table">
                                 <thead>
                                     <tr>
                                         <th>Concurrent</th>
                                         <th>URL finale</th>
                                         <th>Prix</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -80,10 +108,97 @@
                                                 <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.url }}</a>
                                             </td>
                                             <td>{{ final.competitor_price ?? 'n/a' }}</td>
+                                            <td>
+                                                <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Retirer ce lien et rejeter le test result ?');">
+                                                    <input type="hidden" name="q" value="{{ query }}">
+                                                    <button class="button button-secondary" type="submit">Retirer</button>
+                                                </form>
+                                            </td>
                                         </tr>
                                     {% else %}
                                         <tr>
-                                            <td class="detail-empty" colspan="3">Aucune URL finale enregistrée pour ce produit.</td>
+                                            <td class="detail-empty" colspan="4">Aucune URL finale enregistrée pour ce produit.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="detail-table-wrap">
+                            <div class="section-head" style="margin-bottom:12px;">
+                                <h3 style="margin-bottom:0;">URLs rejetées</h3>
+                            </div>
+                            <table class="detail-table module-table">
+                                <thead>
+                                    <tr>
+                                        <th>Concurrent</th>
+                                        <th>URL rejetée</th>
+                                        <th>Score</th>
+                                        <th>Vu le</th>
+                                        <th>Prix</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for rejected in row.rejected %}
+                                        <tr>
+                                            <td><strong>{{ rejected.competitor.name }}</strong><div class="module-competitor-domain">{{ rejected.competitor.domain }}</div></td>
+                                            <td class="module-url-cell">
+                                                <a href="{{ rejected.url }}" target="_blank" rel="noopener noreferrer">{{ rejected.url }}</a>
+                                            </td>
+                                            <td>{{ rejected.score ?? 'n/a' }}</td>
+                                            <td>{{ rejected.last_tested_at ? rejected.last_tested_at|date('Y-m-d H:i') : 'n/a' }}</td>
+                                            <td>{{ rejected.competitor_price ?? 'n/a' }}</td>
+                                            <td>
+                                                <form method="post" action="{{ path('app_competitive_search_revalidate_rejected', {productId: row.product.id_product, competitorId: rejected.competitor.id}) }}" onsubmit="return confirm('Revalider ce lien ?');">
+                                                    <input type="hidden" name="q" value="{{ query }}">
+                                                    <button class="button button-primary" type="submit">Revalider</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td class="detail-empty" colspan="6">Aucune URL rejetée pour ce produit.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="detail-table-wrap" style="margin-top:20px;">
+                            <div class="section-head" style="margin-bottom:12px;">
+                                <h3 style="margin-bottom:0;">URLs postponed</h3>
+                            </div>
+                            <table class="detail-table module-table">
+                                <thead>
+                                    <tr>
+                                        <th>Concurrent</th>
+                                        <th>URL</th>
+                                        <th>Score</th>
+                                        <th>Vu le</th>
+                                        <th>Prix</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for postponed in row.postponed %}
+                                        <tr>
+                                            <td><strong>{{ postponed.competitor.name }}</strong><div class="module-competitor-domain">{{ postponed.competitor.domain }}</div></td>
+                                            <td class="module-url-cell">
+                                                <a href="{{ postponed.url }}" target="_blank" rel="noopener noreferrer">{{ postponed.url }}</a>
+                                            </td>
+                                            <td>{{ postponed.score ?? 'n/a' }}</td>
+                                            <td>{{ postponed.last_tested_at ? postponed.last_tested_at|date('Y-m-d H:i') : 'n/a' }}</td>
+                                            <td>{{ postponed.competitor_price ?? 'n/a' }}</td>
+                                            <td>
+                                                <form method="post" action="{{ path('app_competitive_search_validate_postponed', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Valider ce lien ?');">
+                                                    <input type="hidden" name="q" value="{{ query }}">
+                                                    <button class="button button-primary" type="submit">Valider</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td class="detail-empty" colspan="6">Aucune URL postponed pour ce produit.</td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Service\CompetitiveIntelligence;
 
-use App\Entity\CompetitorUrlRejectedUrl;
 use App\Entity\CompetitorUrlTestResult;
 use App\Entity\CompetitorUrlFinal;
 use Doctrine\ORM\EntityManagerInterface;
@@ -45,6 +44,29 @@ final class CompetitiveTestResultReviewService
             $this->deleteFinal($testResult);
             $this->insertRejectedUrlIfNeeded($testResult);
         }
+
+        if ($flush) {
+            $this->entityManager->flush();
+        }
+
+        return $testResult;
+    }
+
+    public function restoreRejectedReview(int $productId, int $competitorId, bool $flush = true): CompetitorUrlTestResult
+    {
+        $repository = $this->entityManager->getRepository(CompetitorUrlTestResult::class);
+        $testResult = $repository->findOneBy([
+            'productId' => $productId,
+            'competitor' => $this->entityManager->getReference(\App\Entity\Competitor::class, $competitorId),
+        ]);
+
+        if (!$testResult instanceof CompetitorUrlTestResult) {
+            throw new \RuntimeException(sprintf('Unknown competitor_url_test_result for product "%d" and competitor "%d".', $productId, $competitorId));
+        }
+
+        $testResult->setValidationStatus(CompetitorUrlTestResult::REVIEW_VALID);
+        $this->upsertFinal($testResult);
+        $this->deleteRejectedUrl($testResult);
 
         if ($flush) {
             $this->entityManager->flush();
@@ -109,23 +131,43 @@ final class CompetitiveTestResultReviewService
 
     private function insertRejectedUrlIfNeeded(CompetitorUrlTestResult $testResult): void
     {
-        if ($testResult->getUrl() === null || trim($testResult->getUrl()) === '') {
+        $url = trim((string) $testResult->getUrl());
+        if ($url === '') {
             return;
         }
 
-        $repository = $this->entityManager->getRepository(CompetitorUrlRejectedUrl::class);
-        $existing = $repository->findOneBy([
-            'competitor' => $testResult->getCompetitor(),
-            'url' => $testResult->getUrl(),
-        ]);
+        $this->entityManager->getConnection()->executeStatement(
+            'INSERT IGNORE INTO competitor_url_rejected_url (competitor_id, url, created_at) VALUES (:competitor_id, :url, :created_at)',
+            [
+                'competitor_id' => $testResult->getCompetitor()->getId(),
+                'url' => $url,
+                'created_at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            ],
+            [
+                'competitor_id' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'url' => \Doctrine\DBAL\ParameterType::STRING,
+                'created_at' => \Doctrine\DBAL\ParameterType::STRING,
+            ]
+        );
+    }
 
-        if ($existing instanceof CompetitorUrlRejectedUrl) {
+    private function deleteRejectedUrl(CompetitorUrlTestResult $testResult): void
+    {
+        $url = trim((string) $testResult->getUrl());
+        if ($url === '') {
             return;
         }
 
-        $this->entityManager->persist(new CompetitorUrlRejectedUrl(
-            $testResult->getCompetitor(),
-            (string) $testResult->getUrl(),
-        ));
+        $this->entityManager->getConnection()->executeStatement(
+            'DELETE FROM competitor_url_rejected_url WHERE competitor_id = :competitor_id AND url = :url',
+            [
+                'competitor_id' => $testResult->getCompetitor()->getId(),
+                'url' => $url,
+            ],
+            [
+                'competitor_id' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'url' => \Doctrine\DBAL\ParameterType::STRING,
+            ]
+        );
     }
 }
