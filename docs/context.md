@@ -229,9 +229,12 @@ Le token est défini dans `dashboard/.env.local` via `COMPETITIVE_INTELLIGENCE_A
 7. `competitor_url_candidate` est legacy et n’est plus dans le flux métier actif.
 8. `competitor_url_price_history` stocke l'historique append-only des prix finals.
 9. La validation se fait désormais par lots de 50 lignes, avec un défaut à `rejected` et un bouton de masse pour tout passer en `valid` avant envoi.
-10. Le script image a été remis en scrape direct, avec un lock fichier et une pause aléatoire pour éviter les lancements simultanés.
+10. Le script image est revenu en scrape direct, avec un lock fichier et une pause aléatoire pour éviter les lancements simultanés.
 11. Thomann est traité plus lentement qu’avant, avec une pause aléatoire entre 2 et 5 secondes avant chaque fetch.
 12. L’image n’est gardée que si l’URL finale de la page correspond bien à l’URL candidate.
+13. La comparaison image de validation se fait par lots OpenAI de 10 paires, avec compression des images avant envoi et flush de persistence à chaque lot.
+14. La page de recherche affiche les URLs finales, rejetées et postponed, avec photos produit dans la vue.
+15. Les URLs rejetées peuvent être revalidées depuis la recherche.
 
 Concurrents actifs:
 

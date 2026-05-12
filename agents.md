@@ -45,6 +45,9 @@
 22. The image repair batch `fix-pending-image-urls` is back on the direct PHP script, with a file lock and a 2-5 second random pause per fetch.
 23. Thomann price/image fetches now pause randomly between 2 and 5 seconds before each request.
 24. The separate Python image worker was tried and then rolled back; the active flow is direct scraping again.
+25. The image review route compares product photos through OpenAI in batches of 10 pairs, compresses images before upload, and flushes persistence after each batch.
+26. The competitive search page now shows source images plus separate sections for finals, rejected URLs, and postponed URLs.
+27. Rejected URLs can be revalidated from the search page and are pushed back to `valid`.
 
 ## Key Routes
 
@@ -56,6 +59,7 @@
 - `POST /api/competitive/final-prices`
 - `GET /veille-concurrentielle/validation`
 - `GET /veille-concurrentielle/recherche`
+- `GET /veille-concurrentielle/validation/image-review`
 - `GET /api/competitive/fix-pending-image-urls` (direct PHP batch, lock-protected)
 
 ## Important Rules
@@ -100,6 +104,7 @@
 - The home recap is aligned with the validation pending count.
 - The final price crawl should stay limited and only target finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals.
 - For image repair, keep the batch small and respect the direct-scrape lock/pause behavior on Thomann.
+- For image review, keep the batch OpenAI size to 10 pairs per request unless the prompt grows too large.
 
 ## Code References
 

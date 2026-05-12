@@ -95,6 +95,12 @@ Les produits `rejected` ne sont plus repris par le batch provider.
 - `Rejeter` sort la ligne du flux et enregistre l’URL rejetée
 - `Remettre à plus tard` passe en `postponed` sans la faire remonter dans la liste
 - `competitor_url_test_result` reste la source de vérité pour la validation humaine
+- la page `/veille-concurrentielle/recherche` affiche maintenant les URLs finales, rejetées et postponed
+- les URLs rejetées peuvent être revalidées depuis la recherche
+- les images produit PrestaShop sont affichées dans la recherche
+- le batch image `/veille-concurrentielle/validation/image-review` compare désormais les paires par lots OpenAI de 10
+- le service de comparaison image redimensionne les images avant envoi et flush en base par lot de 10
+- la route image-review est protégée par un lock fichier pour éviter deux exécutions simultanées
 
 ### Worker Python
 
@@ -106,7 +112,7 @@ competitive_intelligence_python/run_batch.py
 
 Le worker enregistre les statuts de test dans `competitor_url_test_result`, y compris les cas `cloudflare` et `search_input_not_found`.
 Le worker peut aussi alimenter la passe prix finale via `run_final_prices.py`.
-Les images peuvent être récupérées côté validation pour comparaison humaine, mais elles ne sont pas encore utilisées dans le scoring.
+Les images peuvent être récupérées côté validation pour comparaison humaine, et la comparaison OpenAI se fait maintenant par lots de 10 paires.
 
 ## Fichiers utiles
 

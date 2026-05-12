@@ -26,6 +26,7 @@ Responsibilities:
 - Thomann currently pauses 2 to 5 seconds between page fetches to reduce burstiness.
 - Image URLs are kept only when the resolved final URL still matches the candidate URL.
 - OpenAI receives up to 3 candidates per product, but the worker only makes one ranking call per batch.
+- The Symfony image review flow now compares photos in OpenAI batches of 10 pairs, compresses images before upload, and flushes persistence after each batch.
 - `score < 30` is treated as `not_found`.
 - Thomann and Michenaud generally stay `pending` unless the batch marks them high confidence.
 - `matched` with high enough score is written as `valid` and upserted into `competitor_url_final`.
@@ -104,3 +105,4 @@ The `title` field is no longer stored on `competitor_url_test_result`.
 ## Current state
 
 The separate Python image repair worker was tested and then rolled back. The active image flow is direct scraping again through the PHP batch launcher, with a file lock and a random pause per fetch.
+The Symfony search page now shows source thumbnails, rejected URLs, and postponed URLs, and rejected URLs can be revalidated from the search page.
