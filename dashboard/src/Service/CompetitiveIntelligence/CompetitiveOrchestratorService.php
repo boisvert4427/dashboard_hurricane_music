@@ -21,12 +21,17 @@ final class CompetitiveOrchestratorService
         'prices' => ['label' => 'Prices', 'mode' => null],
     ];
 
+    private const SYSTEM_TASKS = [
+        'cleanup_logs' => ['label' => 'Cleanup logs'],
+    ];
+
     public function __construct(
         private readonly CompetitiveBatchRunner $batchRunner,
         private readonly FinalPriceBatchRunner $finalPriceBatchRunner,
         private readonly PrestashopProductBatchProvider $productBatchProvider,
         private readonly FinalUrlPriceBatchProvider $finalUrlPriceBatchProvider,
         private readonly CompetitiveOrchestratorStateStorage $stateStorage,
+        private readonly CompetitiveTaskLogService $taskLogService,
     ) {
     }
 
@@ -46,16 +51,23 @@ final class CompetitiveOrchestratorService
             $tasks[$this->taskKey($competitorKey, 'retry_urls')] = [
                 'enabled' => true,
                 'limit' => 10,
-                'interval_minutes' => 1440,
+                'interval_minutes' => 720,
                 'priority' => 30,
             ];
             $tasks[$this->taskKey($competitorKey, 'prices')] = [
                 'enabled' => true,
                 'limit' => 5,
-                'interval_minutes' => 15,
+                'interval_minutes' => 1,
                 'priority' => 80,
             ];
         }
+
+        $tasks['system.cleanup_logs'] = [
+            'enabled' => true,
+            'limit' => 30,
+            'interval_minutes' => 1440,
+            'priority' => 5,
+        ];
 
         return $tasks;
     }
@@ -99,8 +111,37 @@ final class CompetitiveOrchestratorService
             }
         }
 
+        foreach (self::SYSTEM_TASKS as $taskType => $taskDefinition) {
+            $key = 'system.' . $taskType;
+            $taskConfig = is_array($configTasks[$key] ?? null) ? $configTasks[$key] : [];
+            $taskState = is_array($stateTasks[$key] ?? null) ? $stateTasks[$key] : [];
+            $running = $this->isTaskRunning(0, $taskType, $langId, $shopId);
+            $pending = $this->hasPendingWork(0, $taskType, $langId, $shopId, (int) ($taskConfig['limit'] ?? 30));
+
+            $descriptions[] = [
+                'key' => $key,
+                'competitor_key' => 'system',
+                'competitor_id' => 0,
+                'competitor_label' => 'System',
+                'task_type' => $taskType,
+                'task_label' => $taskDefinition['label'],
+                'enabled' => (bool) ($taskConfig['enabled'] ?? false),
+                'limit' => (int) ($taskConfig['limit'] ?? 0),
+                'interval_minutes' => (int) ($taskConfig['interval_minutes'] ?? 0),
+                'priority' => (int) ($taskConfig['priority'] ?? 0),
+                'running' => $running,
+                'pending_work' => $pending,
+                'last_started_at' => $taskState['last_started_at'] ?? null,
+                'last_result' => $taskState['last_result'] ?? null,
+                'last_reason' => $taskState['last_reason'] ?? null,
+            ];
+        }
+
         usort($descriptions, static function (array $left, array $right): int {
-            return [$left['competitor_id'], $left['task_type']] <=> [$right['competitor_id'], $right['task_type']];
+            $leftRank = ((int) $left['competitor_id']) === 0 ? 999 : (int) $left['competitor_id'];
+            $rightRank = ((int) $right['competitor_id']) === 0 ? 999 : (int) $right['competitor_id'];
+
+            return [$leftRank, $left['task_type']] <=> [$rightRank, $right['task_type']];
         });
 
         return $descriptions;
@@ -349,6 +390,10 @@ final class CompetitiveOrchestratorService
         $limit = (int) $task['limit'];
         $taskType = (string) $task['task_type'];
 
+        if ($taskType === 'cleanup_logs') {
+            return $this->runCleanupLogsTask($limit);
+        }
+
         if ($taskType === 'prices') {
             return $this->finalPriceBatchRunner->start(
                 $projectDir,
@@ -385,6 +430,10 @@ final class CompetitiveOrchestratorService
     {
         $projectRoot = dirname(__DIR__, 4);
         $lockDir = $projectRoot . '/competitive_intelligence_python/var/lock/competitive-intelligence';
+        if ($taskType === 'cleanup_logs') {
+            return $this->isLockTaken(sprintf('%s/system-cleanup-logs.lock', $lockDir));
+        }
+
         if ($taskType === 'prices') {
             return $this->isLockTaken(sprintf('%s/price-competitor-%d.lock', $lockDir, $competitorId));
         }
@@ -428,9 +477,13 @@ final class CompetitiveOrchestratorService
         }
     }
 
-    private function hasPendingWork(int $competitorId, string $taskType, int $langId, int $shopId): bool
+    private function hasPendingWork(int $competitorId, string $taskType, int $langId, int $shopId, ?int $limit = null): bool
     {
         try {
+            if ($taskType === 'cleanup_logs') {
+                return $this->taskLogService->hasLogsOlderThanDays(max(1, $limit ?? 30));
+            }
+
             if ($taskType === 'prices') {
                 return $this->finalUrlPriceBatchProvider->hasPendingWork($competitorId, 0);
             }
@@ -442,6 +495,43 @@ final class CompetitiveOrchestratorService
             return $this->productBatchProvider->hasPendingWork($competitorId, 0, $mode);
         } catch (\Throwable) {
             return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function runCleanupLogsTask(int $retentionDays): array
+    {
+        $projectRoot = dirname(__DIR__, 4);
+        $lockPath = $projectRoot . '/competitive_intelligence_python/var/lock/competitive-intelligence/system-cleanup-logs.lock';
+        $directory = dirname($lockPath);
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new \RuntimeException(sprintf('Unable to create lock directory "%s".', $directory));
+        }
+
+        $handle = fopen($lockPath, 'c+');
+        if ($handle === false) {
+            throw new \RuntimeException(sprintf('Unable to open lock file "%s".', $lockPath));
+        }
+
+        try {
+            if (!flock($handle, LOCK_EX | LOCK_NB)) {
+                throw new \RuntimeException('Cleanup logs task is already running.');
+            }
+
+            $result = $this->taskLogService->cleanupLogsOlderThanDays(max(1, $retentionDays));
+
+            return [
+                'pid' => getmypid() ?: null,
+                'log_file' => $result['log_file'] ?? null,
+                'deleted_count' => $result['deleted_count'] ?? 0,
+                'retention_days' => $result['retention_days'] ?? $retentionDays,
+                'completed' => true,
+            ];
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
     }
 }

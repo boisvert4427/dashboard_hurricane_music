@@ -25,6 +25,51 @@ final class CompetitiveTaskLogService
         return dirname($this->kernel->getProjectDir()) . '/var/log/competitive-intelligence';
     }
 
+    public function hasLogsOlderThanDays(int $days): bool
+    {
+        $days = max(1, $days);
+        $cutoff = time() - ($days * 86400);
+
+        foreach ($this->listLogPaths() as $path) {
+            $modifiedAt = @filemtime($path);
+            if ($modifiedAt !== false && $modifiedAt < $cutoff) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{deleted_count:int,deleted_files:array<int,string>,retention_days:int,log_file:?string}
+     */
+    public function cleanupLogsOlderThanDays(int $days = 30): array
+    {
+        $days = max(1, $days);
+        $cutoff = time() - ($days * 86400);
+        $deletedFiles = [];
+
+        foreach ($this->listLogPaths() as $path) {
+            $modifiedAt = @filemtime($path);
+            if ($modifiedAt === false || $modifiedAt >= $cutoff) {
+                continue;
+            }
+
+            if (@unlink($path)) {
+                $deletedFiles[] = basename($path);
+            }
+        }
+
+        $logFilename = $this->writeCleanupLog($days, $deletedFiles);
+
+        return [
+            'deleted_count' => count($deletedFiles),
+            'deleted_files' => $deletedFiles,
+            'retention_days' => $days,
+            'log_file' => $logFilename,
+        ];
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -189,6 +234,49 @@ final class CompetitiveTaskLogService
             ];
         }
 
+        if (preg_match('/^cleanup-(\d{14})\.log$/', $filename) === 1) {
+            return [
+                'filename' => $filename,
+                'path' => $path,
+                'size' => $size,
+                'modified_at' => $modifiedAt > 0 ? date(\DateTimeInterface::ATOM, $modifiedAt) : null,
+                'modified_at_ts' => $modifiedAt,
+                'competitor_id' => 0,
+                'competitor_key' => 'system',
+                'competitor_label' => 'System',
+                'task_type' => 'cleanup_logs',
+                'task_label' => 'Cleanup logs',
+                'task_key' => 'system.cleanup_logs',
+            ];
+        }
+
         return null;
+    }
+
+    /**
+     * @param array<int, string> $deletedFiles
+     */
+    private function writeCleanupLog(int $days, array $deletedFiles): ?string
+    {
+        $directory = $this->getLogDirectory();
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return null;
+        }
+
+        $filename = sprintf('cleanup-%s.log', date('YmdHis'));
+        $path = $directory . '/' . $filename;
+        $lines = [
+            sprintf('[%s] cleanup_logs', date(\DateTimeInterface::ATOM)),
+            sprintf('retention_days=%d', $days),
+            sprintf('deleted_count=%d', count($deletedFiles)),
+        ];
+
+        foreach ($deletedFiles as $deletedFile) {
+            $lines[] = 'deleted=' . $deletedFile;
+        }
+
+        $result = @file_put_contents($path, implode(PHP_EOL, $lines) . PHP_EOL, LOCK_EX);
+
+        return $result === false ? null : $filename;
     }
 }

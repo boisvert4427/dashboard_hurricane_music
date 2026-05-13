@@ -22,6 +22,7 @@ final class CompetitiveOrchestratorConfigStorage
         'michenaud.new_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 100],
         'michenaud.retry_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 30],
         'michenaud.prices' => ['enabled' => true, 'limit' => 5, 'interval_minutes' => 1, 'priority' => 80],
+        'system.cleanup_logs' => ['enabled' => true, 'limit' => 30, 'interval_minutes' => 1440, 'priority' => 5],
     ];
 
     public function __construct(

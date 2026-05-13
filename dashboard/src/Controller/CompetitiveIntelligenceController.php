@@ -113,12 +113,22 @@ final class CompetitiveIntelligenceController extends AbstractController
                         (int) ($config['global']['shop_id'] ?? 1),
                     );
                     $task = $result['task'] ?? [];
-                    $this->addFlash('success', sprintf(
+                    $message = sprintf(
                         'Tâche lancée: %s / %s (pid=%s).',
                         (string) ($task['competitor_label'] ?? 'Unknown'),
                         (string) ($task['task_label'] ?? 'Unknown'),
                         (string) (($result['run']['pid'] ?? null) ?? 'n/a'),
-                    ));
+                    );
+                    if (($task['task_type'] ?? null) === 'cleanup_logs') {
+                        $message = sprintf(
+                            'Tâche lancée: %s / %s, %d log(s) supprimé(s), rétention %d jour(s).',
+                            (string) ($task['competitor_label'] ?? 'Unknown'),
+                            (string) ($task['task_label'] ?? 'Unknown'),
+                            (int) (($result['run']['deleted_count'] ?? 0)),
+                            (int) (($result['run']['retention_days'] ?? 30)),
+                        );
+                    }
+                    $this->addFlash('success', $message);
                 } catch (\Throwable $e) {
                     $this->addFlash('error', $e->getMessage());
                 }
