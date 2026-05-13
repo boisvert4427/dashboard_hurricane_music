@@ -321,12 +321,38 @@ def _extract_fallback_price(html: str) -> float | None:
 
 
 def _parse_price_text(text: str) -> float | None:
-    text = text.replace("\u00A0", " ").replace("eur", "").replace("€", "").strip()
-    match = re.search(r"([0-9]+(?:[.,][0-9]+)?)", text)
+    cleaned = text.replace("\u00A0", " ").replace("eur", "").replace("€", "").strip()
+    match = re.search(r"([0-9][0-9\s.,]*)", cleaned)
     if not match:
         return None
+
+    numeric = re.sub(r"\s+", "", match.group(1))
+    if not numeric:
+        return None
+
+    if "," in numeric and "." in numeric:
+        last_comma = numeric.rfind(",")
+        last_dot = numeric.rfind(".")
+        decimal_sep = "," if last_comma > last_dot else "."
+        thousands_sep = "." if decimal_sep == "," else ","
+        numeric = numeric.replace(thousands_sep, "")
+        numeric = numeric.replace(decimal_sep, ".")
+    elif numeric.count(",") > 1:
+        numeric = numeric.replace(",", "")
+    elif numeric.count(".") > 1:
+        numeric = numeric.replace(".", "")
+    else:
+        separator = "," if "," in numeric else "." if "." in numeric else None
+        if separator is not None:
+            left, right = numeric.split(separator, 1)
+            # `1.770 €` or `1,770 €` is a thousands format, not a decimal price.
+            if right.isdigit() and len(right) == 3 and len(left) >= 1:
+                numeric = left + right
+            else:
+                numeric = left + "." + right if separator == "," else numeric
+
     try:
-        return float(match.group(1).replace(",", "."))
+        return float(numeric)
     except ValueError:
         return None
 
