@@ -7,6 +7,8 @@ namespace App\Controller\Api;
 use App\Entity\Competitor;
 use App\Service\CompetitiveIntelligence\CompetitiveFinalPriceIngestionService;
 use App\Service\CompetitiveIntelligence\CompetitiveBatchRunner;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultIngestionService;
 use App\Service\CompetitiveIntelligence\FinalPriceBatchRunner;
 use App\Service\CompetitiveIntelligence\FinalUrlPriceBatchProvider;
@@ -23,6 +25,39 @@ final class CompetitiveIntelligenceApiController extends AbstractController
 {
     private const RUN_ALL_LOCK_NAME = 'run-all.lock';
 
+    #[Route('/orchestrate', name: 'api_competitive_orchestrate', methods: ['GET', 'POST'])]
+    public function orchestrate(
+        Request $request,
+        CompetitiveOrchestratorConfigStorage $configStorage,
+        CompetitiveOrchestratorService $orchestratorService,
+    ): JsonResponse {
+        if (!$this->isAuthorized($request)) {
+            return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
+        }
+
+        $debug = in_array(strtolower((string) $request->query->get('debug', '0')), ['1', 'true', 'yes', 'on'], true);
+        $config = $configStorage->load();
+
+        try {
+            $result = $orchestratorService->orchestrate(
+                $config,
+                (string) $this->getParameter('kernel.project_dir'),
+                $request->getSchemeAndHttpHost(),
+                (string) $this->getParameter('competitive_intelligence_api_token'),
+                (int) ($config['global']['lang_id'] ?? 1),
+                (int) ($config['global']['shop_id'] ?? 1),
+                $debug,
+            );
+        } catch (\Throwable $e) {
+            return $this->json([
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        return $this->json($result);
+    }
+
     #[Route('/products/next-batch', name: 'api_competitive_products_next_batch', methods: ['GET'])]
     public function nextBatch(
         Request $request,
@@ -38,6 +73,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         $afterId = max(0, (int) $request->query->get('after_id', 0));
         $langId = max(1, (int) $request->query->get('lang_id', 1));
         $shopId = max(1, (int) $request->query->get('shop_id', 1));
+        $mode = trim((string) $request->query->get('mode', PrestashopProductBatchProvider::MODE_NEW_URL));
 
         $competitor = $entityManager->getRepository(Competitor::class)->find($competitorId);
         if (!$competitor instanceof Competitor) {
@@ -48,7 +84,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         }
 
         try {
-            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId, $langId, $shopId);
+            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId, $langId, $shopId, $mode);
         } catch (\Throwable $e) {
             return $this->json([
                 'ok' => false,
@@ -74,6 +110,54 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         CompetitiveBatchRunner $batchRunner,
         EntityManagerInterface $entityManager,
     ): JsonResponse {
+        return $this->startUrlBatch(
+            $request,
+            $batchProvider,
+            $batchRunner,
+            $entityManager,
+            PrestashopProductBatchProvider::MODE_NEW_URL,
+        );
+    }
+
+    #[Route('/run-new-urls', name: 'api_competitive_run_new_urls', methods: ['GET', 'POST'])]
+    public function runNewUrls(
+        Request $request,
+        PrestashopProductBatchProvider $batchProvider,
+        CompetitiveBatchRunner $batchRunner,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        return $this->startUrlBatch(
+            $request,
+            $batchProvider,
+            $batchRunner,
+            $entityManager,
+            PrestashopProductBatchProvider::MODE_NEW_URL,
+        );
+    }
+
+    #[Route('/run-retry-urls', name: 'api_competitive_run_retry_urls', methods: ['GET', 'POST'])]
+    public function runRetryUrls(
+        Request $request,
+        PrestashopProductBatchProvider $batchProvider,
+        CompetitiveBatchRunner $batchRunner,
+        EntityManagerInterface $entityManager,
+    ): JsonResponse {
+        return $this->startUrlBatch(
+            $request,
+            $batchProvider,
+            $batchRunner,
+            $entityManager,
+            PrestashopProductBatchProvider::MODE_RETRY_URL,
+        );
+    }
+
+    private function startUrlBatch(
+        Request $request,
+        PrestashopProductBatchProvider $batchProvider,
+        CompetitiveBatchRunner $batchRunner,
+        EntityManagerInterface $entityManager,
+        string $defaultMode,
+    ): JsonResponse {
         if (!$this->isAuthorized($request)) {
             return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
         }
@@ -85,6 +169,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         $shopId = max(1, (int) $request->query->get('shop_id', 1));
         $debug = in_array(strtolower((string) $request->query->get('debug', '0')), ['1', 'true', 'yes', 'on'], true);
         $maxParallel = max(0, (int) $request->query->get('max_parallel', 0));
+        $mode = trim((string) $request->query->get('mode', $defaultMode));
 
         $competitor = $entityManager->getRepository(Competitor::class)->find($competitorId);
         if (!$competitor instanceof Competitor) {
@@ -97,7 +182,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         try {
             $projectDir = (string) $this->getParameter('kernel.project_dir');
             $projectRoot = dirname($projectDir);
-            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId, $langId, $shopId);
+            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId, $langId, $shopId, $mode);
             $run = $batchRunner->start(
                 $projectDir,
                 $request->getSchemeAndHttpHost(),
@@ -109,6 +194,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
                 $shopId,
                 $debug,
                 $maxParallel,
+                $mode,
             );
         } catch (\Throwable $e) {
             return $this->json([
@@ -125,6 +211,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             'project_root' => $projectRoot,
             'log_file' => $run['log_file'] ?? null,
             'max_parallel' => $maxParallel,
+            'mode' => $mode,
             'batch' => $batch,
             'competitor' => [
                 'id' => $competitor->getId(),

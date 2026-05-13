@@ -1,0 +1,29 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Log {{ filename }} | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Log de tâche</div>
+                    <div class="brand-subtitle">{{ filename }}</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_orchestrator', { log: filename }) }}">Retour orchestrateur</a>
+            </div>
+        </header>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>Log complet</h2>
+                <p><code>{{ path }}</code></p>
+            </div>
+
+            <pre class="orchestrator-json log-viewer">{{ content }}</pre>
+        </section>
+    </main>
+{% endblock %}

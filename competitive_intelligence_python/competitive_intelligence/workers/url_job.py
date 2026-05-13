@@ -1,0 +1,423 @@
+from __future__ import annotations
+
+import fcntl
+import os
+import time
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+
+from competitive_intelligence.competitors.generic_search import GenericSearchScraper
+from competitive_intelligence.competitors.michenaud import MichenaudScraper
+from competitive_intelligence.competitors.starsmusic import StarsMusicScraper
+from competitive_intelligence.competitors.thomann import ThomannScraper
+from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
+from competitive_intelligence.core.api_client import ApiClient
+from competitive_intelligence.core.catalog_intelligence import OpenAICatalogComparator
+from competitive_intelligence.core.config import Settings
+from competitive_intelligence.core.http_client import HttpClient
+from competitive_intelligence.core.normalization import normalize_text
+
+
+@contextmanager
+def competitor_run_lock(competitor_id: int, lang_id: int, shop_id: int, batch_mode: str):
+    project_root = Path(__file__).resolve().parents[2]
+    lock_dir = project_root / "var" / "lock" / "competitive-intelligence"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+
+    lock_path = lock_dir / f"competitor-{competitor_id}-lang-{lang_id}-shop-{shop_id}-{batch_mode}.lock"
+    with lock_path.open("a+") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(
+                f"batch already running for competitor_id={competitor_id}, lang_id={lang_id}, shop_id={shop_id}, mode={batch_mode}"
+            ) from exc
+
+        yield
+
+
+@contextmanager
+def global_parallel_slot(project_root: Path, max_parallel: int):
+    if max_parallel <= 0:
+        yield
+        return
+
+    lock_dir = project_root / "var" / "lock" / "competitive-intelligence" / "global-parallel"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+
+    handles = []
+    try:
+        while True:
+            for slot in range(1, max_parallel + 1):
+                lock_path = lock_dir / f"slot-{slot}.lock"
+                lock_file = lock_path.open("a+")
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    handles.append(lock_file)
+                    yield
+                    return
+                except BlockingIOError:
+                    lock_file.close()
+                    continue
+
+            time.sleep(1)
+    finally:
+        for handle in handles:
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+
+def _is_ai_scored_competitor(competitor: dict[str, object]) -> bool:
+    domain = str(competitor.get("domain") or "").lower()
+    name = str(competitor.get("name") or "").lower()
+    return any(marker in domain or marker in name for marker in ("thomann", "michenaud"))
+
+
+def _as_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip().replace(",", ".")
+        if not text:
+            return None
+        return float(text)
+    except Exception:
+        return None
+
+
+def _price_ratio(source_price: float | None, candidate_price: float | None) -> float | None:
+    if source_price is None or candidate_price is None:
+        return None
+    if source_price <= 0 or candidate_price <= 0:
+        return None
+    return abs(candidate_price - source_price) / source_price
+
+
+def _brands_match(source_brand: object, candidate_brand: object) -> bool:
+    source = normalize_text(str(source_brand or "")).replace(" ", "")
+    competitor = normalize_text(str(candidate_brand or "")).replace(" ", "")
+    if not source or not competitor:
+        return False
+    return source == competitor or source in competitor or competitor in source
+
+
+def _build_scraper(search_url_pattern: str, competitor: dict[str, object], http: HttpClient, debug_enabled: bool):
+    domain = str(competitor.get("domain") or "").lower()
+    competitor_name = str(competitor.get("name") or "").lower()
+
+    if "woodbrass" in domain or "woodbrass" in competitor_name:
+        return WoodbrassScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+    if "stars-music" in domain or "stars music" in competitor_name or "starsmusic" in competitor_name:
+        return StarsMusicScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+    if "thomann" in domain or "thomann" in competitor_name:
+        return ThomannScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+    if "michenaud" in domain or "michenaud" in competitor_name:
+        return MichenaudScraper(search_url_pattern=search_url_pattern, http=http, debug=debug_enabled)
+    return GenericSearchScraper(search_url_pattern=search_url_pattern, http=http)
+
+
+def run_url_job(
+    competitor_id: int | None = None,
+    batch_mode: str | None = None,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    settings = settings or Settings.from_env()
+    if competitor_id is not None:
+        settings = replace(settings, competitor_id=competitor_id)
+    if batch_mode is not None:
+        settings = replace(settings, batch_mode=batch_mode)
+
+    debug_enabled = os.environ.get("CI_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+    http = HttpClient(timeout=30)
+    api = ApiClient(settings.api_base_url, settings.api_token, http)
+    catalog_comparator = OpenAICatalogComparator()
+
+    try:
+        project_root = Path(__file__).resolve().parents[2]
+        with competitor_run_lock(settings.competitor_id, settings.lang_id, settings.shop_id, settings.batch_mode):
+            with global_parallel_slot(project_root, settings.max_parallel):
+                batch = api.fetch_next_batch(
+                    competitor_id=settings.competitor_id,
+                    limit=settings.batch_limit,
+                    after_id=settings.after_id,
+                    lang_id=settings.lang_id,
+                    shop_id=settings.shop_id,
+                    mode=settings.batch_mode,
+                )
+                print(
+                    {
+                        "event": "batch_fetched",
+                        "mode": settings.batch_mode,
+                        "competitor_id": batch["competitor"]["id"],
+                        "items": len(batch["items"]),
+                        "after_id": batch["after_id"],
+                        "has_more": batch["has_more"],
+                        "debug": debug_enabled,
+                    },
+                    flush=True,
+                )
+
+                competitor = batch["competitor"]
+                scraper = _build_scraper(str(competitor["search_url_pattern"]), competitor, http, debug_enabled)
+                use_api_scoring = _is_ai_scored_competitor(competitor) and catalog_comparator.enabled
+
+                total_candidates = 0
+                tests_to_submit: list[dict[str, object]] = []
+                api_queue: list[dict[str, object]] = []
+
+                for product in batch["items"]:
+                    product_id = int(product["id_product"])
+                    print(
+                        {
+                            "event": "product_start",
+                            "id_product": product_id,
+                            "supplier_reference": product.get("supplier_reference"),
+                            "name": product.get("name"),
+                        },
+                        flush=True,
+                    )
+
+                    try:
+                        candidates = scraper.search(product)
+                        if use_api_scoring:
+                            source_brand = product.get("brand")
+                            filtered_candidates = [
+                                candidate
+                                for candidate in candidates
+                                if _brands_match(source_brand, candidate.competitor_brand)
+                            ]
+                            if len(filtered_candidates) != len(candidates):
+                                print(
+                                    {
+                                        "event": "product_brand_filtered",
+                                        "id_product": product_id,
+                                        "before": len(candidates),
+                                        "after": len(filtered_candidates),
+                                        "source_brand": source_brand,
+                                    },
+                                    flush=True,
+                                )
+                            candidates = filtered_candidates
+
+                        total_candidates += len(candidates)
+                        print(
+                            {
+                                "event": "product_search_done",
+                                "id_product": product_id,
+                                "candidates": len(candidates),
+                            },
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        error_text = str(exc).lower()
+                        if "cloudflare" in error_text or "cloudfare" in error_text:
+                            test_result = "cloudflare"
+                        elif "search input was not found" in error_text:
+                            test_result = "search_input_not_found"
+                        else:
+                            test_result = "not_found"
+
+                        tests_to_submit.append(
+                            {
+                                "id_product": product_id,
+                                "result": test_result,
+                                "message": str(exc),
+                            }
+                        )
+                        print(
+                            {
+                                "event": "product_error",
+                                "id_product": product_id,
+                                "error": str(exc),
+                            },
+                            flush=True,
+                        )
+                        continue
+
+                    if not candidates:
+                        tests_to_submit.append(
+                            {
+                                "id_product": product_id,
+                                "result": "not_found",
+                            }
+                        )
+                        print(
+                            {
+                                "event": "product_submit",
+                                "id_product": product_id,
+                                "results": 0,
+                                "tests": 1,
+                            },
+                            flush=True,
+                        )
+                        continue
+
+                    if use_api_scoring:
+                        api_queue.append(
+                            {
+                                "product": product,
+                                "product_id": product_id,
+                                "candidate_pool": candidates[:3],
+                                "candidate_count": len(candidates),
+                            }
+                        )
+                        print(
+                            {
+                                "event": "product_buffered_for_api",
+                                "id_product": product_id,
+                                "results": len(candidates),
+                            },
+                            flush=True,
+                        )
+                        continue
+
+                    best_candidate = candidates[0]
+                    if best_candidate.score < 30:
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": "not_found",
+                            }
+                        )
+                    else:
+                        final_result = "matched" if best_candidate.score > 90 else "pending"
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": final_result,
+                                "url": best_candidate.url,
+                                "competitor_title": best_candidate.title,
+                                "competitor_brand": best_candidate.competitor_brand,
+                                "competitor_image_url": best_candidate.image_url,
+                                "competitor_breadcrumb": best_candidate.breadcrumb,
+                                "score": best_candidate.score,
+                                "matched_query": best_candidate.matched_query,
+                                "competitor_price": best_candidate.price,
+                            }
+                        )
+
+                    print(
+                        {
+                            "event": "product_submit",
+                            "id_product": product_id,
+                            "results": len(candidates),
+                            "tests": 1,
+                        },
+                        flush=True,
+                    )
+
+                if use_api_scoring and api_queue:
+                    batch_selection = catalog_comparator.select_best_candidates_batch(
+                        items=[
+                            {
+                                "product": item["product"],
+                                "candidates": item["candidate_pool"],
+                            }
+                            for item in api_queue
+                        ]
+                    )
+                    selection_map = {item.product_id: item for item in (batch_selection or [])}
+
+                    for item in api_queue:
+                        product = item["product"]
+                        product_id = int(item["product_id"])
+                        candidate_pool = item["candidate_pool"]
+
+                        if not candidate_pool:
+                            tests_to_submit.append(
+                                {
+                                    "id_product": product_id,
+                                    "result": "not_found",
+                                }
+                            )
+                            continue
+
+                        selection = selection_map.get(product_id)
+                        if selection is not None:
+                            index = max(0, min(len(candidate_pool) - 1, selection.best_index))
+                            best_candidate = replace(candidate_pool[index], score=selection.confidence)
+                        else:
+                            best_candidate = candidate_pool[0]
+
+                        source_price = _as_float(product.get("source_price"))
+                        candidate_price = _as_float(best_candidate.price)
+                        price_ratio = _price_ratio(source_price, candidate_price)
+                        if price_ratio is not None:
+                            if price_ratio >= 0.40 and best_candidate.score > 70:
+                                best_candidate = replace(best_candidate, score=70)
+                            elif price_ratio >= 0.25 and best_candidate.score > 85:
+                                best_candidate = replace(best_candidate, score=85)
+
+                        if best_candidate.score < 30:
+                            tests_to_submit.append(
+                                {
+                                    "id_product": best_candidate.id_product,
+                                    "result": "not_found",
+                                }
+                            )
+                            continue
+
+                        final_result = "matched" if best_candidate.score >= 95 else "pending"
+                        tests_to_submit.append(
+                            {
+                                "id_product": best_candidate.id_product,
+                                "result": final_result,
+                                "url": best_candidate.url,
+                                "competitor_title": best_candidate.title,
+                                "competitor_brand": best_candidate.competitor_brand,
+                                "competitor_image_url": best_candidate.image_url,
+                                "competitor_breadcrumb": best_candidate.breadcrumb,
+                                "score": best_candidate.score,
+                                "matched_query": best_candidate.matched_query,
+                                "competitor_price": best_candidate.price,
+                            }
+                        )
+
+                    print(
+                        {
+                            "event": "batch_api_scored",
+                            "items": len(api_queue),
+                            "selections": len(batch_selection or []),
+                        },
+                        flush=True,
+                    )
+
+                total_tests = len(tests_to_submit)
+                if tests_to_submit:
+                    api.submit_candidates(
+                        {
+                            "competitor_id": competitor["id"],
+                            "tests": tests_to_submit,
+                        }
+                    )
+
+            print(
+                {
+                    "competitor_id": competitor["id"],
+                    "batch_items": len(batch["items"]),
+                    "candidates": total_candidates,
+                    "tests": total_tests,
+                    "after_id": batch["after_id"],
+                    "has_more": batch["has_more"],
+                }
+            )
+    except RuntimeError as exc:
+        print(
+            {
+                "event": "batch_skipped",
+                "reason": str(exc),
+            },
+            flush=True,
+        )
+
+
+def main() -> None:
+    run_url_job()
+
+
+if __name__ == "__main__":
+    main()

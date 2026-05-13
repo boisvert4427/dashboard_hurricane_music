@@ -11,7 +11,7 @@ Dashboard interne de pilotage pour Hurricane Music.
 - répartition par canal
 - import ETL depuis les tables métier
 - part du global sur les sous-ensembles
-- module de veille concurrentielle matching URL + passe prix
+- module de veille concurrentielle avec orchestration, matching URL, prix et validation image
 
 ## Règle principale
 
@@ -37,82 +37,181 @@ php bin/console app:etl:import-invoice-lines
 
 ## Veille concurrentielle
 
-La veille concurrentielle fonctionne en 2 passes:
+La veille concurrentielle est maintenant pilotée par un orchestrateur unique et découpée en tâches explicites:
 
-1. matching URL
-   - Symfony orchestre le lot de produits
-   - Python cherche les URLs chez les concurrents
-   - Thomann et Michenaud utilisent OpenAI pour arbitrer les meilleurs candidats
-   - l'API reçoit un seul appel par batch avec les 3 premiers candidats utiles par produit
-   - les candidats Thomann / Michenaud sont filtrés par marque avant appel API
-   - Thomann rejette d'office les titres `b-stock`, `b stock`, `bstock` et `bundle`
-   - Symfony stocke les résultats de test et les URLs finales
-   - `competitor_url_candidate` n’est plus dans le flux métier actif
-   - les tests gardent `competitor_title`, `competitor_brand`, `competitor_breadcrumb` et `competitor_price` quand ils sont disponibles
-   - la validation humaine travaille directement sur `competitor_url_test_result`
-   - les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
-   - `score < 30` est traité comme `not_found`
-   - Thomann et Michenaud sortent en `pending` par défaut, et passent en `matched` seulement si la confiance API est suffisante
+- `new_urls`
+- `retry_urls`
+- `prices`
 
-2. passe prix
-   - Symfony ne reprend que les `competitor_url_final`
-   - l'historique est append-only dans `competitor_url_price_history`
-   - `competitor_url_final` garde le prix courant
-   - la sélection priorise les finals absents de l'historique, puis les plus anciens derniers scrapes de prix
+Chaque tâche existe pour:
 
-### Où on en est rendu
+- Woodbrass
+- Stars Music
+- Thomann
+- Michenaud
+
+### Orchestrateur
+
+Point d’entrée normal:
+
+```text
+/api/competitive/orchestrate?token=TON_TOKEN
+```
+
+Usage prévu:
+
+- appelé toutes les minutes
+- lit la configuration définie dans l’admin
+- regarde les locks actifs
+- regarde le backlog disponible
+- choisit au plus une tâche à lancer
+
+Réglages admin:
+
+- page: `/veille-concurrentielle/orchestrateur`
+- paramètres par tâche:
+  - actif
+  - batch
+  - intervalle en heures + minutes
+  - priorité
+- action manuelle:
+  - `Lancer 1 fois`
+
+Valeurs par défaut:
+
+- `new_urls` = 12h
+- `retry_urls` = 12h
+- `prices` = 1 minute
+
+### Matching URL
+
+- Symfony orchestre le lot de produits
+- Python cherche les URLs chez les concurrents
+- Thomann et Michenaud utilisent OpenAI pour arbitrer les meilleurs candidats
+- l’API reçoit un seul appel OpenAI par batch avec jusqu’à 3 candidats utiles par produit
+- les candidats Thomann / Michenaud sont filtrés par marque avant appel API
+- Thomann rejette d’office les titres `b-stock`, `b stock`, `bstock` et `bundle`
+- Symfony stocke les résultats de test et les URLs finales
+- `competitor_url_candidate` n’est plus dans le flux métier actif
+- les tests gardent `competitor_title`, `competitor_brand`, `competitor_breadcrumb` et `competitor_price` quand ils sont disponibles
+- la validation humaine travaille directement sur `competitor_url_test_result`
+- les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
+- `score < 30` est traité comme `not_found`
+
+### Passe prix
+
+- Symfony ne reprend que les `competitor_url_final`
+- l’historique est append-only dans `competitor_url_price_history`
+- `competitor_url_final` garde le prix courant
+- la sélection priorise les finals absents de l’historique, puis les plus anciens derniers scrapes de prix
+- `competitor_url_final` stocke aussi maintenant l’état HTTP:
+  - `last_http_status`
+  - `consecutive_http_failures`
+  - `last_http_error_at`
+  - `last_http_error_message`
+- après 3 `404/410` consécutifs:
+  - l’entrée est supprimée de `competitor_url_final`
+  - le `competitor_url_test_result` lié passe en `competitor_page_status = gone`
+
+### Images et validation
 
 - le scrape image reste en mode direct sur le script PHP `fix-pending-image-urls`
 - ce batch est locké pour éviter deux lancements simultanés
-- Thomann tourne avec une pause aléatoire de 2 à 5 secondes avant chaque fetch
+- Thomann applique une pause aléatoire de 2 à 5 secondes avant chaque fetch URL
+- le price scraper Thomann applique aussi une pause de 2 à 5 secondes avant chaque requête
 - l’image n’est gardée que si l’URL finale de la page correspond bien à l’URL candidate
-- le worker Python image séparé a été tenté puis abandonné, le flux actif est revenu au scrape direct
+- le worker Python image séparé a été tenté puis abandonné
+- la comparaison image OpenAI se fait par lots de 10 paires
+- les images sont redimensionnées/compressées avant envoi
+- Symfony flush la persistence par lot de 10
+- la route image-review est protégée par un lock fichier
 
-### URL de lancement
+### Recherche et validation
+
+- `/veille-concurrentielle/validation` liste les `pending`
+- `/veille-concurrentielle/recherche` affiche:
+  - URLs finales
+  - URLs rejetées
+  - URLs postponed
+  - photo source PrestaShop
+- les URLs rejetées peuvent être revalidées depuis la recherche
+- les URLs postponed peuvent être validées depuis la recherche
+
+### Logs
+
+L’admin orchestrateur expose:
+
+- le dernier log par tâche
+- une liste de logs récents
+- un aperçu des dernières lignes
+- un log complet lisible dans le navigateur
+
+Route de lecture:
+
+```text
+/veille-concurrentielle/orchestrateur/log/<nom-du-fichier>.log
+```
+
+Noms de logs actuels:
+
+- URL: `url-<timestamp>-c<id>-new_url.log`
+- retry URL: `url-<timestamp>-c<id>-retry_url.log`
+- prix: `prices-<timestamp>-c<id>.log`
+
+### URLs de lancement utiles
+
+Orchestrateur:
+
+```text
+/api/competitive/orchestrate?token=TON_TOKEN
+```
+
+Batch URL legacy:
 
 ```text
 /api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
 ```
 
-Le batch runner refuse désormais de lancer deux exécutions concurrentes pour le même `competitor_id` / `lang_id` / `shop_id`.
-Le lancer global `/api/competitive/run-all` possède aussi un verrou global, pour éviter deux runs complets en parallèle.
-
-### URL de lecture de lot
+Nouvelles routes explicites:
 
 ```text
-/api/competitive/products/next-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1&token=TON_TOKEN
+/api/competitive/run-new-urls?competitor_id=1&limit=10&lang_id=1&shop_id=1&token=TON_TOKEN
+/api/competitive/run-retry-urls?competitor_id=1&limit=10&lang_id=1&shop_id=1&token=TON_TOKEN
 ```
 
-Les produits déjà testés pour ce concurrent sont exclus du prochain lot, afin d’éviter de recycler le même `id_product`.
-Les produits `rejected` ne sont plus repris par le batch provider.
+Lancer global:
 
-### Validation concurrentielle
+```text
+/api/competitive/run-all?limit=5&price_limit=10&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
+```
 
-- la page `/veille-concurrentielle/validation` liste uniquement les `pending` ouverts
-- elle est paginée
-- elle affiche le total des `pending`
-- `Valider` pousse la ligne en `valid` et écrit l’URL finale
-- `Rejeter` sort la ligne du flux et enregistre l’URL rejetée
-- `Remettre à plus tard` passe en `postponed` sans la faire remonter dans la liste
-- `competitor_url_test_result` reste la source de vérité pour la validation humaine
-- la page `/veille-concurrentielle/recherche` affiche maintenant les URLs finales, rejetées et postponed
-- les URLs rejetées peuvent être revalidées depuis la recherche
-- les images produit PrestaShop sont affichées dans la recherche
-- le batch image `/veille-concurrentielle/validation/image-review` compare désormais les paires par lots OpenAI de 10
-- le service de comparaison image redimensionne les images avant envoi et flush en base par lot de 10
-- la route image-review est protégée par un lock fichier pour éviter deux exécutions simultanées
+`run-all` reste utile pour du rattrapage, mais le flux normal est l’orchestrateur.
 
-### Worker Python
+### Workers Python
 
-Le worker est dans:
+Cœur commun:
+
+```text
+competitive_intelligence_python/competitive_intelligence/workers/url_job.py
+competitive_intelligence_python/competitive_intelligence/workers/price_job.py
+```
+
+Entrées explicites par concurrent:
+
+```text
+competitive_intelligence_python/jobs/<competitor>/new_urls.py
+competitive_intelligence_python/jobs/<competitor>/retry_urls.py
+competitive_intelligence_python/jobs/<competitor>/prices.py
+```
+
+Compatibilité legacy conservée:
 
 ```text
 competitive_intelligence_python/run_batch.py
+competitive_intelligence_python/run_new_urls.py
+competitive_intelligence_python/run_retry_urls.py
+competitive_intelligence_python/run_final_prices.py
 ```
-
-Le worker enregistre les statuts de test dans `competitor_url_test_result`, y compris les cas `cloudflare` et `search_input_not_found`.
-Le worker peut aussi alimenter la passe prix finale via `run_final_prices.py`.
-Les images peuvent être récupérées côté validation pour comparaison humaine, et la comparaison OpenAI se fait maintenant par lots de 10 paires.
 
 ## Fichiers utiles
 
@@ -120,13 +219,15 @@ Les images peuvent être récupérées côté validation pour comparaison humain
 - [dashboard/src/Controller/DashboardController.php](dashboard/src/Controller/DashboardController.php)
 - [dashboard/src/Repository/KpiRepository.php](dashboard/src/Repository/KpiRepository.php)
 - [dashboard/src/Service/InvoiceLineImportService.php](dashboard/src/Service/InvoiceLineImportService.php)
-- [dashboard/templates/dashboard/home.html.twig](dashboard/templates/dashboard/home.html.twig)
+- [dashboard/src/Controller/CompetitiveIntelligenceController.php](dashboard/src/Controller/CompetitiveIntelligenceController.php)
+- [dashboard/src/Controller/Api/CompetitiveIntelligenceApiController.php](dashboard/src/Controller/Api/CompetitiveIntelligenceApiController.php)
 
 ## Tech
 
 - Symfony 7.4
 - Doctrine DBAL / Migrations
 - Twig
+- Python workers séparés
 
 ## Ce qu’il ne faut pas refaire
 
@@ -141,12 +242,10 @@ Les images peuvent être récupérées côté validation pour comparaison humain
 
 ## Ce qu’il faudra probablement faire ensuite
 
-1. page de détail ligne par ligne
-2. recherche et filtres avancés
-3. exports CSV
-4. sécurisation plus fine du déclenchement web ETL
-5. nettoyage / indexation si le volume augmente
-6. affichage back-office de la veille concurrentielle
+1. exécuter la migration qui ajoute le suivi HTTP des `competitor_url_final`
+2. continuer l’affinage des règles d’orchestrateur
+3. ajouter si besoin un résumé final homogène par tâche dans les logs
+4. compléter les pages de détail et exports
 
 ## Commandes utiles
 
@@ -171,24 +270,19 @@ cd dashboard
 php bin/console app:etl:import-invoice-lines
 ```
 
-### Lancer un batch concurrentiel
+### Lancer l’orchestrateur
+
+```bash
+curl -fsS \
+'https://dashboard.hurricanemusic.fr/api/competitive/orchestrate?token=TON_TOKEN'
+```
+
+### Lancer un batch concurrentiel legacy
 
 ```bash
 curl -H 'X-COMPETITIVE-TOKEN: TON_TOKEN' \
 'https://dashboard.hurricanemusic.fr/api/competitive/run-batch?competitor_id=1&limit=10&after_id=0&lang_id=1&shop_id=1'
 ```
-
-### Lancer tous les concurrents
-
-```text
-/api/competitive/run-all?limit=5&price_limit=10&lang_id=1&shop_id=1&max_parallel=2&token=TON_TOKEN
-```
-
-Cela lance Woodbrass, Stars Music, Thomann et Michenaud.
-`run-both` reste un alias legacy.
-
-`limit` pilote le batch de matching URL.
-`price_limit` pilote le batch de scraping prix sur les URLs finales.
 
 ### Vider le cache
 
@@ -196,21 +290,3 @@ Cela lance Woodbrass, Stars Music, Thomann et Michenaud.
 cd dashboard
 php bin/console cache:clear
 ```
-
-## Mémo pour une prochaine discussion
-
-Si tu reprends ce projet plus tard, le point de départ utile est:
-
-1. lire `README.md`
-2. regarder `dashboard/src/Repository/KpiRepository.php`
-3. regarder `dashboard/src/Service/InvoiceLineImportService.php`
-4. regarder `dashboard/templates/dashboard/home.html.twig`
-
-Le cœur du projet est:
-
-- `K_LI_FAC` comme source des lignes de facture
-- `K_ARTICLE` comme enrichissement produit
-- `WEB_FABRICANT` comme référentiel des marques
-- `reporting_invoice_line_fact` comme table de travail
-- le dashboard lit uniquement la table de reporting
-- la veille concurrentielle est une sous-section du même site, avec un worker Python séparé

@@ -8,6 +8,10 @@ use App\Entity\Competitor;
 use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorStateStorage;
+use App\Service\CompetitiveIntelligence\CompetitiveTaskLogService;
 use App\Service\CompetitiveIntelligence\CompetitiveImageReviewService;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultReviewService;
@@ -73,6 +77,119 @@ final class CompetitiveIntelligenceController extends AbstractController
             'theoretical_total' => $theoreticalTotal,
             'price_scrapes_last_24h' => $priceScrapesLast24h,
             'recent_candidates' => $recentCandidates,
+        ]);
+    }
+
+    #[Route('/orchestrateur', name: 'app_competitive_orchestrator', methods: ['GET', 'POST'])]
+    public function orchestrator(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        CompetitiveOrchestratorConfigStorage $configStorage,
+        CompetitiveOrchestratorStateStorage $stateStorage,
+        CompetitiveOrchestratorService $orchestratorService,
+        CompetitiveTaskLogService $taskLogService,
+    ): Response {
+        if ($request->isMethod('POST')) {
+            $action = (string) $request->request->get('action', 'save');
+            if ($action === 'reset') {
+                $configStorage->reset();
+                $this->addFlash('success', 'Configuration orchestrateur réinitialisée aux valeurs par défaut.');
+
+                return $this->redirectToRoute('app_competitive_orchestrator');
+            }
+
+            if ($action === 'run_task') {
+                $taskKey = trim((string) $request->request->get('task_key', ''));
+                $config = $configStorage->load();
+
+                try {
+                    $result = $orchestratorService->launchTaskOnce(
+                        $config,
+                        $taskKey,
+                        (string) $this->getParameter('kernel.project_dir'),
+                        $request->getSchemeAndHttpHost(),
+                        (string) $this->getParameter('competitive_intelligence_api_token'),
+                        (int) ($config['global']['lang_id'] ?? 1),
+                        (int) ($config['global']['shop_id'] ?? 1),
+                    );
+                    $task = $result['task'] ?? [];
+                    $this->addFlash('success', sprintf(
+                        'Tâche lancée: %s / %s (pid=%s).',
+                        (string) ($task['competitor_label'] ?? 'Unknown'),
+                        (string) ($task['task_label'] ?? 'Unknown'),
+                        (string) (($result['run']['pid'] ?? null) ?? 'n/a'),
+                    ));
+                } catch (\Throwable $e) {
+                    $this->addFlash('error', $e->getMessage());
+                }
+
+                return $this->redirectToRoute('app_competitive_orchestrator');
+            }
+
+            $config = $this->buildOrchestratorConfig($request, $configStorage->load());
+            $savedConfig = $configStorage->save($config);
+            $this->addFlash('success', sprintf(
+                'Configuration orchestrateur sauvegardée le %s.',
+                (string) ($savedConfig['updated_at'] ?? '')
+            ));
+
+            return $this->redirectToRoute('app_competitive_orchestrator');
+        }
+
+        $config = $configStorage->load();
+        $state = $stateStorage->load();
+        $summary = [
+            'pending_validation' => $this->countPendingValidationRows($entityManager),
+            'pending_missing_images' => $this->getPendingMissingImageCountsByCompetitor($entityManager),
+            'price_scrapes_last_24h' => $this->countPriceScrapesLast24h($entityManager),
+            'price_scrapes_last_24h_by_competitor' => $this->countPriceScrapesLast24hByCompetitor($entityManager),
+        ];
+        $taskRows = $orchestratorService->describeTasks(
+            $config,
+            $state,
+            (int) ($config['global']['lang_id'] ?? 1),
+            (int) ($config['global']['shop_id'] ?? 1),
+        );
+        $latestLogsByTask = $taskLogService->latestLogsByTask();
+        $taskRows = array_map(static function (array $row) use ($latestLogsByTask): array {
+            $taskKey = (string) ($row['key'] ?? '');
+            $row['latest_log'] = $taskKey !== '' ? ($latestLogsByTask[$taskKey] ?? null) : null;
+
+            return $row;
+        }, $taskRows);
+        $recentLogs = $taskLogService->listRecentLogs(40);
+        $selectedLog = trim((string) $request->query->get('log', ''));
+        $logTail = $selectedLog !== '' ? $taskLogService->readTail($selectedLog, 200) : null;
+
+        return $this->render('competitive_intelligence/orchestrator.html.twig', [
+            'config' => $config,
+            'config_json' => json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
+            'state_json' => json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
+            'summary' => $summary,
+            'config_path' => $configStorage->getConfigPath(),
+            'state_path' => $stateStorage->getStatePath(),
+            'task_rows' => $taskRows,
+            'recent_logs' => $recentLogs,
+            'selected_log' => $selectedLog,
+            'log_tail' => $logTail,
+            'log_directory' => $taskLogService->getLogDirectory(),
+        ]);
+    }
+
+    #[Route('/orchestrateur/log/{filename}', name: 'app_competitive_orchestrator_log', methods: ['GET'])]
+    public function orchestratorLog(
+        string $filename,
+        CompetitiveTaskLogService $taskLogService,
+    ): Response {
+        $log = $taskLogService->readFull($filename);
+        if ($log === null) {
+            throw $this->createNotFoundException(sprintf('Unknown log "%s".', $filename));
+        }
+
+        return $this->render('competitive_intelligence/orchestrator_log.html.twig', [
+            'filename' => $log['filename'],
+            'path' => $log['path'],
+            'content' => $log['content'],
         ]);
     }
 
@@ -444,6 +561,40 @@ final class CompetitiveIntelligenceController extends AbstractController
     private function getCompetitorRepository(EntityManagerInterface $entityManager)
     {
         return $entityManager->getRepository(Competitor::class);
+    }
+
+    /**
+     * @param array<string, mixed> $currentConfig
+     * @return array<string, mixed>
+     */
+    private function buildOrchestratorConfig(Request $request, array $currentConfig): array
+    {
+        $currentConfig['global'] = is_array($currentConfig['global'] ?? null) ? $currentConfig['global'] : [];
+        $currentConfig['tasks'] = is_array($currentConfig['tasks'] ?? null) ? $currentConfig['tasks'] : [];
+
+        $currentConfig['global']['enabled'] = $request->request->has('global_enabled');
+        $currentConfig['global']['max_parallel'] = max(1, min(12, (int) $request->request->get('global_max_parallel', 1)));
+        $currentConfig['global']['lang_id'] = max(1, min(12, (int) $request->request->get('global_lang_id', 1)));
+        $currentConfig['global']['shop_id'] = max(1, min(12, (int) $request->request->get('global_shop_id', 1)));
+
+        foreach ($request->request->all('tasks') as $taskKey => $taskConfig) {
+            if (!is_array($taskConfig)) {
+                continue;
+            }
+
+            $intervalHours = max(0, min(168, (int) ($taskConfig['interval_hours'] ?? 0)));
+            $intervalMinutes = max(0, min(59, (int) ($taskConfig['interval_minutes_part'] ?? 0)));
+            $intervalTotalMinutes = max(1, min(10080, ($intervalHours * 60) + $intervalMinutes));
+
+            $currentConfig['tasks'][(string) $taskKey] = [
+                'enabled' => array_key_exists('enabled', $taskConfig),
+                'limit' => max(1, min(100, (int) ($taskConfig['limit'] ?? 10))),
+                'interval_minutes' => $intervalTotalMinutes,
+                'priority' => max(1, min(1000, (int) ($taskConfig['priority'] ?? 100))),
+            ];
+        }
+
+        return $currentConfig;
     }
 
     /**
@@ -935,6 +1086,35 @@ final class CompetitiveIntelligenceController extends AbstractController
             ->setParameter('cutoff', $cutoff)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function countPriceScrapesLast24hByCompetitor(EntityManagerInterface $entityManager): array
+    {
+        $cutoff = new \DateTimeImmutable('-24 hours');
+        $rows = $entityManager->getRepository(CompetitorUrlPriceHistory::class)
+            ->createQueryBuilder('p')
+            ->leftJoin('p.competitor', 'competitor')
+            ->select('competitor.name AS competitor_name, COUNT(p.id) AS total')
+            ->andWhere('p.observedAt >= :cutoff')
+            ->setParameter('cutoff', $cutoff)
+            ->groupBy('competitor.id, competitor.name')
+            ->orderBy('competitor.name', 'ASC')
+            ->getQuery()
+            ->getArrayResult();
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $name = trim((string) ($row['competitor_name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $counts[$name] = (int) ($row['total'] ?? 0);
+        }
+
+        return $counts;
     }
 
     /**

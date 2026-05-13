@@ -25,11 +25,7 @@ final class FinalPriceBatchRunner
         $this->assertBatchNotRunning($projectRoot, $competitorId);
 
         $python = $this->resolvePythonBinary();
-        $script = $projectRoot . '/competitive_intelligence_python/run_final_prices.py';
-
-        if (!is_file($script)) {
-            throw new \RuntimeException(sprintf('Python final price script not found at "%s".', $script));
-        }
+        $script = $this->resolveScriptPathForCompetitor($projectRoot, $competitorId);
 
         $env = [
             'CI_API_BASE_URL' => rtrim($apiBaseUrl, '/'),
@@ -52,7 +48,7 @@ final class FinalPriceBatchRunner
         }
 
         $timestamp = (new \DateTimeImmutable())->format('YmdHis');
-        $logFile = sprintf('%s/final-prices-%s-c%d.log', $logDir, $timestamp, $competitorId);
+        $logFile = sprintf('%s/prices-%s-c%d.log', $logDir, $timestamp, $competitorId);
 
         $envParts = [];
         foreach ($env as $key => $value) {
@@ -115,5 +111,23 @@ final class FinalPriceBatchRunner
         }
 
         return 'python3';
+    }
+
+    private function resolveScriptPathForCompetitor(string $projectRoot, int $competitorId): string
+    {
+        $competitorKey = match ($competitorId) {
+            1 => 'woodbrass',
+            2 => 'starsmusic',
+            3 => 'thomann',
+            4 => 'michenaud',
+            default => throw new \RuntimeException(sprintf('Unsupported competitor_id "%d".', $competitorId)),
+        };
+
+        $script = sprintf('%s/competitive_intelligence_python/jobs/%s/prices.py', $projectRoot, $competitorKey);
+        if (!is_file($script)) {
+            throw new \RuntimeException(sprintf('Python final price script not found at "%s".', $script));
+        }
+
+        return $script;
     }
 }

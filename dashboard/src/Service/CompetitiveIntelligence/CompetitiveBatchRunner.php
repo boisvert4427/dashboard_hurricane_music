@@ -22,16 +22,14 @@ final class CompetitiveBatchRunner
         int $shopId = 1,
         bool $debug = false,
         int $maxParallel = 0,
+        string $mode = PrestashopProductBatchProvider::MODE_NEW_URL,
     ): array {
         $projectRoot = dirname(rtrim($projectDir, '/'));
-        $this->assertBatchNotRunning($projectRoot, $competitorId, $langId, $shopId);
+        $mode = $this->normalizeMode($mode);
+        $this->assertBatchNotRunning($projectRoot, $competitorId, $langId, $shopId, $mode);
 
         $python = $this->resolvePythonBinary();
-        $script = $projectRoot . '/competitive_intelligence_python/run_batch.py';
-
-        if (!is_file($script)) {
-            throw new \RuntimeException(sprintf('Python batch script not found at "%s".', $script));
-        }
+        $script = $this->resolveScriptPathForCompetitor($projectRoot, $competitorId, $mode);
 
         $env = [
             'CI_API_BASE_URL' => rtrim($apiBaseUrl, '/'),
@@ -41,6 +39,7 @@ final class CompetitiveBatchRunner
             'CI_AFTER_ID' => (string) $afterId,
             'CI_LANG_ID' => (string) $langId,
             'CI_SHOP_ID' => (string) $shopId,
+            'CI_BATCH_MODE' => $mode,
         ];
 
         if ($debug) {
@@ -56,7 +55,7 @@ final class CompetitiveBatchRunner
         }
 
         $timestamp = (new \DateTimeImmutable())->format('YmdHis');
-        $logFile = sprintf('%s/batch-%s-c%d.log', $logDir, $timestamp, $competitorId);
+        $logFile = sprintf('%s/url-%s-c%d-%s.log', $logDir, $timestamp, $competitorId, $mode);
 
         $envParts = [];
         foreach ($env as $key => $value) {
@@ -87,7 +86,7 @@ final class CompetitiveBatchRunner
         ];
     }
 
-    private function assertBatchNotRunning(string $projectRoot, int $competitorId, int $langId, int $shopId): void
+    private function assertBatchNotRunning(string $projectRoot, int $competitorId, int $langId, int $shopId, string $mode): void
     {
         $lockDir = $projectRoot . '/competitive_intelligence_python/var/lock/competitive-intelligence';
         if (!is_dir($lockDir) && !mkdir($lockDir, 0775, true) && !is_dir($lockDir)) {
@@ -95,11 +94,12 @@ final class CompetitiveBatchRunner
         }
 
         $lockPath = sprintf(
-            '%s/competitor-%d-lang-%d-shop-%d.lock',
+            '%s/competitor-%d-lang-%d-shop-%d-%s.lock',
             $lockDir,
             $competitorId,
             $langId,
             $shopId,
+            $mode,
         );
 
         $lockHandle = fopen($lockPath, 'c+');
@@ -111,10 +111,11 @@ final class CompetitiveBatchRunner
             if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
                 throw new \RuntimeException(
                     sprintf(
-                        'A batch is already running for competitor_id=%d, lang_id=%d, shop_id=%d.',
+                        'A batch is already running for competitor_id=%d, lang_id=%d, shop_id=%d, mode=%s.',
                         $competitorId,
                         $langId,
                         $shopId,
+                        $mode,
                     )
                 );
             }
@@ -132,5 +133,43 @@ final class CompetitiveBatchRunner
         }
 
         return 'python3';
+    }
+
+    private function normalizeMode(string $mode): string
+    {
+        $normalized = trim(strtolower($mode));
+
+        return in_array($normalized, [
+            PrestashopProductBatchProvider::MODE_NEW_URL,
+            PrestashopProductBatchProvider::MODE_RETRY_URL,
+        ], true) ? $normalized : PrestashopProductBatchProvider::MODE_NEW_URL;
+    }
+
+    private function resolveScriptPathForCompetitor(string $projectRoot, int $competitorId, string $mode): string
+    {
+        $competitorKey = $this->resolveCompetitorKey($competitorId);
+        $task = $mode === PrestashopProductBatchProvider::MODE_RETRY_URL ? 'retry_urls' : 'new_urls';
+        $script = sprintf(
+            '%s/competitive_intelligence_python/jobs/%s/%s.py',
+            $projectRoot,
+            $competitorKey,
+            $task,
+        );
+        if (!is_file($script)) {
+            throw new \RuntimeException(sprintf('Python batch script not found at "%s".', $script));
+        }
+
+        return $script;
+    }
+
+    private function resolveCompetitorKey(int $competitorId): string
+    {
+        return match ($competitorId) {
+            1 => 'woodbrass',
+            2 => 'starsmusic',
+            3 => 'thomann',
+            4 => 'michenaud',
+            default => throw new \RuntimeException(sprintf('Unsupported competitor_id "%d".', $competitorId)),
+        };
     }
 }

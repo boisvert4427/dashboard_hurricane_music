@@ -1,0 +1,284 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Orchestrateur | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">VC</div>
+                <div>
+                    <div class="brand-name">Orchestrateur concurrentiel</div>
+                    <div class="brand-subtitle">Pilotage sans code des batchs URL, prix et image</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Accueil module</a>
+                <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
+                <a class="pill" href="{{ path('app_competitive_search') }}">Recherche</a>
+                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+            </div>
+        </header>
+
+        <section class="module-hero">
+            <div>
+                <div class="module-kicker">Paramétrage opérationnel</div>
+                <h1>Garder le prix fréquent et le matching rare</h1>
+                <p>
+                    Cette page enregistre une configuration lisible par l’orchestrateur.
+                    Tu peux ajuster les batchs et les cadences sans toucher au code.
+                </p>
+            </div>
+            <div class="module-hero-actions">
+                <a class="button button-primary" href="#configuration">Modifier la configuration</a>
+                <a class="button button-secondary" href="#synthese">Voir la synthèse</a>
+            </div>
+        </section>
+
+        <section class="section" id="synthese">
+            <div class="section-head">
+                <h2>Synthèse actuelle</h2>
+                <p>Quelques indicateurs pour décider quel batch laisser tourner sans surcharge.</p>
+            </div>
+
+            <div class="module-stats">
+                <article class="module-stat-card">
+                    <div class="kpi-label">Validation pending</div>
+                    <strong>{{ summary.pending_validation }}</strong>
+                    <span>Files ouvertes côté revue humaine</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Sans image</div>
+                    <strong>{{ (summary.pending_missing_images.Thomann ?? 0) + (summary.pending_missing_images.Michenaud ?? 0) }}</strong>
+                    <span>Pending Thomann + Michenaud à corriger</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Prix 24h</div>
+                    <strong>{{ summary.price_scrapes_last_24h }}</strong>
+                    <span>Scrapes de prix réalisés sur 24h</span>
+                    {% if summary.price_scrapes_last_24h_by_competitor is not empty %}
+                        <div class="mini-breakdown">
+                            {% for competitorName, total in summary.price_scrapes_last_24h_by_competitor %}
+                                <small>{{ competitorName }}: {{ total }}</small>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Tâches actives</div>
+                    <strong>{{ task_rows|filter(row => row.running)|length }}</strong>
+                    <span>Jobs actuellement verrouillés</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Tâches activées</div>
+                    <strong>{{ task_rows|filter(row => row.enabled)|length }}</strong>
+                    <span>Règles job actives</span>
+                </article>
+                <article class="module-stat-card">
+                    <div class="kpi-label">Route orchestrateur</div>
+                    <strong>1</strong>
+                    <span><code>/api/competitive/orchestrate?token=change-me-too</code></span>
+                </article>
+            </div>
+        </section>
+
+        <form id="orchestrator-config-form" method="post" action="{{ path('app_competitive_orchestrator') }}">
+            <section class="section" id="configuration">
+                <div class="section-head">
+                    <h2>Configuration</h2>
+                    <p>
+                        Sauvegarde dans <code>{{ config_path }}</code>.
+                        Les réglages peuvent être modifiés sans code.
+                    </p>
+                </div>
+                <div class="orchestrator-grid">
+                    <article class="workflow-card orchestrator-card">
+                        <div class="workflow-step">1</div>
+                        <h3>Global</h3>
+                        <label class="orchestrator-check">
+                            <input type="checkbox" name="global_enabled" {% if config.global.enabled %}checked{% endif %}>
+                            <span>Activer l’orchestrateur</span>
+                        </label>
+                        <div class="filter-form">
+                            <div class="filter-field">
+                                <label for="global_max_parallel">Max parallel global</label>
+                                <input id="global_max_parallel" type="number" min="1" max="12" name="global_max_parallel" value="{{ config.global.max_parallel }}">
+                            </div>
+                            <div class="filter-field">
+                                <label for="global_lang_id">Lang ID</label>
+                                <input id="global_lang_id" type="number" min="1" max="12" name="global_lang_id" value="{{ config.global.lang_id }}">
+                            </div>
+                            <div class="filter-field">
+                                <label for="global_shop_id">Shop ID</label>
+                                <input id="global_shop_id" type="number" min="1" max="12" name="global_shop_id" value="{{ config.global.shop_id }}">
+                            </div>
+                        </div>
+                        <p class="admin-hint">Le global ne choisit pas la tâche. Il borne juste la pression totale et le contexte boutique/langue appliqué aux jobs URL.</p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-head">
+                    <h2>Règles par tâche</h2>
+                    <p>Une ligne = une vraie tâche Python. L’orchestrateur choisit parmi ces lignes selon priorité, intervalle et travail disponible.</p>
+                </div>
+
+                <div class="table-shell">
+                    <table class="admin-table">
+                        <thead>
+                        <tr>
+                            <th>Concurrent</th>
+                            <th>Tâche</th>
+                            <th>Actif</th>
+                            <th>Batch</th>
+                            <th>Intervalle</th>
+                            <th>Priorité</th>
+                            <th>Travail</th>
+                            <th>Run</th>
+                            <th>Dernier lancement</th>
+                            <th>Dernier log</th>
+                            <th>Action</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in task_rows %}
+                            <tr>
+                                <td>{{ row.competitor_label }}</td>
+                                <td>{{ row.task_label }}</td>
+                                <td>
+                                    <label class="orchestrator-check">
+                                        <input type="checkbox" name="tasks[{{ row.key }}][enabled]" {% if row.enabled %}checked{% endif %}>
+                                        <span>{{ row.enabled ? 'Oui' : 'Non' }}</span>
+                                    </label>
+                                </td>
+                                <td>
+                                    <input type="number" min="1" max="100" name="tasks[{{ row.key }}][limit]" value="{{ row.limit }}">
+                                </td>
+                                <td>
+                                    <div class="interval-fields">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="168"
+                                            name="tasks[{{ row.key }}][interval_hours]"
+                                            value="{{ (row.interval_minutes // 60) }}"
+                                        >
+                                        <span>h</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="59"
+                                            name="tasks[{{ row.key }}][interval_minutes_part]"
+                                            value="{{ (row.interval_minutes % 60) }}"
+                                        >
+                                        <span>min</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <input type="number" min="1" max="1000" name="tasks[{{ row.key }}][priority]" value="{{ row.priority }}">
+                                </td>
+                                <td>{{ row.pending_work ? 'Oui' : 'Non' }}</td>
+                                <td>{{ row.running ? 'En cours' : 'Libre' }}</td>
+                                <td>{{ row.last_started_at ? row.last_started_at|date('d/m/Y H:i:s') : 'Jamais' }}</td>
+                                <td>
+                                    {% if row.latest_log %}
+                                        <a href="{{ path('app_competitive_orchestrator_log', { filename: row.latest_log.filename }) }}" target="_blank" rel="noreferrer">
+                                            {{ row.latest_log.filename }}
+                                        </a>
+                                    {% else %}
+                                        <span class="muted-inline">Aucun</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="button button-secondary button-small" type="submit" form="run-task-{{ loop.index }}">
+                                        Lancer 1 fois
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-head">
+                    <h2>Vue technique</h2>
+                    <p>Configuration, état runtime et logs consultables depuis l’admin.</p>
+                </div>
+
+                <div class="workflow-grid">
+                    <article class="workflow-card">
+                        <div class="workflow-step">A</div>
+                        <h3>Dernière mise à jour</h3>
+                        <p>
+                            {{ config.updated_at ? config.updated_at|date('d/m/Y H:i:s') : 'Jamais sauvegardé' }}
+                        </p>
+                    </article>
+                    <article class="workflow-card">
+                        <div class="workflow-step">B</div>
+                        <h3>JSON stocké</h3>
+                        <pre class="orchestrator-json">{{ config_json }}</pre>
+                    </article>
+                    <article class="workflow-card">
+                        <div class="workflow-step">C</div>
+                        <h3>État runtime</h3>
+                        <p><code>{{ state_path }}</code></p>
+                        <pre class="orchestrator-json">{{ state_json }}</pre>
+                    </article>
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-head">
+                    <h2>Logs</h2>
+                    <p>Dossier: <code>{{ log_directory }}</code></p>
+                </div>
+
+                <div class="workflow-grid">
+                    <article class="workflow-card">
+                        <div class="workflow-step">L1</div>
+                        <h3>Logs récents</h3>
+                        <div class="log-list">
+                            {% for log in recent_logs %}
+                                <a class="log-item{% if selected_log == log.filename %} is-active{% endif %}" href="{{ path('app_competitive_orchestrator', { log: log.filename }) }}">
+                                    <strong>{{ log.competitor_label }} / {{ log.task_label }}</strong>
+                                    <span>{{ log.filename }}</span>
+                                    <small>{{ log.modified_at ? log.modified_at|date('d/m/Y H:i:s') : 'n/a' }}</small>
+                                </a>
+                            {% else %}
+                                <div class="log-item">
+                                    <span>Aucun log détecté.</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </article>
+
+                    <article class="workflow-card">
+                        <div class="workflow-step">L2</div>
+                        <h3>Aperçu</h3>
+                        {% if log_tail %}
+                            <p><code>{{ log_tail.filename }}</code></p>
+                            <pre class="orchestrator-json">{{ log_tail.content }}</pre>
+                        {% else %}
+                            <p class="admin-hint">Choisir un log dans la liste pour voir les dernières lignes.</p>
+                        {% endif %}
+                    </article>
+                </div>
+            </section>
+
+            <div class="orchestrator-actions">
+                <button class="button button-primary" type="submit" form="orchestrator-config-form">Sauvegarder</button>
+                <button class="button button-secondary" type="submit" form="orchestrator-config-form" name="action" value="reset" onclick="return confirm('Réinitialiser la configuration orchestrateur ?');">Réinitialiser par défaut</button>
+            </div>
+        </form>
+
+        {% for row in task_rows %}
+            <form id="run-task-{{ loop.index }}" method="post" action="{{ path('app_competitive_orchestrator') }}" class="inline-form">
+                <input type="hidden" name="action" value="run_task">
+                <input type="hidden" name="task_key" value="{{ row.key }}">
+            </form>
+        {% endfor %}
+    </main>
+{% endblock %}

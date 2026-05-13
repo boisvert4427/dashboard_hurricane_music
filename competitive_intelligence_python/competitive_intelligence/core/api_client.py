@@ -15,7 +15,15 @@ class ApiClient:
     def _headers(self) -> dict[str, str]:
         return {"X-COMPETITIVE-TOKEN": self.token}
 
-    def fetch_next_batch(self, competitor_id: int, limit: int, after_id: int, lang_id: int, shop_id: int) -> dict[str, Any]:
+    def fetch_next_batch(
+        self,
+        competitor_id: int,
+        limit: int,
+        after_id: int,
+        lang_id: int,
+        shop_id: int,
+        mode: str = "new_url",
+    ) -> dict[str, Any]:
         response = self.http.get(
             f"{self.base_url}/api/competitive/products/next-batch",
             params={
@@ -24,6 +32,7 @@ class ApiClient:
                 "after_id": after_id,
                 "lang_id": lang_id,
                 "shop_id": shop_id,
+                "mode": mode,
             },
             headers=self._headers(),
         )

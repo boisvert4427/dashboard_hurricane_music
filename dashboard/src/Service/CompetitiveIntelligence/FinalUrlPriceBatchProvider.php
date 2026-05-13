@@ -86,4 +86,24 @@ final class FinalUrlPriceBatchProvider
             'has_more' => count($items) === $limit,
         ];
     }
+
+    public function hasPendingWork(int $competitorId, int $afterId = 0): bool
+    {
+        return (bool) $this->databaseConnection->fetchOne(
+            'SELECT EXISTS(
+                SELECT 1
+                FROM competitor_url_final f
+                WHERE f.competitor_id = :competitor_id
+                  AND f.id > :after_id
+            )',
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+            ]
+        );
+    }
 }

@@ -10,6 +10,9 @@ use Doctrine\DBAL\ParameterType;
 
 final class PrestashopProductBatchProvider
 {
+    public const MODE_NEW_URL = 'new_url';
+    public const MODE_RETRY_URL = 'retry_url';
+
     public function __construct(
         private readonly Connection $prestashopConnection,
         private readonly string $prestashopBaseUrl,
@@ -19,53 +22,20 @@ final class PrestashopProductBatchProvider
     /**
      * @return array{items: array<int, array<string, mixed>>, after_id: int, limit: int, competitor_id: int, has_more: bool}
      */
-    public function getNextBatch(int $competitorId, int $limit = 50, int $afterId = 0, int $langId = 1, int $shopId = 1): array
+    public function getNextBatch(
+        int $competitorId,
+        int $limit = 50,
+        int $afterId = 0,
+        int $langId = 1,
+        int $shopId = 1,
+        string $mode = self::MODE_NEW_URL,
+    ): array
     {
         $limit = max(1, min(200, $limit));
-
-        $feedTable = 'leo_netrivals_send_feed';
-        $finalTable = 'tm2dn_dashboard.competitor_url_final';
-        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
-
-        $sql = sprintf(
-            'SELECT f.id_product,
-                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
-                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
-                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
-                    \'\' AS category_path,
-                    f.price_tax_incl AS source_price,
-                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
-             FROM %s f
-             LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
-             LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
-             WHERE final_row.id IS NULL
-               AND tr.id_product IS NULL
-               AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
-               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
-               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
-               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
-             ORDER BY f.id_product ASC
-             LIMIT :limit',
-            $feedTable,
-            $finalTable,
-            $testResultTable
-        );
-
-        $rows = $this->prestashopConnection->fetchAllAssociative(
-            $sql,
-            [
-                'competitor_id' => $competitorId,
-                'limit' => $limit,
-                'lang_id' => $langId,
-                'shop_id' => $shopId,
-            ],
-            [
-                'competitor_id' => ParameterType::INTEGER,
-                'limit' => ParameterType::INTEGER,
-                'lang_id' => ParameterType::INTEGER,
-                'shop_id' => ParameterType::INTEGER,
-            ]
-        );
+        $mode = $this->normalizeMode($mode);
+        $rows = $mode === self::MODE_RETRY_URL
+            ? $this->fetchRetryRows($competitorId, $limit, $afterId)
+            : $this->fetchNewRows($competitorId, $limit, $afterId);
 
         $snapshots = $this->getProductSnapshotsByIds(array_map(
             static fn (array $row): int => (int) ($row['id_product'] ?? 0),
@@ -102,8 +72,21 @@ final class PrestashopProductBatchProvider
             'after_id' => $lastId,
             'limit' => $limit,
             'competitor_id' => $competitorId,
+            'mode' => $mode,
             'has_more' => count($items) === $limit,
         ];
+    }
+
+    public function hasPendingWork(
+        int $competitorId,
+        int $afterId = 0,
+        string $mode = self::MODE_NEW_URL,
+    ): bool {
+        $mode = $this->normalizeMode($mode);
+
+        return $mode === self::MODE_RETRY_URL
+            ? $this->hasRetryRows($competitorId, $afterId)
+            : $this->hasNewRows($competitorId, $afterId);
     }
 
     public function countEligibleProducts(int $competitorId, int $afterId = 0, int $langId = 1, int $shopId = 1): int
@@ -297,6 +280,201 @@ final class PrestashopProductBatchProvider
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchNewRows(int $competitorId, int $limit, int $afterId): array
+    {
+        $feedTable = 'leo_netrivals_send_feed';
+        $finalTable = 'tm2dn_dashboard.competitor_url_final';
+        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
+
+        $sql = sprintf(
+            'SELECT f.id_product,
+                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
+                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
+                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    \'\' AS category_path,
+                    f.price_tax_incl AS source_price,
+                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
+             FROM %s f
+             LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
+             LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
+             WHERE final_row.id IS NULL
+               AND tr.id_product IS NULL
+               AND f.id_product > :after_id
+               AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
+             ORDER BY f.id_product ASC
+             LIMIT :limit',
+            $feedTable,
+            $finalTable,
+            $testResultTable
+        );
+
+        return $this->prestashopConnection->fetchAllAssociative(
+            $sql,
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+                'limit' => $limit,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+                'limit' => ParameterType::INTEGER,
+            ]
+        );
+    }
+
+    private function hasNewRows(int $competitorId, int $afterId): bool
+    {
+        $feedTable = 'leo_netrivals_send_feed';
+        $finalTable = 'tm2dn_dashboard.competitor_url_final';
+        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
+
+        $sql = sprintf(
+            'SELECT EXISTS(
+                SELECT 1
+                FROM %s f
+                LEFT JOIN %s final_row ON final_row.id = f.id_product AND final_row.competitor_id = :competitor_id
+                LEFT JOIN %s tr ON tr.id_product = f.id_product AND tr.competitor_id = :competitor_id
+                WHERE final_row.id IS NULL
+                  AND tr.id_product IS NULL
+                  AND f.id_product > :after_id
+                  AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
+             )',
+            $feedTable,
+            $finalTable,
+            $testResultTable
+        );
+
+        return (bool) $this->prestashopConnection->fetchOne(
+            $sql,
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+            ]
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchRetryRows(int $competitorId, int $limit, int $afterId): array
+    {
+        $feedTable = 'leo_netrivals_send_feed';
+        $finalTable = 'tm2dn_dashboard.competitor_url_final';
+        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
+
+        $sql = sprintf(
+            'SELECT f.id_product,
+                    NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') AS supplier_reference,
+                    NULLIF(TRIM(COALESCE(f.ean13, \'\')), \'\') AS ean,
+                    NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
+                    \'\' AS category_path,
+                    f.price_tax_incl AS source_price,
+                    COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
+             FROM %s tr
+             INNER JOIN %s f ON f.id_product = tr.id_product
+             LEFT JOIN %s final_row ON final_row.id = tr.id_product AND final_row.competitor_id = tr.competitor_id
+             WHERE tr.competitor_id = :competitor_id
+               AND tr.id_product > :after_id
+               AND tr.result = :result_not_found
+               AND tr.validation_status <> :review_rejected
+               AND final_row.id IS NULL
+               AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+               AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
+             ORDER BY tr.last_tested_at ASC, tr.id_product ASC
+             LIMIT :limit',
+            $testResultTable,
+            $feedTable,
+            $finalTable
+        );
+
+        return $this->prestashopConnection->fetchAllAssociative(
+            $sql,
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+                'result_not_found' => 'not_found',
+                'review_rejected' => 'rejected',
+                'limit' => $limit,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+                'result_not_found' => ParameterType::STRING,
+                'review_rejected' => ParameterType::STRING,
+                'limit' => ParameterType::INTEGER,
+            ]
+        );
+    }
+
+    private function hasRetryRows(int $competitorId, int $afterId): bool
+    {
+        $feedTable = 'leo_netrivals_send_feed';
+        $finalTable = 'tm2dn_dashboard.competitor_url_final';
+        $testResultTable = 'tm2dn_dashboard.competitor_url_test_result';
+
+        $sql = sprintf(
+            'SELECT EXISTS(
+                SELECT 1
+                FROM %s tr
+                INNER JOIN %s f ON f.id_product = tr.id_product
+                LEFT JOIN %s final_row ON final_row.id = tr.id_product AND final_row.competitor_id = tr.competitor_id
+                WHERE tr.competitor_id = :competitor_id
+                  AND tr.id_product > :after_id
+                  AND tr.result = :result_not_found
+                  AND tr.validation_status <> :review_rejected
+                  AND final_row.id IS NULL
+                  AND NULLIF(TRIM(COALESCE(f.reference, \'\')), \'\') IS NOT NULL
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%b-%%\'
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%occas%%\'
+                  AND LOWER(COALESCE(f.reference, \'\')) NOT LIKE \'%%depv%%\'
+            )',
+            $testResultTable,
+            $feedTable,
+            $finalTable
+        );
+
+        return (bool) $this->prestashopConnection->fetchOne(
+            $sql,
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+                'result_not_found' => 'not_found',
+                'review_rejected' => 'rejected',
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+                'result_not_found' => ParameterType::STRING,
+                'review_rejected' => ParameterType::STRING,
+            ]
+        );
+    }
+
+    private function normalizeMode(string $mode): string
+    {
+        $normalized = trim(strtolower($mode));
+
+        return in_array($normalized, [self::MODE_NEW_URL, self::MODE_RETRY_URL], true)
+            ? $normalized
+            : self::MODE_NEW_URL;
     }
 
     /**
