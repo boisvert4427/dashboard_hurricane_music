@@ -1,0 +1,317 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Écarts fiables | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell price-board-shell" data-turbo="false">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">TG</div>
+                <div>
+                    <div class="brand-name">Écarts prix fiables</div>
+                    <div class="brand-subtitle">Base de confiance: Woodbrass + Stars Music, contrôle de Thomann et Michenaud</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill" href="{{ path('app_competitive_home') }}">Accueil module</a>
+                <a class="pill" href="{{ path('app_competitive_price_board') }}">Cockpit prix</a>
+                <a class="pill" href="{{ path('app_competitive_search') }}">Recherche</a>
+                <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
+            </div>
+        </header>
+
+        <section class="price-board-hero">
+            <aside class="price-side-summary">
+                <a class="price-side-item price-side-item-pricier" href="{{ path('app_competitive_price_trusted_gaps', {
+                    limit: limit,
+                    threshold: threshold,
+                    show_thomann: show_thomann ? 0 : 1,
+                    show_michenaud: show_michenaud ? 1 : 0,
+                    show_both: show_both ? 1 : 0
+                }) }}">
+                    <input type="checkbox" {% if show_thomann %}checked{% endif %} disabled>
+                    <span>Thomann trop loin</span>
+                    <strong>{{ board.totals.thomann }}</strong>
+                </a>
+                <a class="price-side-item price-side-item-pricier" href="{{ path('app_competitive_price_trusted_gaps', {
+                    limit: limit,
+                    threshold: threshold,
+                    show_thomann: show_thomann ? 1 : 0,
+                    show_michenaud: show_michenaud ? 0 : 1,
+                    show_both: show_both ? 1 : 0
+                }) }}">
+                    <input type="checkbox" {% if show_michenaud %}checked{% endif %} disabled>
+                    <span>Michenaud trop loin</span>
+                    <strong>{{ board.totals.michenaud }}</strong>
+                </a>
+                <a class="price-side-item price-side-item-same" href="{{ path('app_competitive_price_trusted_gaps', {
+                    limit: limit,
+                    threshold: threshold,
+                    show_thomann: show_thomann ? 1 : 0,
+                    show_michenaud: show_michenaud ? 1 : 0,
+                    show_both: show_both ? 0 : 1
+                }) }}">
+                    <input type="checkbox" {% if show_both %}checked{% endif %} disabled>
+                    <span>Les deux</span>
+                    <strong>{{ board.totals.both }}</strong>
+                </a>
+            </aside>
+
+            <div class="price-hero-main">
+                <div class="price-toolbar">
+                    <div class="price-toolbar-group">
+                        <form method="get" class="price-toolbar-filter-form">
+                            <input type="hidden" name="limit" value="{{ limit }}">
+                            <label class="price-toolbar-select">
+                                <span>Seuil</span>
+                                <select name="threshold" onchange="this.form.submit()">
+                                    {% for value in [15, 20, 25, 30, 35, 40, 50] %}
+                                        <option value="{{ value }}" {% if threshold == value %}selected{% endif %}>{{ value }}%</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <input type="hidden" name="show_thomann" value="0">
+                            <label class="price-toolbar-select">
+                                <input type="checkbox" name="show_thomann" value="1" {% if show_thomann %}checked{% endif %} onchange="this.form.submit()">
+                                <span>Thomann trop loin</span>
+                            </label>
+                            <input type="hidden" name="show_michenaud" value="0">
+                            <label class="price-toolbar-select">
+                                <input type="checkbox" name="show_michenaud" value="1" {% if show_michenaud %}checked{% endif %} onchange="this.form.submit()">
+                                <span>Michenaud trop loin</span>
+                            </label>
+                            <input type="hidden" name="show_both" value="0">
+                            <label class="price-toolbar-select">
+                                <input type="checkbox" name="show_both" value="1" {% if show_both %}checked{% endif %} onchange="this.form.submit()">
+                                <span>Les deux</span>
+                            </label>
+                        </form>
+                    </div>
+                    <div class="price-toolbar-group">
+                        <button class="price-chip" type="button">{{ board.totals.products }} produits</button>
+                    </div>
+                </div>
+
+                <div class="price-kpi-band">
+                    <div class="price-kpi-big">
+                        <strong class="price-kpi-value is-pricier">{{ threshold|number_format(0, ',', ' ') }}%</strong>
+                        <p>Produits où Thomann ou Michenaud s’éloignent trop de la base Woodbrass / Stars Music.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>{{ board.totals.products }} produits signalés</h2>
+                <p>Référence fiable = moyenne des prix disponibles `Woodbrass` et `Stars Music`.</p>
+            </div>
+
+            <div class="price-table-wrap">
+                <table class="price-table">
+                    <thead>
+                        <tr>
+                            <th>Produit</th>
+                            <th>Prix source</th>
+                            <th>Base fiable</th>
+                            <th>Woodbrass</th>
+                            <th>Stars Music</th>
+                            <th>Thomann</th>
+                            <th>Michenaud</th>
+                            <th>Max écart</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in board.rows %}
+                            <tr>
+                                <td class="price-product-cell">
+                                    <button
+                                        class="price-product-link"
+                                        type="button"
+                                        data-price-drawer-trigger
+                                        data-url="{{ path('app_competitive_search', { q: row.product_id, embed: 1 }) }}"
+                                        data-label="{{ row.name }}"
+                                    >
+                                        <div class="price-product-card">
+                                            {% if row.source_image_url %}
+                                                <img src="{{ row.source_image_url }}" alt="{{ row.name }}">
+                                            {% else %}
+                                                <div class="price-product-placeholder">HM</div>
+                                            {% endif %}
+                                            <div>
+                                                <strong>{{ row.name }}</strong>
+                                                <div class="price-product-meta">
+                                                    {{ row.brand ?: 'Sans marque' }}
+                                                    {% if row.supplier_reference %}
+                                                        / {{ row.supplier_reference }}
+                                                    {% endif %}
+                                                </div>
+                                                <div class="price-product-meta">#{{ row.product_id }}</div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </td>
+                                <td>{{ row.source_price is not null ? row.source_price|number_format(2, ',', ' ') ~ ' €' : 'n/a' }}</td>
+                                <td><strong>{{ row.trusted_avg|number_format(2, ',', ' ') }} €</strong></td>
+                                <td>
+                                    {% set woodbrass = null %}
+                                    {% set stars = null %}
+                                    {% for entry in row.trusted_entries %}
+                                        {% if entry.competitor.key == 'woodbrass' %}
+                                            {% set woodbrass = entry %}
+                                        {% elseif entry.competitor.key == 'stars-music' %}
+                                            {% set stars = entry %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    {% if woodbrass %}
+                                        <a href="{{ woodbrass.url }}" target="_blank" rel="noopener noreferrer">{{ woodbrass.price|number_format(2, ',', ' ') }} €</a>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if stars %}
+                                        <a href="{{ stars.url }}" target="_blank" rel="noopener noreferrer">{{ stars.price|number_format(2, ',', ' ') }} €</a>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td class="price-competitor-cell {{ row.thomann.tone }}">
+                                    {% if row.thomann.price is not null %}
+                                        <div class="price-cell-delta {{ row.thomann.is_offender ? 'status-rejected' : '' }}">
+                                            {{ row.thomann.delta_percent >= 0 ? '+' : '' }}{{ row.thomann.delta_percent|number_format(1, ',', ' ') }}%
+                                        </div>
+                                        <div class="price-cell-value">
+                                            <a href="{{ row.thomann.url }}" target="_blank" rel="noopener noreferrer">{{ row.thomann.price|number_format(2, ',', ' ') }} €</a>
+                                        </div>
+                                    {% else %}
+                                        <div class="price-cell-empty">-</div>
+                                    {% endif %}
+                                </td>
+                                <td class="price-competitor-cell {{ row.michenaud.tone }}">
+                                    {% if row.michenaud.price is not null %}
+                                        <div class="price-cell-delta {{ row.michenaud.is_offender ? 'status-rejected' : '' }}">
+                                            {{ row.michenaud.delta_percent >= 0 ? '+' : '' }}{{ row.michenaud.delta_percent|number_format(1, ',', ' ') }}%
+                                        </div>
+                                        <div class="price-cell-value">
+                                            <a href="{{ row.michenaud.url }}" target="_blank" rel="noopener noreferrer">{{ row.michenaud.price|number_format(2, ',', ' ') }} €</a>
+                                        </div>
+                                    {% else %}
+                                        <div class="price-cell-empty">-</div>
+                                    {% endif %}
+                                </td>
+                                <td class="price-delta pricier">+{{ row.max_gap|number_format(1, ',', ' ') }}%</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="8" class="detail-empty">Aucun produit au-delà du seuil {{ threshold|number_format(0, ',', ' ') }}%.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="price-drawer-backdrop" data-price-drawer-close hidden></div>
+        <aside class="price-drawer" data-price-drawer hidden aria-hidden="true">
+            <div class="price-drawer-head">
+                <div>
+                    <div class="price-drawer-kicker">Produit</div>
+                    <strong data-price-drawer-title>Détail concurrentiel</strong>
+                </div>
+                <button class="price-chip" type="button" data-price-drawer-close>Fermer</button>
+            </div>
+            <div class="price-drawer-body">
+                <iframe
+                    class="price-drawer-frame"
+                    data-price-drawer-frame
+                    title="Détail produit concurrentiel"
+                    loading="lazy"
+                ></iframe>
+            </div>
+        </aside>
+    </main>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script>
+        (() => {
+            let initialized = false;
+
+            const initPriceDrawer = () => {
+                if (initialized) {
+                    return;
+                }
+
+                initialized = true;
+
+                const drawer = document.querySelector('[data-price-drawer]');
+                const backdrop = document.querySelector('.price-drawer-backdrop');
+                const frame = document.querySelector('[data-price-drawer-frame]');
+                const title = document.querySelector('[data-price-drawer-title]');
+
+                if (!drawer || !frame || !title) {
+                    initialized = false;
+                    return;
+                }
+
+                const closeTargets = document.querySelectorAll('[data-price-drawer-close]');
+
+                const openDrawer = (url, label) => {
+                    frame.src = url;
+                    title.textContent = label || 'Détail concurrentiel';
+                    drawer.hidden = false;
+                    drawer.setAttribute('aria-hidden', 'false');
+                    document.body.classList.add('price-drawer-open');
+                    if (backdrop) {
+                        backdrop.hidden = false;
+                    }
+                    requestAnimationFrame(() => {
+                        drawer.classList.add('is-open');
+                        if (backdrop) {
+                            backdrop.classList.add('is-open');
+                        }
+                    });
+                };
+
+                const closeDrawer = () => {
+                    drawer.classList.remove('is-open');
+                    if (backdrop) {
+                        backdrop.classList.remove('is-open');
+                    }
+                    document.body.classList.remove('price-drawer-open');
+                    window.setTimeout(() => {
+                        drawer.hidden = true;
+                        drawer.setAttribute('aria-hidden', 'true');
+                        if (backdrop) {
+                            backdrop.hidden = true;
+                        }
+                    }, 180);
+                };
+
+                document.addEventListener('click', (event) => {
+                    const trigger = event.target instanceof Element ? event.target.closest('[data-price-drawer-trigger]') : null;
+                    if (!trigger) {
+                        return;
+                    }
+                    event.preventDefault();
+                    openDrawer(trigger.dataset.url || '', trigger.dataset.label || trigger.textContent.trim());
+                });
+
+                closeTargets.forEach((node) => {
+                    node.addEventListener('click', closeDrawer);
+                });
+
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape' && drawer.classList.contains('is-open')) {
+                        closeDrawer();
+                    }
+                });
+            };
+
+            document.addEventListener('DOMContentLoaded', initPriceDrawer);
+            document.addEventListener('turbo:load', initPriceDrawer);
+        })();
+    </script>
+{% endblock %}

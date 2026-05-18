@@ -76,6 +76,18 @@ def _is_ai_scored_competitor(competitor: dict[str, object]) -> bool:
     return any(marker in domain or marker in name for marker in ("thomann", "michenaud"))
 
 
+def _is_michenaud_competitor(competitor: dict[str, object]) -> bool:
+    domain = str(competitor.get("domain") or "").lower()
+    name = str(competitor.get("name") or "").lower()
+    return "michenaud" in domain or "michenaud" in name
+
+
+def _is_thomann_competitor(competitor: dict[str, object]) -> bool:
+    domain = str(competitor.get("domain") or "").lower()
+    name = str(competitor.get("name") or "").lower()
+    return "thomann" in domain or "thomann" in name
+
+
 def _as_float(value: object) -> float | None:
     if value is None:
         return None
@@ -347,10 +359,25 @@ def run_url_job(
                         candidate_price = _as_float(best_candidate.price)
                         price_ratio = _price_ratio(source_price, candidate_price)
                         if price_ratio is not None:
-                            if price_ratio >= 0.40 and best_candidate.score > 70:
-                                best_candidate = replace(best_candidate, score=70)
-                            elif price_ratio >= 0.25 and best_candidate.score > 85:
-                                best_candidate = replace(best_candidate, score=85)
+                            if _is_michenaud_competitor(competitor):
+                                if price_ratio >= 0.45:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 20))
+                                elif price_ratio >= 0.30:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 60))
+                                elif price_ratio >= 0.20:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 80))
+                            elif _is_thomann_competitor(competitor):
+                                if price_ratio >= 0.45:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 20))
+                                elif price_ratio >= 0.30:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 65))
+                                elif price_ratio >= 0.20:
+                                    best_candidate = replace(best_candidate, score=min(best_candidate.score, 82))
+                            else:
+                                if price_ratio >= 0.40 and best_candidate.score > 70:
+                                    best_candidate = replace(best_candidate, score=70)
+                                elif price_ratio >= 0.25 and best_candidate.score > 85:
+                                    best_candidate = replace(best_candidate, score=85)
 
                         if best_candidate.score < 30:
                             tests_to_submit.append(

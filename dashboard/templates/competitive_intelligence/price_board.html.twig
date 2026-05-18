@@ -1,0 +1,318 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Cockpit prix | Veille concurrentielle{% endblock %}
+
+{% block body %}
+    <main class="app-shell module-shell price-board-shell" data-turbo="false">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark brand-mark-competitive">PX</div>
+                <div>
+                    <div class="brand-name">Cockpit prix</div>
+                    <div class="brand-subtitle">Lecture compétitive des prix finals par produit et par concurrent</div>
+                </div>
+            </div>
+            <div class="status-pills">
+                <a class="pill" href="{{ path('app_competitive_home') }}">Accueil module</a>
+                <a class="pill" href="{{ path('app_competitive_price_trusted_gaps') }}">Écarts fiables</a>
+                <a class="pill" href="{{ path('app_competitive_search') }}">Recherche</a>
+                <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
+                <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
+            </div>
+        </header>
+
+        <section class="price-board-hero">
+            <aside class="price-side-summary">
+                <label class="price-side-item price-side-item-cheaper">
+                    <input type="checkbox" checked disabled>
+                    <span>Moins cher</span>
+                    <strong>{{ board.totals.cheaper }}</strong>
+                </label>
+                <label class="price-side-item price-side-item-same">
+                    <input type="checkbox" checked disabled>
+                    <span>Même prix</span>
+                    <strong>{{ board.totals.same }}</strong>
+                </label>
+                <label class="price-side-item price-side-item-pricier">
+                    <input type="checkbox" checked disabled>
+                    <span>Plus cher</span>
+                    <strong>{{ board.totals.pricier }}</strong>
+                </label>
+            </aside>
+
+            <div class="price-hero-main">
+                <div class="price-toolbar">
+                    <div class="price-toolbar-group">
+                        <button class="price-chip" type="button">Direct Web</button>
+                        <form method="get" class="price-toolbar-filter-form">
+                            <input type="hidden" name="limit" value="{{ limit }}">
+                            {% if selected_bucket %}
+                                <input type="hidden" name="bucket" value="{{ selected_bucket }}">
+                            {% endif %}
+                            <label class="price-toolbar-select">
+                                <span>Concurrent</span>
+                                <select name="competitor" onchange="this.form.submit()">
+                                    <option value="">Tous les concurrents</option>
+                                    {% for competitor in board.competitors %}
+                                        <option value="{{ competitor.key }}" {% if selected_competitor == competitor.key %}selected{% endif %}>
+                                            {{ competitor.name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                        </form>
+                    </div>
+                    <div class="price-toolbar-group">
+                        <button class="price-chip price-chip-search" type="button">Rechercher</button>
+                        <button class="price-chip" type="button">Filtrer</button>
+                    </div>
+                </div>
+
+                <div class="price-kpi-band">
+                    <div class="price-kpi-big">
+                        <strong class="price-kpi-value {{ board.totals.avg_delta > 1 ? 'is-pricier' : (board.totals.avg_delta < -1 ? 'is-cheaper' : 'is-same') }}">
+                            {{ board.totals.avg_delta >= 0 ? '+' : '' }}{{ board.totals.avg_delta|number_format(1, ',', ' ') }}%
+                        </strong>
+                        <p>
+                            Vos produits sont en moyenne
+                            {% if board.totals.avg_delta > 1 %}
+                                {{ board.totals.avg_delta|number_format(1, ',', ' ') }}% plus chers
+                            {% elseif board.totals.avg_delta < -1 %}
+                                {{ (board.totals.avg_delta * -1)|number_format(1, ',', ' ') }}% moins chers
+                            {% else %}
+                                au même niveau
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    <div class="price-histogram">
+                        {% set max_histogram = 1 %}
+                        {% for bucket in board.histogram %}
+                            {% if bucket.count > max_histogram %}
+                                {% set max_histogram = bucket.count %}
+                            {% endif %}
+                        {% endfor %}
+                        {% for bucket in board.histogram %}
+                            <a
+                                class="price-histogram-bar price-histogram-bar-{{ bucket.tone }}{% if selected_bucket == bucket.key %} is-active{% endif %}"
+                                href="{{ path('app_competitive_price_board', { limit: limit, bucket: bucket.key, competitor: selected_competitor ?: null }) }}"
+                            >
+                                <span class="price-histogram-count">{{ bucket.count }}</span>
+                                <div class="price-histogram-track">
+                                    <div class="price-histogram-fill" style="height: {{ ((bucket.count / max_histogram) * 100)|round(0, 'ceil') }}%;"></div>
+                                </div>
+                                <span class="price-histogram-label">{{ bucket.label }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="section-head">
+                <h2>
+                    {% if board.selected_bucket_label %}
+                        {{ board.filtered_total }} produits pour {{ board.selected_bucket_label }}
+                    {% else %}
+                        {{ board.totals.products }} produits
+                    {% endif %}
+                </h2>
+                <p>
+                    Lecture sur les produits ayant au moins un prix final concurrent et un prix source exploitable.
+                    {% if board.selected_bucket_label %}
+                        <a href="{{ path('app_competitive_price_board', { limit: limit, competitor: selected_competitor ?: null }) }}">Retirer le filtre</a>
+                    {% endif %}
+                    {% if board.selected_competitor %}
+                        <span>Concurrent: {{ board.selected_competitor.name }}</span>
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="price-grid-controls">
+                <div class="price-grid-controls-spacer"></div>
+                <div class="price-grid-controls-actions">
+                    <button class="price-chip" type="button">Pourcentage</button>
+                    <button class="price-chip" type="button">Exporter</button>
+                    <button class="price-chip" type="button">Ordre</button>
+                </div>
+            </div>
+
+            <div class="price-table-wrap">
+                <table class="price-table">
+                    <thead>
+                        <tr>
+                            <th>Produit</th>
+                            <th>Prix</th>
+                            <th>AVG</th>
+                            <th>PI AVG</th>
+                            <th>Dif. chp</th>
+                            {% for competitor in board.competitors %}
+                                <th>{{ competitor.name }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in board.rows %}
+                            <tr>
+                                <td class="price-product-cell">
+                                    <button
+                                        class="price-product-link"
+                                        type="button"
+                                        data-price-drawer-trigger
+                                        data-url="{{ path('app_competitive_search', { q: row.product_id, embed: 1 }) }}"
+                                        data-label="{{ row.name }}"
+                                    >
+                                        <div class="price-product-card">
+                                            {% if row.source_image_url %}
+                                                <img src="{{ row.source_image_url }}" alt="{{ row.name }}">
+                                            {% else %}
+                                                <div class="price-product-placeholder">HM</div>
+                                            {% endif %}
+                                            <div>
+                                                <strong>{{ row.name }}</strong>
+                                                <div class="price-product-meta">
+                                                    {{ row.brand ?: 'Sans marque' }}
+                                                    {% if row.supplier_reference %}
+                                                        / {{ row.supplier_reference }}
+                                                    {% endif %}
+                                                </div>
+                                                <div class="price-product-meta">#{{ row.product_id }}</div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </td>
+                                <td>{{ row.source_price|number_format(2, ',', ' ') }}</td>
+                                <td>{{ row.avg_price|number_format(2, ',', ' ') }}</td>
+                                <td>
+                                    <strong class="price-index-score">{{ row.price_index|number_format(0, ',', ' ') }}</strong>
+                                </td>
+                                <td class="price-delta {{ row.tone }}">
+                                    {{ row.delta_percent >= 0 ? '+' : '' }}{{ row.delta_percent|number_format(1, ',', ' ') }} %
+                                </td>
+                                {% for cell in row.competitors %}
+                                    <td class="price-competitor-cell {{ cell.tone }}">
+                                        {% if cell.price is not null %}
+                                            <div class="price-cell-delta">
+                                                {{ cell.delta_percent >= 0 ? '+' : '' }}{{ cell.delta_percent|number_format(1, ',', ' ') }}%
+                                            </div>
+                                            <div class="price-cell-value">{{ cell.price|number_format(2, ',', ' ') }} €</div>
+                                        {% else %}
+                                            <div class="price-cell-empty">-</div>
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="{{ 5 + board.competitors|length }}" class="detail-empty">Aucune donnée prix exploitable pour construire la matrice.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="price-drawer-backdrop" data-price-drawer-close hidden></div>
+        <aside class="price-drawer" data-price-drawer hidden aria-hidden="true">
+            <div class="price-drawer-head">
+                <div>
+                    <div class="price-drawer-kicker">Produit</div>
+                    <strong data-price-drawer-title>Détail concurrentiel</strong>
+                </div>
+                <button class="price-chip" type="button" data-price-drawer-close>Fermer</button>
+            </div>
+            <div class="price-drawer-body">
+                <iframe
+                    class="price-drawer-frame"
+                    data-price-drawer-frame
+                    title="Détail produit concurrentiel"
+                    loading="lazy"
+                ></iframe>
+            </div>
+        </aside>
+    </main>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script>
+        (() => {
+            let initialized = false;
+
+            const initPriceDrawer = () => {
+                if (initialized) {
+                    return;
+                }
+
+                initialized = true;
+
+            const drawer = document.querySelector('[data-price-drawer]');
+            const backdrop = document.querySelector('.price-drawer-backdrop');
+            const frame = document.querySelector('[data-price-drawer-frame]');
+            const title = document.querySelector('[data-price-drawer-title]');
+
+            if (!drawer || !frame || !title) {
+                initialized = false;
+                return;
+            }
+
+            const closeTargets = document.querySelectorAll('[data-price-drawer-close]');
+
+            const openDrawer = (url, label) => {
+                frame.src = url;
+                title.textContent = label || 'Détail concurrentiel';
+                drawer.hidden = false;
+                drawer.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('price-drawer-open');
+                if (backdrop) {
+                    backdrop.hidden = false;
+                }
+                requestAnimationFrame(() => {
+                    drawer.classList.add('is-open');
+                    if (backdrop) {
+                        backdrop.classList.add('is-open');
+                    }
+                });
+            };
+
+            const closeDrawer = () => {
+                drawer.classList.remove('is-open');
+                if (backdrop) {
+                    backdrop.classList.remove('is-open');
+                }
+                document.body.classList.remove('price-drawer-open');
+                window.setTimeout(() => {
+                    drawer.hidden = true;
+                    drawer.setAttribute('aria-hidden', 'true');
+                    if (backdrop) {
+                        backdrop.hidden = true;
+                    }
+                }, 180);
+            };
+
+            document.addEventListener('click', (event) => {
+                const trigger = event.target instanceof Element ? event.target.closest('[data-price-drawer-trigger]') : null;
+                if (!trigger) {
+                    return;
+                }
+                event.preventDefault();
+                openDrawer(trigger.dataset.url || '', trigger.dataset.label || trigger.textContent.trim());
+            });
+
+            closeTargets.forEach((node) => {
+                node.addEventListener('click', closeDrawer);
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && drawer.classList.contains('is-open')) {
+                    closeDrawer();
+                }
+            });
+            };
+
+            document.addEventListener('DOMContentLoaded', initPriceDrawer);
+            document.addEventListener('turbo:load', initPriceDrawer);
+        })();
+    </script>
+{% endblock %}

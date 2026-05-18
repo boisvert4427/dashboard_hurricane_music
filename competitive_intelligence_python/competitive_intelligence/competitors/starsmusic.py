@@ -21,6 +21,7 @@ class StarsMusicMatch:
     url: str
     title: str
     matched_ref: bool
+    price: float | None = None
 
 
 class StarsMusicScraper(CompetitorScraper):
@@ -142,6 +143,7 @@ class StarsMusicScraper(CompetitorScraper):
                             source="stars_music_product_page",
                             score=100,
                             matched_query=query,
+                            price=match.price,
                         )
                     )
                     break
@@ -185,11 +187,14 @@ class StarsMusicScraper(CompetitorScraper):
     def _match_product_page(self, product_page: tuple[str, str, str, str], facts: ProductFacts) -> StarsMusicMatch:
         title, html, text, url = product_page
         soup = BeautifulSoup(html, "html.parser")
-        spec_items = [normalize_text(item.get_text(" ", strip=True)) for item in soup.select("ul.product-specs li.spec-item")]
+        spec_texts = [item.get_text(" ", strip=True) for item in soup.select("ul.product-specs li.spec-item")]
         ref_norm = normalize_text(facts.supplier_reference)
         ean_norm = normalize_text(facts.ean)
         matched_ref = False
         matched_ean = False
+        detected_price = self._extract_price(soup)
+        spec_sku = self._extract_spec_value(spec_texts, ("sku", "référence", "reference", "ref"))
+        spec_ean = self._extract_spec_value(spec_texts, ("ean", "gtin"))
 
         for script in soup.select('script[type="application/ld+json"]'):
             script_text = script.get_text(" ", strip=True)
@@ -209,29 +214,143 @@ class StarsMusicScraper(CompetitorScraper):
 
             for entry in entries:
                 if not matched_ref:
-                    for key in ("mpn", "sku", "name"):
+                    for key in ("mpn", "sku"):
                         value = normalize_text(str(entry.get(key) or ""))
-                        if value and ref_norm and self._contains_normalized_reference(value, ref_norm):
+                        if value and ref_norm and self._same_normalized_reference(value, ref_norm):
                             matched_ref = True
                             break
                 if not matched_ean:
                     for key in ("gtin13", "gtin", "ean"):
                         value = normalize_text(str(entry.get(key) or ""))
-                        if value and ean_norm and self._contains_normalized_reference(value, ean_norm):
+                        if value and ean_norm and self._same_normalized_reference(value, ean_norm):
                             matched_ean = True
                             break
 
-        if not matched_ref and len(spec_items) > 1:
-            matched_ref = self._contains_normalized_reference(spec_items[1], ref_norm)
-        if not matched_ref and ref_norm:
-            matched_ref = any(self._contains_normalized_reference(item, ref_norm) for item in spec_items)
-        if not matched_ean and ean_norm:
-            matched_ean = any(self._contains_normalized_reference(item, ean_norm) for item in spec_items)
+        if not matched_ref and ref_norm and spec_sku:
+            matched_ref = self._same_normalized_reference(spec_sku, ref_norm)
+        if not matched_ean and ean_norm and spec_ean:
+            matched_ean = self._same_normalized_reference(spec_ean, ean_norm)
         return StarsMusicMatch(
             url=url,
             title=title.strip() or text.strip(),
             matched_ref=matched_ref or matched_ean,
+            price=detected_price,
         )
+
+    def _extract_price(self, soup: BeautifulSoup) -> float | None:
+        selectors = [
+            ".product-final-price",
+            ".product-final-price .price-decimal",
+        ]
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+            price = self._parse_price_text(node.get_text(" ", strip=True))
+            if price is not None:
+                return price
+
+        for selector, attribute in [
+            ('meta[itemprop="price"]', "content"),
+            ('meta[property="product:price:amount"]', "content"),
+            ('meta[property="og:price:amount"]', "content"),
+        ]:
+            node = soup.select_one(selector)
+            if node is None:
+                continue
+            value = node.get(attribute)
+            if value is None:
+                continue
+            price = self._parse_price_text(str(value))
+            if price is not None:
+                return price
+
+        for script in soup.select('script[type="application/ld+json"]'):
+            script_text = script.get_text(" ", strip=True)
+            if not script_text:
+                continue
+            try:
+                payload = json.loads(script_text)
+            except Exception:
+                continue
+
+            entries = [payload] if isinstance(payload, dict) else [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+            for entry in entries:
+                offers = entry.get("offers")
+                if isinstance(offers, dict):
+                    price = self._extract_price_from_offer(offers)
+                    if price is not None:
+                        return price
+
+        return None
+
+    def _extract_price_from_offer(self, offer: dict[str, object]) -> float | None:
+        direct_price = self._parse_price_text(str(offer.get("price") or ""))
+        if direct_price is not None:
+            return direct_price
+
+        price_specification = offer.get("priceSpecification")
+        if isinstance(price_specification, dict):
+            return self._parse_price_text(str(price_specification.get("price") or ""))
+
+        return None
+
+    def _extract_spec_value(self, spec_items: list[str], labels: tuple[str, ...]) -> str:
+        for raw_text in spec_items:
+            normalized = normalize_text(raw_text)
+            for label in labels:
+                prefix = normalize_text(label)
+                if not normalized.startswith(prefix):
+                    continue
+                value = raw_text[len(raw_text.split(" ", 1)[0]):].strip()
+                value = re.sub(r"^[\s:|-]+", "", value)
+                normalized_value = normalize_text(value)
+                if normalized_value:
+                    return normalized_value
+        return ""
+
+    def _same_normalized_reference(self, value_norm: str, reference_norm: str) -> bool:
+        if not value_norm or not reference_norm:
+            return False
+
+        value_compact = value_norm.replace(" ", "").replace("-", "")
+        reference_compact = reference_norm.replace(" ", "").replace("-", "")
+        return value_norm == reference_norm or value_compact == reference_compact
+
+    def _parse_price_text(self, text: str) -> float | None:
+        cleaned = text.replace("\u00A0", " ").replace("eur", "").replace("€", "").strip()
+        match = re.search(r"([0-9][0-9\s.,]*)", cleaned)
+        if not match:
+            return None
+
+        numeric = re.sub(r"\s+", "", match.group(1))
+        if not numeric:
+            return None
+
+        if "," in numeric and "." in numeric:
+            last_comma = numeric.rfind(",")
+            last_dot = numeric.rfind(".")
+            decimal_sep = "," if last_comma > last_dot else "."
+            thousands_sep = "." if decimal_sep == "," else ","
+            numeric = numeric.replace(thousands_sep, "")
+            numeric = numeric.replace(decimal_sep, ".")
+        elif numeric.count(",") > 1:
+            numeric = numeric.replace(",", "")
+        elif numeric.count(".") > 1:
+            numeric = numeric.replace(".", "")
+        else:
+            separator = "," if "," in numeric else "." if "." in numeric else None
+            if separator is not None:
+                left, right = numeric.split(separator, 1)
+                if right.isdigit() and len(right) == 3 and len(left) >= 1:
+                    numeric = left + right
+                else:
+                    numeric = left + "." + right if separator == "," else numeric
+
+        try:
+            return float(numeric)
+        except ValueError:
+            return None
 
     def _contains_normalized_reference(self, text_norm: str, reference_norm: str) -> bool:
         if not text_norm or not reference_norm:

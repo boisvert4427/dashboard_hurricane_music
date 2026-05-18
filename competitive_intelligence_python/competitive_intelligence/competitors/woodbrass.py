@@ -69,11 +69,14 @@ class WoodbrassScraper(CompetitorScraper):
                 if url in seen_urls:
                     continue
 
-                verified, page_title = self._verify_product_page(url, facts)
+                score = self._score_hit(hit, query, facts)
+                if score < 90:
+                    continue
+
+                verified, page_title, candidate_price = self._verify_product_page(url, hit, facts)
                 if not verified:
                     continue
 
-                score = 100
                 seen_urls.add(url)
                 candidates.append(
                     Candidate(
@@ -83,6 +86,7 @@ class WoodbrassScraper(CompetitorScraper):
                         source="woodbrass_algolia",
                         score=score,
                         matched_query=query,
+                        price=candidate_price,
                     )
                 )
 
@@ -130,12 +134,13 @@ class WoodbrassScraper(CompetitorScraper):
         brand_norm = normalize_text(facts.brand)
         name_norm = normalize_text(facts.name)
         supplier_norm = normalize_text(facts.supplier_reference)
-        ean_norm = normalize_text(facts.ean)
+        ean_norm = self._normalize_valid_ean(facts.ean)
         manufacturer_norm = normalize_text(manufacturer)
+        hit_ean_norm = self._normalize_valid_ean(ean)
 
-        if ean_norm and ean_norm == normalize_text(ean):
+        if ean_norm and hit_ean_norm and ean_norm == hit_ean_norm:
             score += 100
-        elif ean_norm and ean_norm in title_norm:
+        elif ean_norm and len(ean_norm) >= 8 and ean_norm in title_norm:
             score += 95
 
         if supplier_norm and supplier_norm == normalize_text(supplier_reference):
@@ -182,7 +187,7 @@ class WoodbrassScraper(CompetitorScraper):
 
         return max(0, min(100, int(round(score))))
 
-    def _verify_product_page(self, url: str, facts: ProductFacts) -> tuple[bool, str]:
+    def _verify_product_page(self, url: str, hit: dict[str, object], facts: ProductFacts) -> tuple[bool, str, float | None]:
         try:
             response = self.http.get(
                 url,
@@ -198,23 +203,151 @@ class WoodbrassScraper(CompetitorScraper):
             )
             response.raise_for_status()
         except Exception:
-            return False, ""
+            return False, "", None
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
         page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
-        text = normalize_text(soup.get_text(" ", strip=True))
-        raw_html = normalize_text(html)
+        body_text = normalize_text(soup.get_text(" ", strip=True))
+        title_text = normalize_text(page_title)
+        hit_title = normalize_text(str(hit.get("name") or ""))
+        hit_brand = normalize_text(str(hit.get("manufacturer") or ""))
+        hit_ref = normalize_text(str(hit.get("supplier_reference") or ""))
+        hit_ean = self._normalize_valid_ean(str(hit.get("ean") or ""))
+        source_ref = normalize_text(facts.supplier_reference)
+        source_ean = self._normalize_valid_ean(facts.ean)
+        source_brand = normalize_text(facts.brand)
+        page_ref = self._extract_reference_label_value(html, soup)
+        candidate_price = self._extract_candidate_price(hit, html)
 
-        reference = normalize_text(facts.supplier_reference)
-        ean = normalize_text(facts.ean)
+        if source_ref and page_ref and source_ref == page_ref:
+            if not source_brand or not hit_brand or source_brand == hit_brand or source_brand in hit_brand or hit_brand in source_brand:
+                return True, page_title, candidate_price
 
-        if reference and (reference in text or reference in raw_html):
-            return True, page_title
-        if ean and (ean in text or ean in raw_html):
-            return True, page_title
+        if source_ean and hit_ean and source_ean == hit_ean:
+            return True, page_title, candidate_price
 
-        return False, page_title
+        if source_ref and hit_ref and source_ref == hit_ref:
+            if not source_brand or not hit_brand or source_brand == hit_brand or source_brand in hit_brand or hit_brand in source_brand:
+                return True, page_title, candidate_price
+
+        # Fallback: require the page title itself to carry the expected product signals.
+        title_has_ref = bool(source_ref) and source_ref in title_text
+        title_has_ean = bool(source_ean) and source_ean in title_text
+        title_has_brand = bool(source_brand) and source_brand in title_text
+        body_has_brand = bool(source_brand) and source_brand in body_text
+
+        if title_has_ean:
+            return True, page_title, candidate_price
+
+        if title_has_ref and (title_has_brand or body_has_brand):
+            return True, page_title, candidate_price
+
+        if hit_title and hit_title in title_text and (not source_brand or title_has_brand or body_has_brand):
+            return True, page_title, candidate_price
+
+        return False, page_title, candidate_price
+
+    def _extract_candidate_price(self, hit: dict[str, object], html: str) -> float | None:
+        for key in ("price", "prix", "sale_price", "price_value"):
+            candidate = self._coerce_price(hit.get(key))
+            if candidate is not None:
+                return candidate
+
+        patterns = [
+            r'"price"\s*:\s*"?(?P<value>\d+(?:[.,]\d+)?)',
+            r'"salePrice"\s*:\s*"?(?P<value>\d+(?:[.,]\d+)?)',
+            r'"price_amount"\s*:\s*"?(?P<value>\d+(?:[.,]\d+)?)',
+            r'itemprop="price"\s+content="(?P<value>\d+(?:[.,]\d+)?)"',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, html, re.I)
+            if not match:
+                continue
+            candidate = self._coerce_price(match.group("value"))
+            if candidate is not None:
+                return candidate
+
+        return None
+
+    def _coerce_price(self, value: object) -> float | None:
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if text == "":
+            return None
+
+        text = text.replace(" ", "").replace("\xa0", "")
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif "," in text:
+            text = text.replace(",", ".")
+
+        if not re.fullmatch(r"\d+(?:\.\d+)?", text):
+            return None
+
+        try:
+            price = float(text)
+        except ValueError:
+            return None
+
+        return price if price > 0 else None
+
+    def _normalize_valid_ean(self, value: object) -> str:
+        normalized = normalize_text(str(value or ""))
+        digits = "".join(ch for ch in normalized if ch.isdigit())
+        if digits == "":
+            return ""
+        if len(set(digits)) == 1 and digits[0] == "0":
+            return ""
+        if len(digits) not in {8, 12, 13, 14}:
+            return ""
+        return digits
+
+    def _extract_reference_label_value(self, html: str, soup: BeautifulSoup) -> str | None:
+        normalized_html = " ".join(str(html).split())
+        patterns = [
+            r"Référence\s+marque\s*:\s*</[^>]+>\s*<[^>]+>\s*([^<]+?)\s*<",
+            r"Référence\s+marque\s*:\s*([^<\n\r]+)",
+            r"Reference\s+marque\s*:\s*([^<\n\r]+)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, normalized_html, re.I)
+            if match:
+                value = normalize_text(match.group(1))
+                if value:
+                    return value
+
+        for label in soup.find_all(string=re.compile(r"Référence\s+marque\s*:", re.I)):
+            text = str(label)
+            inline = re.search(r"Référence\s+marque\s*:\s*(.+)$", text, re.I)
+            if inline:
+                value = normalize_text(inline.group(1))
+                if value:
+                    return value
+
+            parent = getattr(label, "parent", None)
+            if parent is None:
+                continue
+
+            next_text = parent.get_text(" ", strip=True)
+            next_text = re.sub(r"^.*Référence\s+marque\s*:\s*", "", next_text, flags=re.I)
+            value = normalize_text(next_text)
+            if value:
+                return value
+
+            sibling = parent.find_next_sibling()
+            if sibling is not None:
+                value = normalize_text(sibling.get_text(" ", strip=True))
+                if value:
+                    return value
+
+        return None
 
     def _search_and_extract(self, search_page, product_page, query: str, product_id: int | None = None) -> Iterable[Candidate]:
         selector = "input.ais-SearchBox-input.search-input.keywords"

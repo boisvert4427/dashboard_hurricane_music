@@ -405,7 +405,9 @@ class ThomannScraper(CompetitorScraper):
 
         if source_price is not None and candidate_price is not None and source_price > 0 and candidate_price > 0:
             ratio = abs(candidate_price - source_price) / source_price
-            if ratio >= 0.35:
+            if ratio >= 0.50:
+                score -= 40
+            elif ratio >= 0.35:
                 score -= 30
             elif ratio >= 0.20:
                 score -= 15

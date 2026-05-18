@@ -3,71 +3,78 @@
 {% block title %}Recherche concurrentielle | Dashboard Hurricane Music{% endblock %}
 
 {% block body %}
+    {% set embedded = app.request.query.get('embed') == '1' %}
     <main class="app-shell module-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="brand-mark brand-mark-competitive">VC</div>
-                <div>
-                    <div class="brand-name">Recherche concurrentielle</div>
-                    <div class="brand-subtitle">Un champ, des résultats PrestaShop, puis tous les matchs concurrents par produit</div>
+        {% if not embedded %}
+            <header class="topbar">
+                <div class="brand">
+                    <div class="brand-mark brand-mark-competitive">VC</div>
+                    <div>
+                        <div class="brand-name">Recherche concurrentielle</div>
+                        <div class="brand-subtitle">Un champ, des résultats PrestaShop, puis tous les matchs concurrents par produit</div>
+                    </div>
                 </div>
-            </div>
-            <div class="status-pills">
-                <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Retour veille</a>
-                <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
-                <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
-                <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
-            </div>
-        </header>
+                <div class="status-pills">
+                    <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Retour veille</a>
+                    <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
+                    <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+                    <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
+                </div>
+            </header>
+        {% endif %}
 
         <section class="section">
-            <div class="section-head">
-                <h2>Recherche produit</h2>
-                <p>Recherche par `id`, `référence`, `EAN`, `marque` ou `nom` dans le feed PrestaShop.</p>
-            </div>
+            {% if not embedded %}
+                <div class="section-head">
+                    <h2>Recherche produit</h2>
+                    <p>Recherche par `id`, `référence`, `EAN`, `marque` ou `nom` dans le feed PrestaShop.</p>
+                </div>
 
-            <form method="get" action="{{ path('app_competitive_search') }}" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
-                <input
-                    type="text"
-                    name="q"
-                    value="{{ query }}"
-                    placeholder="Ex: 405696, 3760123456789, Gibson, RD Custom..."
-                    style="flex:1 1 420px; min-width:260px;"
-                >
-                <button class="button button-primary" type="submit">Rechercher</button>
-            </form>
+                <form method="get" action="{{ path('app_competitive_search') }}" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
+                    <input
+                        type="text"
+                        name="q"
+                        value="{{ query }}"
+                        placeholder="Ex: 405696, 3760123456789, Gibson, RD Custom..."
+                        style="flex:1 1 420px; min-width:260px;"
+                    >
+                    <button class="button button-primary" type="submit">Rechercher</button>
+                </form>
+            {% endif %}
 
             {% if query == '' %}
                 <div class="module-empty-card">Saisis un identifiant, une référence, un EAN ou un nom produit.</div>
             {% elseif rows is empty %}
                 <div class="module-empty-card">Aucun produit trouvé pour "{{ query }}".</div>
             {% else %}
-                <div class="workflow-grid" style="margin-bottom:24px;">
-                    {% for row in rows %}
-                        <article class="workflow-card">
-                            <div style="display:flex; gap:12px; align-items:flex-start;">
-                                {% if row.source and row.source.source_image_url %}
-                                    <img
-                                        src="{{ row.source.source_image_url }}"
-                                        alt="{{ row.product.name }}"
-                                        loading="lazy"
-                                        style="width:84px; height:84px; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.08); background:#111; flex:0 0 auto;"
-                                    >
-                                {% endif %}
-                                <div style="min-width:0;">
-                                    <div class="workflow-step">{{ row.product.id_product }}</div>
-                                    <h3 style="margin-top:6px;">{{ row.product.name }}</h3>
+                {% if not embedded %}
+                    <div class="workflow-grid" style="margin-bottom:24px;">
+                        {% for row in rows %}
+                            <article class="workflow-card">
+                                <div style="display:flex; gap:12px; align-items:flex-start;">
+                                    {% if row.source and row.source.source_image_url %}
+                                        <img
+                                            src="{{ row.source.source_image_url }}"
+                                            alt="{{ row.product.name }}"
+                                            loading="lazy"
+                                            style="width:84px; height:84px; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.08); background:#111; flex:0 0 auto;"
+                                        >
+                                    {% endif %}
+                                    <div style="min-width:0;">
+                                        <div class="workflow-step">{{ row.product.id_product }}</div>
+                                        <h3 style="margin-top:6px;">{{ row.product.name }}</h3>
+                                    </div>
                                 </div>
-                            </div>
-                            <p>
-                                Marque: <strong>{{ row.product.brand ?? 'n/a' }}</strong><br>
-                                Réf: <strong>{{ row.product.supplier_reference ?? 'n/a' }}</strong><br>
-                                EAN: <strong>{{ row.product.ean ?? 'n/a' }}</strong><br>
-                                Prix: <strong>{{ row.product.source_price ?? 'n/a' }}</strong>
-                            </p>
-                        </article>
-                    {% endfor %}
-                </div>
+                                <p>
+                                    Marque: <strong>{{ row.product.brand ?? 'n/a' }}</strong><br>
+                                    Réf: <strong>{{ row.product.supplier_reference ?? 'n/a' }}</strong><br>
+                                    EAN: <strong>{{ row.product.ean ?? 'n/a' }}</strong><br>
+                                    Prix: <strong>{{ row.product.source_price ?? 'n/a' }}</strong>
+                                </p>
+                            </article>
+                        {% endfor %}
+                    </div>
+                {% endif %}
 
                 {% for row in rows %}
                     <section class="section" style="margin-top:0;">
@@ -87,6 +94,67 @@
                                 </div>
                             </div>
                         </div>
+
+                        <form method="post" action="{{ path('app_competitive_search_manual_url', {productId: row.product.id_product}) }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin:0 0 20px;">
+                            <input type="hidden" name="q" value="{{ query }}">
+                            {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                            <div style="display:flex; flex-direction:column; gap:6px; min-width:200px;">
+                                <label for="manual-competitor-{{ row.product.id_product }}">Concurrent</label>
+                                <select id="manual-competitor-{{ row.product.id_product }}" name="competitor_id" required>
+                                    <option value="">Choisir</option>
+                                    {% for competitor in competitors %}
+                                        <option value="{{ competitor.id }}">{{ competitor.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; flex:1 1 460px; min-width:260px;">
+                                <label for="manual-url-{{ row.product.id_product }}">URL manuelle</label>
+                                <input
+                                    id="manual-url-{{ row.product.id_product }}"
+                                    type="url"
+                                    name="url"
+                                    placeholder="https://www.concurrent.com/produit..."
+                                    required
+                                >
+                            </div>
+                            <button class="button button-primary" type="submit">Ajouter URL</button>
+                        </form>
+
+                        {% if embedded %}
+                            <div class="workflow-grid" style="margin-bottom:20px;">
+                                {% for final in row.finals %}
+                                    <article class="workflow-card">
+                                        <div class="workflow-step">Finale</div>
+                                        <h3 style="margin-top:6px;">{{ final.competitor.name }}</h3>
+                                        <p style="margin-bottom:12px;">{{ final.competitor_price ?? 'n/a' }} | {{ final.url }}</p>
+                                        <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien et rejeter le test result ?');">
+                                            <input type="hidden" name="q" value="{{ query }}">
+                                            {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                            <button class="button button-secondary" type="submit">Supprimer</button>
+                                        </form>
+                                    </article>
+                                {% endfor %}
+                                {% for postponed in row.postponed %}
+                                    <article class="workflow-card">
+                                        <div class="workflow-step">Postponed</div>
+                                        <h3 style="margin-top:6px;">{{ postponed.competitor.name }}</h3>
+                                        <p style="margin-bottom:12px;">{{ postponed.competitor_price ?? 'n/a' }} | {{ postponed.url }}</p>
+                                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                            <form method="post" action="{{ path('app_competitive_search_validate_postponed', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Valider ce lien ?');">
+                                                <input type="hidden" name="q" value="{{ query }}">
+                                                {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                <button class="button button-primary" type="submit">Valider</button>
+                                            </form>
+                                            <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien postponed ?');">
+                                                <input type="hidden" name="q" value="{{ query }}">
+                                                {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                <button class="button button-secondary" type="submit">Supprimer</button>
+                                            </form>
+                                        </div>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
 
                         <div class="detail-table-wrap" style="margin-bottom:20px;">
                             <div class="section-head" style="margin-bottom:12px;">
@@ -110,9 +178,10 @@
                                             </td>
                                             <td>{{ final.competitor_price ?? 'n/a' }}</td>
                                             <td>
-                                                <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Retirer ce lien et rejeter le test result ?');">
+                                                <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien et rejeter le test result ?');">
                                                     <input type="hidden" name="q" value="{{ query }}">
-                                                    <button class="button button-secondary" type="submit">Retirer</button>
+                                                    {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                    <button class="button button-secondary" type="submit">Supprimer</button>
                                                 </form>
                                             </td>
                                         </tr>
@@ -153,6 +222,7 @@
                                             <td>
                                                 <form method="post" action="{{ path('app_competitive_search_revalidate_rejected', {productId: row.product.id_product, competitorId: rejected.competitor.id}) }}" onsubmit="return confirm('Revalider ce lien ?');">
                                                     <input type="hidden" name="q" value="{{ query }}">
+                                                    {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
                                                     <button class="button button-primary" type="submit">Revalider</button>
                                                 </form>
                                             </td>
@@ -178,6 +248,7 @@
                                         <th>Score</th>
                                         <th>Vu le</th>
                                         <th>Prix</th>
+                                        <th>Supprimer</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -193,13 +264,21 @@
                                             <td>
                                                 <form method="post" action="{{ path('app_competitive_search_validate_postponed', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Valider ce lien ?');">
                                                     <input type="hidden" name="q" value="{{ query }}">
+                                                    {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
                                                     <button class="button button-primary" type="submit">Valider</button>
+                                                </form>
+                                            </td>
+                                            <td>
+                                                <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien postponed ?');">
+                                                    <input type="hidden" name="q" value="{{ query }}">
+                                                    {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                    <button class="button button-secondary" type="submit">Supprimer</button>
                                                 </form>
                                             </td>
                                         </tr>
                                     {% else %}
                                         <tr>
-                                            <td class="detail-empty" colspan="6">Aucune URL postponed pour ce produit.</td>
+                                            <td class="detail-empty" colspan="7">Aucune URL postponed pour ce produit.</td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>

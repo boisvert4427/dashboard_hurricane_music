@@ -17,6 +17,7 @@
                 <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
                 <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
                 <a class="pill" href="{{ path('app_competitive_search') }}">Recherche</a>
+                <a class="pill" href="{{ path('app_competitive_price_board') }}">Prix</a>
                 <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
             </div>
         </header>
@@ -108,6 +109,8 @@
                             <th>Total</th>
                             <th>Matched</th>
                             <th>Pending</th>
+                            <th>Postponed</th>
+                            <th>Rejected</th>
                             <th>Not found</th>
                             <th>Cloudflare</th>
                             <th>Search input not found</th>
@@ -125,6 +128,8 @@
                                 <td><strong>{{ row.total }}</strong></td>
                                 <td>{{ row.matched }}</td>
                                 <td>{{ row.pending }}</td>
+                                <td>{{ row.postponed }}</td>
+                                <td>{{ row.rejected }}</td>
                                 <td>{{ row.not_found }}</td>
                                 <td>{{ row.cloudflare }}</td>
                                 <td>{{ row.search_input_not_found }}</td>
@@ -132,7 +137,7 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td class="detail-empty" colspan="9">Aucun test URL enregistré pour le moment.</td>
+                                <td class="detail-empty" colspan="11">Aucun test URL enregistré pour le moment.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
@@ -144,6 +149,8 @@
                                 <th>{{ test_result_totals.total }}</th>
                                 <th>{{ test_result_totals.matched }}</th>
                                 <th>{{ test_result_totals.pending }}</th>
+                                <th>{{ test_result_totals.postponed }}</th>
+                                <th>{{ test_result_totals.rejected }}</th>
                                 <th>{{ test_result_totals.not_found }}</th>
                                 <th>{{ test_result_totals.cloudflare }}</th>
                                 <th>{{ test_result_totals.search_input_not_found }}</th>

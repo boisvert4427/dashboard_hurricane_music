@@ -5,21 +5,25 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\Competitor;
+use App\Entity\CompetitorUrlFinal;
 use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorStateStorage;
+use App\Service\CompetitiveIntelligence\CompetitivePriceHistoryService;
 use App\Service\CompetitiveIntelligence\CompetitiveTaskLogService;
 use App\Service\CompetitiveIntelligence\CompetitiveImageReviewService;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultReviewService;
+use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[Route('/veille-concurrentielle')]
 final class CompetitiveIntelligenceController extends AbstractController
@@ -77,6 +81,56 @@ final class CompetitiveIntelligenceController extends AbstractController
             'theoretical_total' => $theoreticalTotal,
             'price_scrapes_last_24h' => $priceScrapesLast24h,
             'recent_candidates' => $recentCandidates,
+        ]);
+    }
+
+    #[Route('/prix', name: 'app_competitive_price_board', methods: ['GET'])]
+    public function priceBoard(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        PrestashopProductBatchProvider $batchProvider,
+    ): Response {
+        $limit = max(10, min(150, (int) $request->query->get('limit', 60)));
+        $selectedBucket = trim((string) $request->query->get('bucket', ''));
+        $selectedCompetitor = trim((string) $request->query->get('competitor', ''));
+        $board = $this->buildCompetitivePriceBoard($entityManager, $batchProvider, $limit, $selectedBucket, $selectedCompetitor);
+
+        return $this->render('competitive_intelligence/price_board.html.twig', [
+            'board' => $board,
+            'limit' => $limit,
+            'selected_bucket' => $selectedBucket,
+            'selected_competitor' => $selectedCompetitor,
+        ]);
+    }
+
+    #[Route('/prix/ecarts-fiables', name: 'app_competitive_price_trusted_gaps', methods: ['GET'])]
+    public function trustedPriceGaps(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        PrestashopProductBatchProvider $batchProvider,
+    ): Response {
+        $limit = max(10, min(300, (int) $request->query->get('limit', 100)));
+        $threshold = max(5.0, min(200.0, (float) $request->query->get('threshold', 30)));
+        $showThomann = '0' !== (string) $request->query->get('show_thomann', '1');
+        $showMichenaud = '0' !== (string) $request->query->get('show_michenaud', '1');
+        $showBoth = '0' !== (string) $request->query->get('show_both', '1');
+        $board = $this->buildTrustedGapBoard(
+            $entityManager,
+            $batchProvider,
+            $limit,
+            $threshold,
+            $showThomann,
+            $showMichenaud,
+            $showBoth,
+        );
+
+        return $this->render('competitive_intelligence/trusted_price_gaps.html.twig', [
+            'board' => $board,
+            'limit' => $limit,
+            'threshold' => $threshold,
+            'show_thomann' => $showThomann,
+            'show_michenaud' => $showMichenaud,
+            'show_both' => $showBoth,
         ]);
     }
 
@@ -248,7 +302,134 @@ final class CompetitiveIntelligenceController extends AbstractController
         return $this->render('competitive_intelligence/search.html.twig', [
             'query' => $query,
             'rows' => $rows,
+            'competitors' => $this->getCompetitorRepository($entityManager)
+                ->createQueryBuilder('c')
+                ->orderBy('c.name', 'ASC')
+                ->getQuery()
+                ->getResult(),
         ]);
+    }
+
+    #[Route('/recherche/{productId}/ajouter-url', name: 'app_competitive_search_manual_url', methods: ['POST'])]
+    public function searchManualUrl(
+        int $productId,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        HttpClientInterface $httpClient,
+        CompetitivePriceHistoryService $priceHistoryService,
+    ): Response {
+        $backQuery = trim((string) $request->request->get('q', ''));
+        $embedded = '1' === (string) $request->request->get('embed', '');
+        $competitorId = (int) $request->request->get('competitor_id', 0);
+        $url = trim((string) $request->request->get('url', ''));
+
+        $redirectParams = array_filter([
+            'q' => $backQuery !== '' ? $backQuery : null,
+            'embed' => $embedded ? '1' : null,
+        ], static fn (mixed $value): bool => $value !== null);
+
+        if ($competitorId <= 0 || $url === '') {
+            $this->addFlash('error', 'Concurrent et URL sont obligatoires.');
+
+            return $this->redirectToRoute('app_competitive_search', $redirectParams);
+        }
+
+        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+            $this->addFlash('error', 'URL invalide.');
+
+            return $this->redirectToRoute('app_competitive_search', $redirectParams);
+        }
+
+        $competitor = $this->getCompetitorRepository($entityManager)->find($competitorId);
+        if (!$competitor instanceof Competitor) {
+            $this->addFlash('error', 'Concurrent introuvable.');
+
+            return $this->redirectToRoute('app_competitive_search', $redirectParams);
+        }
+
+        if (!$this->urlMatchesCompetitorDomain($url, $competitor)) {
+            $this->addFlash('error', sprintf(
+                'L\'URL ne correspond pas au domaine du concurrent %s.',
+                $competitor->getName()
+            ));
+
+            return $this->redirectToRoute('app_competitive_search', $redirectParams);
+        }
+
+        $scrapedPrice = $this->fetchManualCompetitorPrice($httpClient, $competitor, $url);
+        $priceString = $scrapedPrice !== null ? number_format($scrapedPrice, 2, '.', '') : null;
+
+        $testResult = $entityManager->getRepository(CompetitorUrlTestResult::class)->findOneBy([
+            'productId' => $productId,
+            'competitor' => $competitor,
+        ]);
+
+        if (!$testResult instanceof CompetitorUrlTestResult) {
+            $testResult = new CompetitorUrlTestResult(
+                $productId,
+                $competitor,
+                CompetitorUrlTestResult::RESULT_MATCHED,
+                $url,
+                null,
+                null,
+                null,
+                CompetitorUrlTestResult::PAGE_OK,
+                null,
+                100,
+                $priceString,
+                CompetitorUrlTestResult::REVIEW_VALID,
+                'manual',
+                'Ajout manuel depuis la recherche',
+            );
+            $entityManager->persist($testResult);
+        } else {
+            $testResult
+                ->setResult(CompetitorUrlTestResult::RESULT_MATCHED)
+                ->setUrl($url)
+                ->setScore(100)
+                ->setValidationStatus(CompetitorUrlTestResult::REVIEW_VALID)
+                ->setCompetitorPageStatus(CompetitorUrlTestResult::PAGE_OK)
+                ->setMatchedQuery('manual')
+                ->setMessage('Ajout manuel depuis la recherche')
+                ->touch();
+            if ($priceString !== null) {
+                $testResult->setCompetitorPrice($priceString);
+            }
+        }
+
+        $final = $entityManager->getRepository(CompetitorUrlFinal::class)->findOneBy([
+            'id' => $productId,
+            'competitor' => $competitor,
+        ]);
+
+        if (!$final instanceof CompetitorUrlFinal) {
+            $final = new CompetitorUrlFinal($productId, $competitor, $url, $testResult->getCompetitorPrice());
+            $entityManager->persist($final);
+        } else {
+            $final
+                ->setUrl($url)
+                ->setCompetitorPrice($testResult->getCompetitorPrice())
+                ->resetHttpFailureState();
+        }
+
+        if ($testResult->getCompetitorPrice() !== null) {
+            $priceHistoryService->recordObservation(
+                $competitor,
+                $productId,
+                $url,
+                $testResult->getCompetitorPrice(),
+                'manual',
+            );
+        }
+
+        $entityManager->flush();
+
+        $this->addFlash('success', sprintf(
+            'URL ajoutée manuellement pour %s.',
+            $competitor->getName()
+        ));
+
+        return $this->redirectToRoute('app_competitive_search', $redirectParams);
     }
 
     #[Route('/recherche/{productId}/{competitorId}/retirer', name: 'app_competitive_search_remove_final', methods: ['POST'])]
@@ -260,8 +441,20 @@ final class CompetitiveIntelligenceController extends AbstractController
         CompetitiveTestResultReviewService $reviewService,
     ): Response {
         $backQuery = trim((string) $request->request->get('q', ''));
+        $embedded = '1' === (string) $request->request->get('embed', '');
 
-        $reviewService->updateReviewStatus($productId, $competitorId, CompetitorUrlTestResult::REVIEW_REJECTED);
+        try {
+            $reviewService->updateReviewStatus($productId, $competitorId, CompetitorUrlTestResult::REVIEW_REJECTED);
+        } catch (\RuntimeException $e) {
+            if (!str_contains($e->getMessage(), 'Unknown competitor_url_test_result')) {
+                throw $e;
+            }
+            $this->addFlash('warning', sprintf(
+                'Le test result n\'existe plus pour le produit %d / concurrent %d. URL finale supprimée uniquement.',
+                $productId,
+                $competitorId,
+            ));
+        }
 
         $final = $entityManager->getRepository(\App\Entity\CompetitorUrlFinal::class)->findOneBy([
             'id' => $productId,
@@ -275,6 +468,7 @@ final class CompetitiveIntelligenceController extends AbstractController
 
         return $this->redirectToRoute('app_competitive_search', array_filter([
             'q' => $backQuery !== '' ? $backQuery : null,
+            'embed' => $embedded ? '1' : null,
         ], static fn (mixed $value): bool => $value !== null));
     }
 
@@ -286,11 +480,24 @@ final class CompetitiveIntelligenceController extends AbstractController
         CompetitiveTestResultReviewService $reviewService,
     ): Response {
         $backQuery = trim((string) $request->request->get('q', ''));
+        $embedded = '1' === (string) $request->request->get('embed', '');
 
-        $reviewService->restoreRejectedReview($productId, $competitorId);
+        try {
+            $reviewService->restoreRejectedReview($productId, $competitorId);
+        } catch (\RuntimeException $e) {
+            if (!str_contains($e->getMessage(), 'Unknown competitor_url_test_result')) {
+                throw $e;
+            }
+            $this->addFlash('error', sprintf(
+                'Impossible de revalider: le test result n\'existe plus pour le produit %d / concurrent %d.',
+                $productId,
+                $competitorId,
+            ));
+        }
 
         return $this->redirectToRoute('app_competitive_search', array_filter([
             'q' => $backQuery !== '' ? $backQuery : null,
+            'embed' => $embedded ? '1' : null,
         ], static fn (mixed $value): bool => $value !== null));
     }
 
@@ -302,11 +509,24 @@ final class CompetitiveIntelligenceController extends AbstractController
         CompetitiveTestResultReviewService $reviewService,
     ): Response {
         $backQuery = trim((string) $request->request->get('q', ''));
+        $embedded = '1' === (string) $request->request->get('embed', '');
 
-        $reviewService->updateReviewStatus($productId, $competitorId, CompetitorUrlTestResult::REVIEW_VALID);
+        try {
+            $reviewService->updateReviewStatus($productId, $competitorId, CompetitorUrlTestResult::REVIEW_VALID);
+        } catch (\RuntimeException $e) {
+            if (!str_contains($e->getMessage(), 'Unknown competitor_url_test_result')) {
+                throw $e;
+            }
+            $this->addFlash('error', sprintf(
+                'Impossible de valider: le test result n\'existe plus pour le produit %d / concurrent %d.',
+                $productId,
+                $competitorId,
+            ));
+        }
 
         return $this->redirectToRoute('app_competitive_search', array_filter([
             'q' => $backQuery !== '' ? $backQuery : null,
+            'embed' => $embedded ? '1' : null,
         ], static fn (mixed $value): bool => $value !== null));
     }
 
@@ -573,6 +793,174 @@ final class CompetitiveIntelligenceController extends AbstractController
         return $entityManager->getRepository(Competitor::class);
     }
 
+    private function urlMatchesCompetitorDomain(string $url, Competitor $competitor): bool
+    {
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host === '') {
+            return false;
+        }
+
+        $host = strtolower($host);
+        $domain = strtolower($competitor->getDomain());
+
+        return $host === $domain || str_ends_with($host, '.' . $domain);
+    }
+
+    private function fetchManualCompetitorPrice(HttpClientInterface $httpClient, Competitor $competitor, string $url): ?float
+    {
+        try {
+            $response = $httpClient->request('GET', $url, [
+                'headers' => [
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Accept-Language' => 'fr-FR,fr;q=0.9,en;q=0.8',
+                    'Referer' => sprintf('https://%s/', $competitor->getDomain()),
+                ],
+                'timeout' => 30,
+                'max_redirects' => 5,
+            ]);
+            if ($response->getStatusCode() >= 400) {
+                return null;
+            }
+
+            $html = $response->getContent();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $this->extractCompetitorPriceFromHtml($competitor, $html);
+    }
+
+    private function extractCompetitorPriceFromHtml(Competitor $competitor, string $html): ?float
+    {
+        $domain = strtolower($competitor->getDomain());
+        $crawler = new Crawler($html);
+
+        $metaSelectors = [
+            'meta[itemprop="price"]' => 'content',
+            'meta[property="product:price:amount"]' => 'content',
+            'meta[property="og:price:amount"]' => 'content',
+        ];
+
+        if (str_contains($domain, 'thomann')) {
+            foreach ($metaSelectors as $selector => $attribute) {
+                $value = $crawler->filter($selector)->first()->attr($attribute) ?? '';
+                if ($value === '') {
+                    continue;
+                }
+                $price = $this->parsePriceText($value);
+                if ($price !== null) {
+                    return $price;
+                }
+            }
+        }
+
+        $selectors = match (true) {
+            str_contains($domain, 'woodbrass') => [
+                'div.fwb.fs40.fs30-md.fs28-sm.lh1',
+                '.fwb.fs40.fs30-md.fs28-sm.lh1',
+                '.col-20.wsnw',
+            ],
+            str_contains($domain, 'thomann') => [
+                'div.price.fx-text.fx-text--no-margin',
+                'span.fx-typography-price-primary',
+                'div.price',
+                '.price.fx-text',
+            ],
+            str_contains($domain, 'stars-music') => [
+                '.product-final-price',
+                '.product-final-price .price-decimal',
+            ],
+            str_contains($domain, 'michenaud') => [
+                'span.price',
+                '.price',
+            ],
+            default => [],
+        };
+
+        foreach ($selectors as $selector) {
+            $text = trim($crawler->filter($selector)->first()->text(''));
+            if ($text === '') {
+                continue;
+            }
+            $price = $this->parsePriceText($text);
+            if ($price !== null) {
+                return $price;
+            }
+        }
+
+        foreach ($metaSelectors as $selector => $attribute) {
+            $value = $crawler->filter($selector)->first()->attr($attribute) ?? '';
+            if ($value === '') {
+                continue;
+            }
+            $price = $this->parsePriceText($value);
+            if ($price !== null) {
+                return $price;
+            }
+        }
+
+        if (
+            str_contains($domain, 'thomann')
+            || str_contains($domain, 'woodbrass')
+            || str_contains($domain, 'stars-music')
+            || str_contains($domain, 'michenaud')
+        ) {
+            return null;
+        }
+
+        if (preg_match('/([0-9][0-9 .,\x{00A0}]*)\s*€/u', $html, $matches) === 1) {
+            return $this->parsePriceText($matches[1]);
+        }
+
+        return null;
+    }
+
+    private function parsePriceText(string $text): ?float
+    {
+        $cleaned = trim(str_ireplace(['eur', '€', "\u{00A0}"], ['', '', ' '], $text));
+        if ($cleaned === '') {
+            return null;
+        }
+
+        if (preg_match('/([0-9][0-9\s.,]*)/', $cleaned, $matches) !== 1) {
+            return null;
+        }
+
+        $numeric = preg_replace('/\s+/', '', $matches[1] ?? '');
+        if (!is_string($numeric) || $numeric === '') {
+            return null;
+        }
+
+        if (str_contains($numeric, ',') && str_contains($numeric, '.')) {
+            $lastComma = strrpos($numeric, ',');
+            $lastDot = strrpos($numeric, '.');
+            $decimalSeparator = $lastComma > $lastDot ? ',' : '.';
+            $thousandsSeparator = $decimalSeparator === ',' ? '.' : ',';
+            $numeric = str_replace($thousandsSeparator, '', $numeric);
+            $numeric = str_replace($decimalSeparator, '.', $numeric);
+        } elseif (substr_count($numeric, ',') > 1) {
+            $numeric = str_replace(',', '', $numeric);
+        } elseif (substr_count($numeric, '.') > 1) {
+            $numeric = str_replace('.', '', $numeric);
+        } else {
+            $separator = str_contains($numeric, ',') ? ',' : (str_contains($numeric, '.') ? '.' : null);
+            if ($separator !== null) {
+                [$left, $right] = array_pad(explode($separator, $numeric, 2), 2, '');
+                if (ctype_digit($right) && strlen($right) === 3 && $left !== '') {
+                    $numeric = $left . $right;
+                } elseif ($separator === ',') {
+                    $numeric = $left . '.' . $right;
+                }
+            }
+        }
+
+        if (!is_numeric($numeric)) {
+            return null;
+        }
+
+        return (float) $numeric;
+    }
+
     /**
      * @param array<string, mixed> $currentConfig
      * @return array<string, mixed>
@@ -605,6 +993,494 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         return $currentConfig;
+    }
+
+    /**
+     * @return array{
+     *   competitors:array<int, array{id:int,key:string,name:string}>,
+     *   totals:array{products:int,cheaper:int,same:int,pricier:int,avg_delta:float},
+     *   histogram:array<int, array{label:string,count:int,tone:string}>,
+     *   rows:array<int, array<string, mixed>>
+     * }
+     */
+    private function buildCompetitivePriceBoard(
+        EntityManagerInterface $entityManager,
+        PrestashopProductBatchProvider $batchProvider,
+        int $limit,
+        string $selectedBucket = '',
+        string $selectedCompetitor = '',
+    ): array {
+        $competitors = $this->getCompetitorRepository($entityManager)
+            ->createQueryBuilder('c')
+            ->orderBy('c.name', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $competitorMap = [];
+        $competitorKeyMap = [];
+        foreach ($competitors as $competitor) {
+            if (!$competitor instanceof Competitor || $competitor->getId() === null) {
+                continue;
+            }
+
+            $entry = [
+                'id' => $competitor->getId(),
+                'key' => $this->slugifyCompetitorKey($competitor->getName()),
+                'name' => $competitor->getName(),
+            ];
+            $competitorMap[$competitor->getId()] = $entry;
+            $competitorKeyMap[$entry['key']] = (int) $competitor->getId();
+        }
+
+        $selectedCompetitorId = null;
+        $selectedCompetitorInfo = null;
+        if ($selectedCompetitor !== '' && isset($competitorKeyMap[$selectedCompetitor])) {
+            $selectedCompetitorId = $competitorKeyMap[$selectedCompetitor];
+            $selectedCompetitorInfo = $competitorMap[$selectedCompetitorId] ?? null;
+        }
+
+        $finalRows = $entityManager->getRepository(\App\Entity\CompetitorUrlFinal::class)
+            ->createQueryBuilder('f')
+            ->leftJoin('f.competitor', 'competitor')
+            ->addSelect('competitor')
+            ->andWhere('f.competitorPrice IS NOT NULL')
+            ->orderBy('f.id', 'DESC')
+            ->getQuery()
+            ->getResult();
+
+        $groupedPrices = [];
+        foreach ($finalRows as $finalRow) {
+            if (!$finalRow instanceof \App\Entity\CompetitorUrlFinal) {
+                continue;
+            }
+
+            $productId = $finalRow->getId();
+            $competitor = $finalRow->getCompetitor();
+            $competitorId = $competitor->getId();
+            if ($competitorId === null || !isset($competitorMap[$competitorId])) {
+                continue;
+            }
+
+            $price = $finalRow->getCompetitorPrice();
+            if ($price === null) {
+                continue;
+            }
+
+            $groupedPrices[$productId][$competitorId] = [
+                'price' => (float) $price,
+                'url' => $finalRow->getUrl(),
+                'competitor' => $competitorMap[$competitorId],
+            ];
+        }
+
+        $productIds = array_keys($groupedPrices);
+        $snapshots = $batchProvider->getProductSnapshotsByIds($productIds);
+
+        $allRows = [];
+        $deltaValues = [];
+        $cheaper = 0;
+        $same = 0;
+        $pricier = 0;
+
+        foreach ($productIds as $productId) {
+            $snapshot = $snapshots[$productId] ?? null;
+            if (!is_array($snapshot)) {
+                continue;
+            }
+
+            $sourcePrice = isset($snapshot['source_price']) ? (float) $snapshot['source_price'] : null;
+            if ($sourcePrice === null || $sourcePrice <= 0) {
+                continue;
+            }
+
+            $competitorPrices = $groupedPrices[$productId] ?? [];
+            if ($competitorPrices === []) {
+                continue;
+            }
+
+            if ($selectedCompetitorId !== null && !isset($competitorPrices[$selectedCompetitorId])) {
+                continue;
+            }
+
+            $prices = array_map(static fn (array $entry): float => (float) $entry['price'], $competitorPrices);
+            $avgPrice = array_sum($prices) / count($prices);
+            if ($avgPrice <= 0) {
+                continue;
+            }
+
+            $deltaPercent = (($sourcePrice - $avgPrice) / $avgPrice) * 100;
+            $priceIndex = ($sourcePrice / $avgPrice) * 100;
+            $deltaValues[] = $deltaPercent;
+
+            if ($deltaPercent < -1.0) {
+                $cheaper++;
+                $tone = 'cheaper';
+            } elseif ($deltaPercent > 1.0) {
+                $pricier++;
+                $tone = 'pricier';
+            } else {
+                $same++;
+                $tone = 'same';
+            }
+
+            $competitorCells = [];
+            foreach ($competitorMap as $competitorId => $competitorInfo) {
+                $entry = $competitorPrices[$competitorId] ?? null;
+                if ($entry === null) {
+                    $competitorCells[] = [
+                        'competitor' => $competitorInfo,
+                        'price' => null,
+                        'delta_percent' => null,
+                        'tone' => 'empty',
+                        'url' => null,
+                    ];
+                    continue;
+                }
+
+                $competitorPrice = (float) $entry['price'];
+                $competitorDelta = (($sourcePrice - $competitorPrice) / $competitorPrice) * 100;
+                $competitorCells[] = [
+                    'competitor' => $competitorInfo,
+                    'price' => $competitorPrice,
+                    'delta_percent' => $competitorDelta,
+                    'tone' => $competitorDelta < -1.0 ? 'cheaper' : ($competitorDelta > 1.0 ? 'pricier' : 'same'),
+                    'url' => $entry['url'],
+                ];
+            }
+
+            $allRows[] = [
+                'product_id' => $productId,
+                'name' => (string) ($snapshot['name'] ?? ('Produit ' . $productId)),
+                'brand' => $snapshot['brand'] ?? null,
+                'supplier_reference' => $snapshot['supplier_reference'] ?? null,
+                'source_image_url' => $snapshot['source_image_url'] ?? null,
+                'source_price' => $sourcePrice,
+                'avg_price' => $avgPrice,
+                'price_index' => $priceIndex,
+                'delta_percent' => $deltaPercent,
+                'tone' => $tone,
+                'competitor_count' => count($prices),
+                'competitors' => $competitorCells,
+            ];
+        }
+
+        usort($allRows, static function (array $left, array $right): int {
+            return abs((float) $right['delta_percent']) <=> abs((float) $left['delta_percent']);
+        });
+
+        $histogram = $this->buildPriceDeltaHistogram($deltaValues);
+        $filteredRows = $allRows;
+        $matchedBucketLabel = null;
+        if ($selectedBucket !== '') {
+            foreach ($histogram as $bucket) {
+                if (($bucket['key'] ?? null) !== $selectedBucket) {
+                    continue;
+                }
+
+                $matchedBucketLabel = (string) $bucket['label'];
+                $filteredRows = array_values(array_filter(
+                    $allRows,
+                    static function (array $row) use ($bucket): bool {
+                        $delta = (float) ($row['delta_percent'] ?? 0.0);
+                        $isLast = ((float) $bucket['max']) === 1000.0;
+
+                        return $delta >= (float) $bucket['min']
+                            && ($delta < (float) $bucket['max'] || ($isLast && $delta <= (float) $bucket['max']));
+                    }
+                ));
+                break;
+            }
+        }
+
+        $displayedRows = array_slice($filteredRows, 0, $limit);
+
+        return [
+            'competitors' => array_values($competitorMap),
+            'totals' => [
+                'products' => count($allRows),
+                'cheaper' => $cheaper,
+                'same' => $same,
+                'pricier' => $pricier,
+                'avg_delta' => $deltaValues === [] ? 0.0 : array_sum($deltaValues) / count($deltaValues),
+            ],
+            'histogram' => $histogram,
+            'rows' => $displayedRows,
+            'filtered_total' => count($filteredRows),
+            'selected_bucket' => $selectedBucket !== '' ? $selectedBucket : null,
+            'selected_bucket_label' => $matchedBucketLabel,
+            'selected_competitor' => $selectedCompetitorInfo,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   rows:array<int, array<string, mixed>>,
+     *   totals:array{products:int,thomann:int,michenaud:int,both:int},
+     *   threshold:float
+     * }
+     */
+    private function buildTrustedGapBoard(
+        EntityManagerInterface $entityManager,
+        PrestashopProductBatchProvider $batchProvider,
+        int $limit,
+        float $threshold,
+        bool $showThomann = true,
+        bool $showMichenaud = true,
+        bool $showBoth = true,
+    ): array {
+        $competitors = $this->getCompetitorRepository($entityManager)
+            ->createQueryBuilder('c')
+            ->orderBy('c.name', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $competitorMap = [];
+        foreach ($competitors as $competitor) {
+            if (!$competitor instanceof Competitor || $competitor->getId() === null) {
+                continue;
+            }
+
+            $entry = [
+                'id' => $competitor->getId(),
+                'key' => $this->slugifyCompetitorKey($competitor->getName()),
+                'name' => $competitor->getName(),
+            ];
+            $competitorMap[(int) $competitor->getId()] = $entry;
+        }
+
+        $trustedIds = [];
+        $targetIds = [];
+        foreach ($competitorMap as $competitorId => $competitorInfo) {
+            if (in_array($competitorInfo['key'], ['woodbrass', 'stars-music'], true)) {
+                $trustedIds[$competitorInfo['key']] = $competitorId;
+            }
+            if (in_array($competitorInfo['key'], ['thomann', 'michenaud'], true)) {
+                $targetIds[$competitorInfo['key']] = $competitorId;
+            }
+        }
+
+        $finalRows = $entityManager->getRepository(\App\Entity\CompetitorUrlFinal::class)
+            ->createQueryBuilder('f')
+            ->leftJoin('f.competitor', 'competitor')
+            ->addSelect('competitor')
+            ->andWhere('f.competitorPrice IS NOT NULL')
+            ->orderBy('f.id', 'DESC')
+            ->getQuery()
+            ->getResult();
+
+        $groupedPrices = [];
+        foreach ($finalRows as $finalRow) {
+            if (!$finalRow instanceof \App\Entity\CompetitorUrlFinal) {
+                continue;
+            }
+
+            $productId = $finalRow->getId();
+            $competitorId = $finalRow->getCompetitor()->getId();
+            if ($competitorId === null || !isset($competitorMap[$competitorId])) {
+                continue;
+            }
+
+            $price = $finalRow->getCompetitorPrice();
+            if ($price === null) {
+                continue;
+            }
+
+            $groupedPrices[$productId][$competitorId] = [
+                'price' => (float) $price,
+                'url' => $finalRow->getUrl(),
+                'competitor' => $competitorMap[$competitorId],
+            ];
+        }
+
+        $productIds = array_keys($groupedPrices);
+        $snapshots = $batchProvider->getProductSnapshotsByIds($productIds);
+
+        $rows = [];
+        $thomannCount = 0;
+        $michenaudCount = 0;
+        $bothCount = 0;
+
+        foreach ($productIds as $productId) {
+            $snapshot = $snapshots[$productId] ?? null;
+            if (!is_array($snapshot)) {
+                continue;
+            }
+
+            $pricesByCompetitor = $groupedPrices[$productId] ?? [];
+            if ($pricesByCompetitor === []) {
+                continue;
+            }
+
+            $trustedEntries = [];
+            foreach ($trustedIds as $trustedId) {
+                if (isset($pricesByCompetitor[$trustedId])) {
+                    $trustedEntries[] = $pricesByCompetitor[$trustedId];
+                }
+            }
+            if ($trustedEntries === []) {
+                continue;
+            }
+
+            $trustedPrices = array_map(static fn (array $entry): float => (float) $entry['price'], $trustedEntries);
+            $trustedAvg = array_sum($trustedPrices) / count($trustedPrices);
+            if ($trustedAvg <= 0) {
+                continue;
+            }
+
+            $thomannGap = $this->buildTrustedGapEntry($pricesByCompetitor[$targetIds['thomann'] ?? 0] ?? null, $trustedAvg, $threshold);
+            $michenaudGap = $this->buildTrustedGapEntry($pricesByCompetitor[$targetIds['michenaud'] ?? 0] ?? null, $trustedAvg, $threshold);
+
+            if (!$thomannGap['is_offender'] && !$michenaudGap['is_offender']) {
+                continue;
+            }
+
+            if ($thomannGap['is_offender']) {
+                $thomannCount++;
+            }
+            if ($michenaudGap['is_offender']) {
+                $michenaudCount++;
+            }
+            if ($thomannGap['is_offender'] && $michenaudGap['is_offender']) {
+                $bothCount++;
+            }
+
+            $matchesVisibleFilter = (
+                ($thomannGap['is_offender'] && $michenaudGap['is_offender'] && $showBoth)
+                || ($thomannGap['is_offender'] && !$michenaudGap['is_offender'] && $showThomann)
+                || (!$thomannGap['is_offender'] && $michenaudGap['is_offender'] && $showMichenaud)
+            );
+            if (!$matchesVisibleFilter) {
+                continue;
+            }
+
+            $maxGap = max(
+                (float) ($thomannGap['delta_percent_abs'] ?? 0.0),
+                (float) ($michenaudGap['delta_percent_abs'] ?? 0.0),
+            );
+
+            $rows[] = [
+                'product_id' => $productId,
+                'name' => (string) ($snapshot['name'] ?? ('Produit ' . $productId)),
+                'brand' => $snapshot['brand'] ?? null,
+                'supplier_reference' => $snapshot['supplier_reference'] ?? null,
+                'source_image_url' => $snapshot['source_image_url'] ?? null,
+                'source_price' => isset($snapshot['source_price']) ? (float) $snapshot['source_price'] : null,
+                'trusted_avg' => $trustedAvg,
+                'trusted_entries' => $trustedEntries,
+                'thomann' => $thomannGap,
+                'michenaud' => $michenaudGap,
+                'max_gap' => $maxGap,
+            ];
+        }
+
+        usort($rows, static function (array $left, array $right): int {
+            return ((float) $right['max_gap']) <=> ((float) $left['max_gap']);
+        });
+
+        return [
+            'rows' => array_slice($rows, 0, $limit),
+            'totals' => [
+                'products' => count($rows),
+                'thomann' => $thomannCount,
+                'michenaud' => $michenaudCount,
+                'both' => $bothCount,
+            ],
+            'threshold' => $threshold,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed>|null $entry
+     * @return array{price:?float,url:?string,delta_percent:?float,delta_percent_abs:float,is_offender:bool,tone:string}
+     */
+    private function buildTrustedGapEntry(?array $entry, float $trustedAvg, float $threshold): array
+    {
+        if ($entry === null) {
+            return [
+                'price' => null,
+                'url' => null,
+                'delta_percent' => null,
+                'delta_percent_abs' => 0.0,
+                'is_offender' => false,
+                'tone' => 'empty',
+            ];
+        }
+
+        $price = (float) ($entry['price'] ?? 0.0);
+        if ($price <= 0 || $trustedAvg <= 0) {
+            return [
+                'price' => $price > 0 ? $price : null,
+                'url' => $entry['url'] ?? null,
+                'delta_percent' => null,
+                'delta_percent_abs' => 0.0,
+                'is_offender' => false,
+                'tone' => 'empty',
+            ];
+        }
+
+        $deltaPercent = (($price - $trustedAvg) / $trustedAvg) * 100;
+        $deltaAbs = abs($deltaPercent);
+
+        return [
+            'price' => $price,
+            'url' => $entry['url'] ?? null,
+            'delta_percent' => $deltaPercent,
+            'delta_percent_abs' => $deltaAbs,
+            'is_offender' => $deltaAbs > $threshold,
+            'tone' => $deltaPercent > 0 ? 'pricier' : ($deltaPercent < 0 ? 'cheaper' : 'same'),
+        ];
+    }
+
+    private function slugifyCompetitorKey(string $name): string
+    {
+        $normalized = mb_strtolower(trim($name));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $normalized) ?? 'competitor';
+        $slug = trim($slug, '-');
+
+        return $slug !== '' ? $slug : 'competitor';
+    }
+
+    /**
+     * @param array<int, float> $deltaValues
+     * @return array<int, array{key:string,label:string,count:int,tone:string,min:float,max:float}>
+     */
+    private function buildPriceDeltaHistogram(array $deltaValues): array
+    {
+        $buckets = [
+            ['key' => 'lt-30', 'min' => -1000.0, 'max' => -30.0, 'label' => '< -30%', 'tone' => 'cheaper'],
+            ['key' => 'm30-m20', 'min' => -30.0, 'max' => -20.0, 'label' => '-30%', 'tone' => 'cheaper'],
+            ['key' => 'm20-m10', 'min' => -20.0, 'max' => -10.0, 'label' => '-20%', 'tone' => 'cheaper'],
+            ['key' => 'm10-m5', 'min' => -10.0, 'max' => -5.0, 'label' => '-10%', 'tone' => 'cheaper'],
+            ['key' => 'm5-m1', 'min' => -5.0, 'max' => -1.0, 'label' => '-5%', 'tone' => 'cheaper'],
+            ['key' => 'eq', 'min' => -1.0, 'max' => 1.0, 'label' => '0%', 'tone' => 'same'],
+            ['key' => 'p1-p5', 'min' => 1.0, 'max' => 5.0, 'label' => '5%', 'tone' => 'pricier'],
+            ['key' => 'p5-p10', 'min' => 5.0, 'max' => 10.0, 'label' => '10%', 'tone' => 'pricier'],
+            ['key' => 'p10-p20', 'min' => 10.0, 'max' => 20.0, 'label' => '20%', 'tone' => 'pricier'],
+            ['key' => 'p20-p30', 'min' => 20.0, 'max' => 30.0, 'label' => '30%', 'tone' => 'pricier'],
+            ['key' => 'gt-30', 'min' => 30.0, 'max' => 1000.0, 'label' => '> 30%', 'tone' => 'pricier'],
+        ];
+
+        $histogram = [];
+        foreach ($buckets as $bucket) {
+            $count = 0;
+            foreach ($deltaValues as $delta) {
+                $isLast = $bucket['max'] === 1000.0;
+                if ($delta >= $bucket['min'] && ($delta < $bucket['max'] || ($isLast && $delta <= $bucket['max']))) {
+                    $count++;
+                }
+            }
+
+            $histogram[] = [
+                'key' => $bucket['key'],
+                'label' => $bucket['label'],
+                'count' => $count,
+                'tone' => $bucket['tone'],
+                'min' => $bucket['min'],
+                'max' => $bucket['max'],
+            ];
+        }
+
+        return $histogram;
     }
 
     /**
@@ -941,6 +1817,8 @@ final class CompetitiveIntelligenceController extends AbstractController
      *     total: int,
      *     matched: int,
      *     pending: int,
+     *     postponed: int,
+     *     rejected: int,
      *     not_found: int,
      *     cloudflare: int,
      *     search_input_not_found: int,
@@ -974,6 +1852,8 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'total' => 0,
                 'matched' => 0,
                 'pending' => 0,
+                'postponed' => 0,
+                'rejected' => 0,
                 'not_found' => 0,
                 'cloudflare' => 0,
                 'search_input_not_found' => 0,
@@ -1024,6 +1904,18 @@ final class CompetitiveIntelligenceController extends AbstractController
                 continue;
             }
 
+            if ($validationStatus === CompetitorUrlTestResult::REVIEW_POSTPONED) {
+                $report[$competitorId]['postponed'] += $total;
+                $report[$competitorId]['total'] += $total;
+                continue;
+            }
+
+            if ($validationStatus === CompetitorUrlTestResult::REVIEW_REJECTED) {
+                $report[$competitorId]['rejected'] += $total;
+                $report[$competitorId]['total'] += $total;
+                continue;
+            }
+
             if ($result === CompetitorUrlTestResult::REVIEW_PENDING) {
                 continue;
             }
@@ -1057,6 +1949,8 @@ final class CompetitiveIntelligenceController extends AbstractController
      *     total:int,
      *     matched:int,
      *     pending:int,
+     *     postponed:int,
+     *     rejected:int,
      *     not_found:int,
      *     cloudflare:int,
      *     search_input_not_found:int,
@@ -1070,6 +1964,8 @@ final class CompetitiveIntelligenceController extends AbstractController
             'total' => 0,
             'matched' => 0,
             'pending' => 0,
+            'postponed' => 0,
+            'rejected' => 0,
             'not_found' => 0,
             'cloudflare' => 0,
             'search_input_not_found' => 0,

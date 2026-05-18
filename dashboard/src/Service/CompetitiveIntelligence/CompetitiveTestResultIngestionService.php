@@ -86,7 +86,12 @@ final class CompetitiveTestResultIngestionService
                     ->setMatchedQuery($this->truncateNullableString($test['matched_query'] ?? null, 255))
                     ->setMessage($this->truncateNullableString($test['message'] ?? null, 255))
                     ->touch();
-                $this->upsertFinalIfNeeded($finalRepository, $competitor, $existing, $competitorPrice);
+                $this->upsertFinalIfNeeded(
+                    $finalRepository,
+                    $competitor,
+                    $existing,
+                    competitorPrice: $competitorPrice,
+                );
                 $updated++;
                 continue;
             }

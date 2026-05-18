@@ -390,7 +390,6 @@ final class PrestashopProductBatchProvider
              INNER JOIN %s f ON f.id_product = tr.id_product
              LEFT JOIN %s final_row ON final_row.id = tr.id_product AND final_row.competitor_id = tr.competitor_id
              WHERE tr.competitor_id = :competitor_id
-               AND tr.id_product > :after_id
                AND tr.result = :result_not_found
                AND tr.validation_status <> :review_rejected
                AND final_row.id IS NULL
@@ -409,14 +408,12 @@ final class PrestashopProductBatchProvider
             $sql,
             [
                 'competitor_id' => $competitorId,
-                'after_id' => $afterId,
                 'result_not_found' => 'not_found',
                 'review_rejected' => 'rejected',
                 'limit' => $limit,
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
-                'after_id' => ParameterType::INTEGER,
                 'result_not_found' => ParameterType::STRING,
                 'review_rejected' => ParameterType::STRING,
                 'limit' => ParameterType::INTEGER,
@@ -437,7 +434,6 @@ final class PrestashopProductBatchProvider
                 INNER JOIN %s f ON f.id_product = tr.id_product
                 LEFT JOIN %s final_row ON final_row.id = tr.id_product AND final_row.competitor_id = tr.competitor_id
                 WHERE tr.competitor_id = :competitor_id
-                  AND tr.id_product > :after_id
                   AND tr.result = :result_not_found
                   AND tr.validation_status <> :review_rejected
                   AND final_row.id IS NULL
@@ -455,13 +451,11 @@ final class PrestashopProductBatchProvider
             $sql,
             [
                 'competitor_id' => $competitorId,
-                'after_id' => $afterId,
                 'result_not_found' => 'not_found',
                 'review_rejected' => 'rejected',
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
-                'after_id' => ParameterType::INTEGER,
                 'result_not_found' => ParameterType::STRING,
                 'review_rejected' => ParameterType::STRING,
             ]

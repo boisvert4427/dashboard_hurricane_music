@@ -368,10 +368,12 @@ class MichenaudScraper(CompetitorScraper):
                 score += 10
             elif ratio <= 0.15:
                 score += 5
+            elif ratio >= 0.50:
+                score -= 35
             elif ratio >= 0.35:
-                score -= 20
+                score -= 25
             elif ratio >= 0.20:
-                score -= 10
+                score -= 15
 
         year_penalty = self._year_mismatch_penalty(product_name, candidate_title, brand, manufacturer)
         if year_penalty:
