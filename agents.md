@@ -47,18 +47,29 @@
 24. Thomann price fetches also pause randomly between 2 and 5 seconds.
 25. The image review route compares product photos through OpenAI in batches of 10 pairs, compresses images before upload, and flushes persistence after each batch.
 26. The competitive search page now shows source images plus separate sections for finals, rejected URLs, and postponed URLs.
-27. Rejected URLs can be revalidated from the search page and are pushed back to `valid`.
-28. Postponed URLs can also be manually validated from the search page.
-29. Price workers now track repeated `404/410` failures on `competitor_url_final`.
-30. After 3 consecutive `404/410`, the final URL is removed and the linked test result is marked `competitor_page_status = gone`.
-31. The orchestrator is now the normal entry point for production scheduling:
+27. The search page also allows adding one URL manually per product and competitor.
+28. Manual URL insertion now attempts a direct page-price scrape and writes to:
+   - `competitor_url_test_result`
+   - `competitor_url_final`
+   - `competitor_url_price_history`
+29. Rejected URLs can be revalidated from the search page and are pushed back to `valid`.
+30. Postponed URLs can also be manually validated from the search page.
+31. Price workers now track repeated `404/410` failures on `competitor_url_final`.
+32. After 3 consecutive `404/410`, the final URL is removed and the linked test result is marked `competitor_page_status = gone`.
+33. The orchestrator is now the normal entry point for production scheduling:
    - `GET /api/competitive/orchestrate`
-32. The orchestrator admin page exposes one task row per competitor and per job:
+34. The orchestrator admin page exposes one task row per competitor and per job:
    - `new_urls`
    - `retry_urls`
    - `prices`
-33. The orchestrator admin page can manually start one task with `Lancer 1 fois`.
-34. The orchestrator admin page exposes readable logs in the browser.
+35. `retry_urls` now always prioritises the oldest `not_found` rows by `last_tested_at`, not by `id_product`.
+36. The orchestrator admin page can manually start one task with `Lancer 1 fois`.
+37. The orchestrator admin page exposes readable logs in the browser.
+38. The price cockpit now exists at:
+   - `GET /veille-concurrentielle/prix`
+39. The trusted-gap cockpit now exists at:
+   - `GET /veille-concurrentielle/prix/ecarts-fiables`
+40. The home recap now includes `postponed` and `rejected`, so `Total` better matches the true `competitor_url_test_result` stock.
 
 ## Key Routes
 
@@ -73,6 +84,8 @@
 - `POST /api/competitive/final-prices`
 - `GET /veille-concurrentielle/validation`
 - `GET /veille-concurrentielle/recherche`
+- `GET /veille-concurrentielle/prix`
+- `GET /veille-concurrentielle/prix/ecarts-fiables`
 - `GET /veille-concurrentielle/validation/image-review`
 - `GET /veille-concurrentielle/orchestrateur`
 - `GET /veille-concurrentielle/orchestrateur/log/{filename}`
@@ -98,6 +111,7 @@
 - `validationStatus = pending` is what the validation page shows.
 - `postponed` hides the row from the validation list without rejecting it.
 - The validation page now works in batches of 50 rows, defaults each row to `rejected`, and has a bulk action to switch the whole page to `valid` before sending.
+- The search page supports direct manual URL insertion; validate domain consistency before trusting user input.
 - Keep final URLs keyed by PrestaShop `id_product`.
 - Keep `competitor_title` as the canonical competitor-side title in test results.
 - Keep `competitor_brand` and `competitor_breadcrumb` when the scraper can provide them.
@@ -122,6 +136,7 @@
 - The validation page is paginated in blocks of 50 and shows the total pending count.
 - The home recap is aligned with the validation pending count.
 - The final price crawl should stay limited and only target finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals.
+- For Stars Music, URL matching now also needs to propagate product price when the product page is successfully matched.
 - Repeated `404/410` on final prices should be treated as URL health degradation, not as immediate hard deletion on first failure.
 - For image repair, keep the batch small and respect the direct-scrape lock/pause behavior on Thomann.
 - For image review, keep the batch OpenAI size to 10 pairs per request unless the prompt grows too large.

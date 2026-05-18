@@ -177,14 +177,20 @@ Concurrents actifs:
 13. L’image n’est gardée que si l’URL finale de la page correspond bien à l’URL candidate.
 14. La comparaison image de validation se fait par lots OpenAI de 10 paires, avec compression des images avant envoi et flush à chaque lot.
 15. La page de recherche affiche les URLs finales, rejetées et postponed, avec photos produit.
-16. Les URLs rejetées peuvent être revalidées depuis la recherche.
-17. Les URLs postponed peuvent être validées depuis la recherche.
-18. L’admin orchestrateur permet de régler chaque tâche sans code et de la lancer manuellement une fois.
-19. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur.
-20. `competitor_url_final` garde maintenant l’état HTTP du price scraper.
-21. Après 3 `404/410` consécutifs sur une final URL:
+16. La recherche permet aussi d’ajouter une URL à la main par produit et par concurrent.
+17. L’ajout manuel tente aussi de scraper immédiatement le prix de la fiche.
+18. Les URLs rejetées peuvent être revalidées depuis la recherche.
+19. Les URLs postponed peuvent être validées depuis la recherche.
+20. L’admin orchestrateur permet de régler chaque tâche sans code et de la lancer manuellement une fois.
+21. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur.
+22. Le cockpit prix existe maintenant sur `/veille-concurrentielle/prix`.
+23. La page `/veille-concurrentielle/prix/ecarts-fiables` isole les écarts Thomann/Michenaud trop importants par rapport à la base Woodbrass + Stars Music.
+24. `retry_urls` reprend les plus anciens `not_found` selon `last_tested_at`.
+25. `competitor_url_final` garde maintenant l’état HTTP du price scraper.
+26. Après 3 `404/410` consécutifs sur une final URL:
     - l’entrée `competitor_url_final` est supprimée
     - le `competitor_url_test_result` lié passe en `competitor_page_status = gone`
+27. Le récap home compte aussi `postponed` et `rejected`.
 
 ### Worker Python
 

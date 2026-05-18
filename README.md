@@ -97,12 +97,14 @@ Valeurs par défaut:
 - la validation humaine travaille directement sur `competitor_url_test_result`
 - les statuts métier sont `pending`, `valid`, `rejected`, `postponed`, `ignored`
 - `score < 30` est traité comme `not_found`
+- `retry_url` reprend maintenant les plus anciens `not_found` sans `final`, triés par `last_tested_at`
 
 ### Passe prix
 
 - Symfony ne reprend que les `competitor_url_final`
 - l’historique est append-only dans `competitor_url_price_history`
 - `competitor_url_final` garde le prix courant
+- `Stars Music` remonte maintenant aussi le prix pendant le matching URL quand la fiche produit est validée
 - la sélection priorise les finals absents de l’historique, puis les plus anciens derniers scrapes de prix
 - `competitor_url_final` stocke aussi maintenant l’état HTTP:
   - `last_http_status`
@@ -134,8 +136,30 @@ Valeurs par défaut:
   - URLs rejetées
   - URLs postponed
   - photo source PrestaShop
+- la recherche permet aussi d’ajouter une URL manuellement par produit et par concurrent
+- l’ajout manuel tente immédiatement de scraper le prix de la fiche et alimente:
+  - `competitor_url_test_result`
+  - `competitor_url_final`
+  - `competitor_url_price_history`
 - les URLs rejetées peuvent être revalidées depuis la recherche
 - les URLs postponed peuvent être validées depuis la recherche
+
+### Cockpit prix
+
+- `/veille-concurrentielle/prix` expose un cockpit prix avec:
+  - KPI globaux
+  - histogramme des écarts
+  - filtre concurrent
+  - drawer latéral de détail produit
+- `/veille-concurrentielle/prix/ecarts-fiables` isole les produits où Thomann et/ou Michenaud sont trop loin de la base de confiance Woodbrass + Stars Music
+- les deux pages ouvrent le détail produit dans un panneau latéral et réutilisent la page recherche en mode embarqué
+
+### Récap home
+
+- le tableau home compte maintenant aussi:
+  - `postponed`
+  - `rejected`
+- `Total` reflète donc mieux le vrai stock de `competitor_url_test_result`
 
 ### Logs
 

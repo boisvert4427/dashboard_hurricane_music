@@ -24,6 +24,7 @@ Responsibilities:
 - Thomann and Michenaud filter candidates by brand before OpenAI ranking.
 - Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
 - Thomann and Michenaud capture title, brand, breadcrumb, and price when available.
+- Stars Music now also captures product price directly during URL matching when the page is validated.
 - Thomann URL fetches currently pause 2 to 5 seconds between page fetches to reduce burstiness.
 - Thomann price fetches also pause 2 to 5 seconds between requests.
 - Image URLs are kept only when the resolved final URL still matches the candidate URL.
@@ -34,6 +35,7 @@ Responsibilities:
 - `matched` with high enough score is written as `valid` and upserted into `competitor_url_final`.
 - `rejected` does not come back in the batch provider anymore.
 - `postponed` stays in validation and is hidden from the main validation list.
+- `retry_urls` now prioritises the oldest `not_found` rows by `last_tested_at`.
 - Final prices are captured only from `competitor_url_final` entries and appended to `competitor_url_price_history`.
 - Final prices now also feed URL-health state back to Symfony on `404/410`.
 - After 3 consecutive `404/410`, Symfony removes the final URL and marks the linked test result page status as `gone`.
