@@ -231,81 +231,85 @@
     {{ parent() }}
     <script>
         (() => {
-            let initialized = false;
-
             const initPriceDrawer = () => {
-                if (initialized) {
+                const root = document.documentElement;
+                if (root.dataset.priceDrawerBound === '1') {
                     return;
                 }
 
-                initialized = true;
+                const drawer = document.querySelector('[data-price-drawer]');
+                const backdrop = document.querySelector('.price-drawer-backdrop');
+                const frame = document.querySelector('[data-price-drawer-frame]');
+                const title = document.querySelector('[data-price-drawer-title]');
 
-            const drawer = document.querySelector('[data-price-drawer]');
-            const backdrop = document.querySelector('.price-drawer-backdrop');
-            const frame = document.querySelector('[data-price-drawer-frame]');
-            const title = document.querySelector('[data-price-drawer-title]');
-
-            if (!drawer || !frame || !title) {
-                initialized = false;
-                return;
-            }
-
-            const closeTargets = document.querySelectorAll('[data-price-drawer-close]');
-
-            const openDrawer = (url, label) => {
-                frame.src = url;
-                title.textContent = label || 'Détail concurrentiel';
-                drawer.hidden = false;
-                drawer.setAttribute('aria-hidden', 'false');
-                document.body.classList.add('price-drawer-open');
-                if (backdrop) {
-                    backdrop.hidden = false;
+                if (!drawer || !frame || !title) {
+                    return;
                 }
-                requestAnimationFrame(() => {
-                    drawer.classList.add('is-open');
+
+                const closeTargets = document.querySelectorAll('[data-price-drawer-close]');
+
+                const openDrawer = (url, label) => {
+                    frame.src = url;
+                    title.textContent = label || 'Détail concurrentiel';
+                    drawer.hidden = false;
+                    drawer.setAttribute('aria-hidden', 'false');
+                    document.body.classList.add('price-drawer-open');
                     if (backdrop) {
-                        backdrop.classList.add('is-open');
+                        backdrop.hidden = false;
+                    }
+                    requestAnimationFrame(() => {
+                        drawer.classList.add('is-open');
+                        if (backdrop) {
+                            backdrop.classList.add('is-open');
+                        }
+                    });
+                };
+
+                const closeDrawer = () => {
+                    drawer.classList.remove('is-open');
+                    if (backdrop) {
+                        backdrop.classList.remove('is-open');
+                    }
+                    document.body.classList.remove('price-drawer-open');
+                    window.setTimeout(() => {
+                        drawer.hidden = true;
+                        drawer.setAttribute('aria-hidden', 'true');
+                        if (backdrop) {
+                            backdrop.hidden = true;
+                        }
+                    }, 180);
+                };
+
+                document.addEventListener('click', (event) => {
+                    const trigger = event.target instanceof Element ? event.target.closest('[data-price-drawer-trigger]') : null;
+                    if (!trigger) {
+                        return;
+                    }
+                    event.preventDefault();
+                    openDrawer(trigger.dataset.url || '', trigger.dataset.label || trigger.textContent.trim());
+                });
+
+                closeTargets.forEach((node) => {
+                    node.addEventListener('click', closeDrawer);
+                });
+
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape' && drawer.classList.contains('is-open')) {
+                        closeDrawer();
                     }
                 });
+
+                root.dataset.priceDrawerBound = '1';
             };
 
-            const closeDrawer = () => {
-                drawer.classList.remove('is-open');
-                if (backdrop) {
-                    backdrop.classList.remove('is-open');
-                }
-                document.body.classList.remove('price-drawer-open');
-                window.setTimeout(() => {
-                    drawer.hidden = true;
-                    drawer.setAttribute('aria-hidden', 'true');
-                    if (backdrop) {
-                        backdrop.hidden = true;
-                    }
-                }, 180);
-            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initPriceDrawer, { once: true });
+            } else {
+                initPriceDrawer();
+            }
 
-            document.addEventListener('click', (event) => {
-                const trigger = event.target instanceof Element ? event.target.closest('[data-price-drawer-trigger]') : null;
-                if (!trigger) {
-                    return;
-                }
-                event.preventDefault();
-                openDrawer(trigger.dataset.url || '', trigger.dataset.label || trigger.textContent.trim());
-            });
-
-            closeTargets.forEach((node) => {
-                node.addEventListener('click', closeDrawer);
-            });
-
-            document.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape' && drawer.classList.contains('is-open')) {
-                    closeDrawer();
-                }
-            });
-            };
-
-            document.addEventListener('DOMContentLoaded', initPriceDrawer);
             document.addEventListener('turbo:load', initPriceDrawer);
+            window.addEventListener('pageshow', initPriceDrawer);
         })();
     </script>
 {% endblock %}
