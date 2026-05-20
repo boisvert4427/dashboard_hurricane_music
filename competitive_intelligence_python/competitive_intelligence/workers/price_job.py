@@ -198,24 +198,16 @@ def _price_source_label(domain: str, name: str) -> str:
 
 def _extract_price(domain: str, name: str, html: str) -> float | None:
     if "woodbrass" in domain or "woodbrass" in name:
-        price = _extract_woodbrass_price(html)
-        if price is not None:
-            return price
+        return _extract_woodbrass_price(html)
 
     if "thomann" in domain or "thomann" in name:
-        price = _extract_thomann_price(html)
-        if price is not None:
-            return price
+        return _extract_thomann_price(html)
 
     if "stars" in domain or "stars" in name:
-        price = _extract_stars_price(html)
-        if price is not None:
-            return price
+        return _extract_stars_price(html)
 
     if "michenaud" in domain or "michenaud" in name:
-        price = _extract_michenaud_price(html)
-        if price is not None:
-            return price
+        return _extract_michenaud_price(html)
 
     price = _extract_meta_price(html)
     if price is not None:
@@ -236,6 +228,21 @@ def _extract_woodbrass_price(html: str) -> float | None:
         if node is None:
             continue
         price = _parse_price_text(node.get_text(" ", strip=True))
+        if price is not None:
+            return price
+
+    for selector, attribute in [
+        ('meta[property="product:price:amount"]', "content"),
+        ('meta[property="og:price:amount"]', "content"),
+        ('meta[itemprop="price"]', "content"),
+    ]:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        value = node.get(attribute)
+        if value is None:
+            continue
+        price = _parse_price_text(str(value))
         if price is not None:
             return price
     return None
@@ -275,6 +282,31 @@ def _extract_stars_price(html: str) -> float | None:
         price = _parse_price_text(node.get_text(" ", strip=True))
         if price is not None:
             return price
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        script_text = script.get_text(" ", strip=True)
+        if not script_text:
+            continue
+        try:
+            payload = json.loads(script_text)
+        except Exception:
+            continue
+
+        entries = [payload] if isinstance(payload, dict) else [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+        for entry in entries:
+            offers = entry.get("offers")
+            if not isinstance(offers, dict):
+                continue
+
+            price = _parse_price_text(str(offers.get("price") or ""))
+            if price is not None:
+                return price
+
+            price_spec = offers.get("priceSpecification")
+            if isinstance(price_spec, dict):
+                price = _parse_price_text(str(price_spec.get("price") or ""))
+                if price is not None:
+                    return price
     return None
 
 

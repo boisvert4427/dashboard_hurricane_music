@@ -14,12 +14,6 @@
                         <div class="brand-subtitle">Un champ, des résultats PrestaShop, puis tous les matchs concurrents par produit</div>
                     </div>
                 </div>
-                <div class="status-pills">
-                    <a class="pill pill-accent" href="{{ path('app_competitive_home') }}">Retour veille</a>
-                    <a class="pill" href="{{ path('app_competitive_validation') }}">Validation</a>
-                    <a class="pill" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
-                    <a class="pill" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
-                </div>
             </header>
         {% endif %}
 
@@ -126,7 +120,12 @@
                                     <article class="workflow-card">
                                         <div class="workflow-step">Finale</div>
                                         <h3 style="margin-top:6px;">{{ final.competitor.name }}</h3>
-                                        <p style="margin-bottom:12px;">{{ final.competitor_price ?? 'n/a' }} | {{ final.url }}</p>
+                                        <p style="margin-bottom:12px;">
+                                            {{ final.competitor_price ?? 'n/a' }} |
+                                            <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">
+                                                {{ final.competitor_title ?? final.url }}
+                                            </a>
+                                        </p>
                                         <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien et rejeter le test result ?');">
                                             <input type="hidden" name="q" value="{{ query }}">
                                             {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
@@ -138,7 +137,12 @@
                                     <article class="workflow-card">
                                         <div class="workflow-step">Postponed</div>
                                         <h3 style="margin-top:6px;">{{ postponed.competitor.name }}</h3>
-                                        <p style="margin-bottom:12px;">{{ postponed.competitor_price ?? 'n/a' }} | {{ postponed.url }}</p>
+                                        <p style="margin-bottom:12px;">
+                                            {{ postponed.competitor_price ?? 'n/a' }} |
+                                            <a href="{{ postponed.url }}" target="_blank" rel="noopener noreferrer">
+                                                {{ postponed.competitor_title ?? postponed.url }}
+                                            </a>
+                                        </p>
                                         <div style="display:flex; gap:10px; flex-wrap:wrap;">
                                             <form method="post" action="{{ path('app_competitive_search_validate_postponed', {productId: row.product.id_product, competitorId: postponed.competitor.id}) }}" onsubmit="return confirm('Valider ce lien ?');">
                                                 <input type="hidden" name="q" value="{{ query }}">
@@ -174,7 +178,7 @@
                                         <tr>
                                             <td><strong>{{ final.competitor.name }}</strong><div class="module-competitor-domain">{{ final.competitor.domain }}</div></td>
                                             <td class="module-url-cell">
-                                                <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.url }}</a>
+                                                <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.competitor_title ?? final.url }}</a>
                                             </td>
                                             <td>{{ final.competitor_price ?? 'n/a' }}</td>
                                             <td>
@@ -214,7 +218,7 @@
                                         <tr>
                                             <td><strong>{{ rejected.competitor.name }}</strong><div class="module-competitor-domain">{{ rejected.competitor.domain }}</div></td>
                                             <td class="module-url-cell">
-                                                <a href="{{ rejected.url }}" target="_blank" rel="noopener noreferrer">{{ rejected.url }}</a>
+                                                <a href="{{ rejected.url }}" target="_blank" rel="noopener noreferrer">{{ rejected.competitor_title ?? rejected.url }}</a>
                                             </td>
                                             <td>{{ rejected.score ?? 'n/a' }}</td>
                                             <td>{{ rejected.last_tested_at ? rejected.last_tested_at|date('Y-m-d H:i') : 'n/a' }}</td>
@@ -256,7 +260,7 @@
                                         <tr>
                                             <td><strong>{{ postponed.competitor.name }}</strong><div class="module-competitor-domain">{{ postponed.competitor.domain }}</div></td>
                                             <td class="module-url-cell">
-                                                <a href="{{ postponed.url }}" target="_blank" rel="noopener noreferrer">{{ postponed.url }}</a>
+                                                <a href="{{ postponed.url }}" target="_blank" rel="noopener noreferrer">{{ postponed.competitor_title ?? postponed.url }}</a>
                                             </td>
                                             <td>{{ postponed.score ?? 'n/a' }}</td>
                                             <td>{{ postponed.last_tested_at ? postponed.last_tested_at|date('Y-m-d H:i') : 'n/a' }}</td>

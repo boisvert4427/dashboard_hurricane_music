@@ -18,7 +18,88 @@
         <script src="https://cdn.jsdelivr.net/npm/frankenphp-hot-reload/+esm" type="module"></script>
         {% endif %}
     </head>
-    <body>
+    {% set currentRoute = app.request.attributes.get('_route')|default('') %}
+    {% set embedded = app.request.query.get('embed') == '1' %}
+    {% set isCompetitiveRoute = currentRoute starts with 'app_competitive_' %}
+    {% set isDashboardRoute = currentRoute in ['app_home', 'app_detail', 'app_detail_export'] %}
+    <body class="{{ embedded ? 'is-embedded' : 'has-app-header' }}">
+        {% if not embedded %}
+            <header class="app-header">
+                <div class="app-header__inner">
+                    <a class="app-header__brand" href="{{ path('app_home') }}">
+                        <span class="app-header__brand-mark">HM</span>
+                        <span class="app-header__brand-copy">
+                            <strong>Hurricane Music</strong>
+                            <span>Dashboard & veille concurrentielle</span>
+                        </span>
+                    </a>
+
+                    <nav class="app-header__nav app-header__nav--desktop" aria-label="Navigation principale">
+                        <div class="app-nav-group">
+                            <a class="app-nav-link {{ isDashboardRoute ? 'is-active' : '' }}" href="{{ path('app_home') }}">Dashboard</a>
+                            <div class="app-subnav">
+                                <a class="app-subnav__link {{ currentRoute == 'app_home' ? 'is-active' : '' }}" href="{{ path('app_home') }}">Accueil</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_detail' ? 'is-active' : '' }}" href="{{ path('app_detail') }}">Détail</a>
+                            </div>
+                        </div>
+                        <div class="app-nav-group">
+                            <a class="app-nav-link {{ isCompetitiveRoute ? 'is-active' : '' }}" href="{{ path('app_competitive_home') }}">Veille concurrentielle</a>
+                            <div class="app-subnav app-subnav--wide">
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_home' ? 'is-active' : '' }}" href="{{ path('app_competitive_home') }}">Accueil</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_validation' ? 'is-active' : '' }}" href="{{ path('app_competitive_validation') }}">Validation</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_search' ? 'is-active' : '' }}" href="{{ path('app_competitive_search') }}">Recherche</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_price_board' ? 'is-active' : '' }}" href="{{ path('app_competitive_price_board') }}">Prix</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_price_trusted_gaps' ? 'is-active' : '' }}" href="{{ path('app_competitive_price_trusted_gaps') }}">Écarts fiables</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_orchestrator' ? 'is-active' : '' }}" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
+                                <a class="app-subnav__link {{ currentRoute == 'app_competitive_competitors' ? 'is-active' : '' }}" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <button
+                        class="app-header__toggle"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="app-nav-drawer"
+                        data-app-nav-toggle
+                    >
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="app-nav-backdrop" data-app-nav-close></div>
+
+            <aside class="app-nav-drawer" id="app-nav-drawer" aria-hidden="true">
+                <div class="app-nav-drawer__head">
+                    <div>
+                        <strong>Navigation</strong>
+                        <div class="app-nav-drawer__hint">Accès unifié dashboard / veille</div>
+                    </div>
+                    <button class="app-nav-drawer__close" type="button" data-app-nav-close aria-label="Fermer le menu">×</button>
+                </div>
+
+                <div class="app-nav-section">
+                    <div class="app-nav-section__title">Dashboard</div>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_home' ? 'is-active' : '' }}" href="{{ path('app_home') }}">Accueil</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_detail' ? 'is-active' : '' }}" href="{{ path('app_detail') }}">Détail</a>
+                </div>
+
+                <div class="app-nav-section">
+                    <div class="app-nav-section__title">Veille concurrentielle</div>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_home' ? 'is-active' : '' }}" href="{{ path('app_competitive_home') }}">Accueil</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_validation' ? 'is-active' : '' }}" href="{{ path('app_competitive_validation') }}">Validation</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_search' ? 'is-active' : '' }}" href="{{ path('app_competitive_search') }}">Recherche</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_price_board' ? 'is-active' : '' }}" href="{{ path('app_competitive_price_board') }}">Prix</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_price_trusted_gaps' ? 'is-active' : '' }}" href="{{ path('app_competitive_price_trusted_gaps') }}">Écarts fiables</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_orchestrator' ? 'is-active' : '' }}" href="{{ path('app_competitive_orchestrator') }}">Orchestrateur</a>
+                    <a class="app-nav-drawer__link {{ currentRoute == 'app_competitive_competitors' ? 'is-active' : '' }}" href="{{ path('app_competitive_competitors') }}">Concurrents</a>
+                </div>
+            </aside>
+        {% endif %}
+
         {% for label, messages in app.flashes %}
             <div class="flash-stack">
                 {% for message in messages %}
@@ -27,5 +108,64 @@
             </div>
         {% endfor %}
         {% block body %}{% endblock %}
+
+        {% if not embedded %}
+            <script>
+                (() => {
+                    const initAppNav = () => {
+                        const body = document.body;
+                        if (!body) {
+                            return;
+                        }
+
+                        const toggle = document.querySelector('[data-app-nav-toggle]');
+                        const drawer = document.getElementById('app-nav-drawer');
+                        const closers = document.querySelectorAll('[data-app-nav-close]');
+                        if (!toggle || !drawer || toggle.dataset.bound === '1') {
+                            return;
+                        }
+
+                        const open = () => {
+                            body.classList.add('app-nav-open');
+                            toggle.setAttribute('aria-expanded', 'true');
+                            drawer.setAttribute('aria-hidden', 'false');
+                        };
+
+                        const close = () => {
+                            body.classList.remove('app-nav-open');
+                            toggle.setAttribute('aria-expanded', 'false');
+                            drawer.setAttribute('aria-hidden', 'true');
+                        };
+
+                        toggle.addEventListener('click', () => {
+                            if (body.classList.contains('app-nav-open')) {
+                                close();
+                            } else {
+                                open();
+                            }
+                        });
+
+                        closers.forEach((node) => {
+                            node.addEventListener('click', close);
+                        });
+
+                        drawer.querySelectorAll('a').forEach((node) => {
+                            node.addEventListener('click', close);
+                        });
+
+                        document.addEventListener('keydown', (event) => {
+                            if (event.key === 'Escape') {
+                                close();
+                            }
+                        });
+
+                        toggle.dataset.bound = '1';
+                    };
+
+                    document.addEventListener('DOMContentLoaded', initAppNav);
+                    document.addEventListener('turbo:load', initAppNav);
+                })();
+            </script>
+        {% endif %}
     </body>
 </html>

@@ -42,6 +42,11 @@ final class CompetitiveTestResultReviewService
             $this->upsertFinal($testResult);
         } elseif ($status === CompetitorUrlTestResult::REVIEW_REJECTED) {
             $this->deleteFinal($testResult);
+            $this->priceHistoryService->deleteObservations(
+                $testResult->getCompetitor(),
+                $testResult->getProductId(),
+                (string) $testResult->getUrl(),
+            );
             $this->insertRejectedUrlIfNeeded($testResult);
         }
 

@@ -36,6 +36,31 @@ final class CompetitivePriceHistoryService
         ));
     }
 
+    public function deleteObservations(
+        Competitor $competitor,
+        int $productId,
+        string $url,
+    ): void {
+        $url = trim($url);
+        if ($productId <= 0 || $url === '') {
+            return;
+        }
+
+        $this->entityManager->getConnection()->executeStatement(
+            'DELETE FROM competitor_url_price_history WHERE competitor_id = :competitor_id AND id_product = :id_product AND url = :url',
+            [
+                'competitor_id' => $competitor->getId(),
+                'id_product' => $productId,
+                'url' => $url,
+            ],
+            [
+                'competitor_id' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'id_product' => \Doctrine\DBAL\ParameterType::INTEGER,
+                'url' => \Doctrine\DBAL\ParameterType::STRING,
+            ]
+        );
+    }
+
     private function nullableDecimalString(?string $value): ?string
     {
         $value = trim((string) $value);

@@ -34,6 +34,10 @@ body {
         linear-gradient(180deg, var(--bg-alt), var(--bg));
 }
 
+body.has-app-header {
+    padding-top: 0;
+}
+
 a {
     color: var(--accent);
 }
@@ -49,6 +53,249 @@ code {
     max-width: 1240px;
     margin: 0 auto;
     padding: 28px 20px 56px;
+}
+
+.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    padding: 14px 18px 0;
+    backdrop-filter: blur(10px);
+}
+
+.app-header__inner {
+    max-width: 1520px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    background: rgba(4, 11, 22, 0.84);
+    box-shadow: var(--shadow);
+}
+
+.app-header__brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+    text-decoration: none;
+    min-width: 0;
+}
+
+.app-header__brand-mark {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    font-weight: 900;
+    color: white;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(14, 165, 233, 0.7));
+    box-shadow: 0 12px 24px rgba(14, 165, 233, 0.2);
+}
+
+.app-header__brand-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.app-header__brand-copy strong {
+    font-size: 0.98rem;
+    letter-spacing: 0.02em;
+}
+
+.app-header__brand-copy span {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.app-header__nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-nav-group {
+    position: relative;
+}
+
+.app-nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 999px;
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+    transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.app-nav-link:hover,
+.app-nav-link.is-active {
+    color: var(--text);
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.18);
+}
+
+.app-subnav {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    min-width: 220px;
+    display: grid;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 18px;
+    background: rgba(7, 17, 31, 0.97);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 160ms ease, visibility 160ms ease, transform 160ms ease;
+}
+
+.app-subnav--wide {
+    min-width: 260px;
+}
+
+.app-nav-group:hover .app-subnav,
+.app-nav-group:focus-within .app-subnav {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.app-subnav__link {
+    padding: 10px 12px;
+    border-radius: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    transition: background 160ms ease, color 160ms ease;
+}
+
+.app-subnav__link:hover,
+.app-subnav__link.is-active {
+    color: var(--text);
+    background: rgba(56, 189, 248, 0.1);
+}
+
+.app-header__toggle {
+    display: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(148, 163, 184, 0.08);
+    cursor: pointer;
+}
+
+.app-header__toggle span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    margin: 4px auto;
+    background: var(--text);
+    border-radius: 999px;
+}
+
+.app-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 14, 0.56);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease, visibility 180ms ease;
+    z-index: 58;
+}
+
+.app-nav-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(360px, 88vw);
+    height: 100vh;
+    padding: 22px 18px 28px;
+    background: rgba(6, 14, 27, 0.98);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transform: translateX(100%);
+    transition: transform 220ms ease;
+    z-index: 59;
+    overflow-y: auto;
+}
+
+.app-nav-open .app-nav-backdrop {
+    opacity: 1;
+    visibility: visible;
+}
+
+.app-nav-open .app-nav-drawer {
+    transform: translateX(0);
+}
+
+.app-nav-drawer__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.app-nav-drawer__hint {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 4px;
+}
+
+.app-nav-drawer__close {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(148, 163, 184, 0.08);
+    color: var(--text);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.app-nav-section {
+    margin-top: 18px;
+    display: grid;
+    gap: 8px;
+}
+
+.app-nav-section__title {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 0.74rem;
+    margin-bottom: 2px;
+}
+
+.app-nav-drawer__link {
+    display: block;
+    padding: 12px 14px;
+    border-radius: 14px;
+    text-decoration: none;
+    color: var(--text);
+    background: rgba(148, 163, 184, 0.06);
+    border: 1px solid transparent;
+}
+
+.app-nav-drawer__link.is-active {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.18);
 }
 
 .topbar,
@@ -764,6 +1011,14 @@ body.price-drawer-open {
 }
 
 @media (max-width: 1100px) {
+    .app-header__nav--desktop {
+        display: none;
+    }
+
+    .app-header__toggle {
+        display: block;
+    }
+
     .price-board-hero,
     .price-kpi-band {
         grid-template-columns: 1fr;
@@ -1924,6 +2179,23 @@ body.price-drawer-open {
 }
 
 @media (max-width: 900px) {
+    .app-header {
+        padding: 10px 12px 0;
+    }
+
+    .app-header__inner {
+        padding: 12px 14px;
+        border-radius: 18px;
+    }
+
+    .app-header__brand-copy span {
+        display: none;
+    }
+
+    .app-shell {
+        padding: 20px 14px 44px;
+    }
+
     .topbar,
     .section-head {
         flex-direction: column;

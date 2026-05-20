@@ -356,7 +356,9 @@ final class CompetitiveIntelligenceController extends AbstractController
             return $this->redirectToRoute('app_competitive_search', $redirectParams);
         }
 
-        $scrapedPrice = $this->fetchManualCompetitorPrice($httpClient, $competitor, $url);
+        $manualMetadata = $this->fetchManualCompetitorMetadata($httpClient, $competitor, $url);
+        $scrapedPrice = $manualMetadata['price'];
+        $scrapedTitle = $manualMetadata['title'];
         $priceString = $scrapedPrice !== null ? number_format($scrapedPrice, 2, '.', '') : null;
 
         $testResult = $entityManager->getRepository(CompetitorUrlTestResult::class)->findOneBy([
@@ -370,7 +372,7 @@ final class CompetitiveIntelligenceController extends AbstractController
                 $competitor,
                 CompetitorUrlTestResult::RESULT_MATCHED,
                 $url,
-                null,
+                $scrapedTitle,
                 null,
                 null,
                 CompetitorUrlTestResult::PAGE_OK,
@@ -392,6 +394,9 @@ final class CompetitiveIntelligenceController extends AbstractController
                 ->setMatchedQuery('manual')
                 ->setMessage('Ajout manuel depuis la recherche')
                 ->touch();
+            if ($scrapedTitle !== null) {
+                $testResult->setCompetitorTitle($scrapedTitle);
+            }
             if ($priceString !== null) {
                 $testResult->setCompetitorPrice($priceString);
             }
@@ -806,7 +811,10 @@ final class CompetitiveIntelligenceController extends AbstractController
         return $host === $domain || str_ends_with($host, '.' . $domain);
     }
 
-    private function fetchManualCompetitorPrice(HttpClientInterface $httpClient, Competitor $competitor, string $url): ?float
+    /**
+     * @return array{price:?float,title:?string}
+     */
+    private function fetchManualCompetitorMetadata(HttpClientInterface $httpClient, Competitor $competitor, string $url): array
     {
         try {
             $response = $httpClient->request('GET', $url, [
@@ -824,10 +832,16 @@ final class CompetitiveIntelligenceController extends AbstractController
 
             $html = $response->getContent();
         } catch (\Throwable) {
-            return null;
+            return [
+                'price' => null,
+                'title' => null,
+            ];
         }
 
-        return $this->extractCompetitorPriceFromHtml($competitor, $html);
+        return [
+            'price' => $this->extractCompetitorPriceFromHtml($competitor, $html),
+            'title' => $this->extractCompetitorTitleFromHtml($html),
+        ];
     }
 
     private function extractCompetitorPriceFromHtml(Competitor $competitor, string $html): ?float
@@ -843,7 +857,11 @@ final class CompetitiveIntelligenceController extends AbstractController
 
         if (str_contains($domain, 'thomann')) {
             foreach ($metaSelectors as $selector => $attribute) {
-                $value = $crawler->filter($selector)->first()->attr($attribute) ?? '';
+                $nodes = $crawler->filter($selector);
+                if ($nodes->count() === 0) {
+                    continue;
+                }
+                $value = $nodes->first()->attr($attribute) ?? '';
                 if ($value === '') {
                     continue;
                 }
@@ -889,7 +907,11 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         foreach ($metaSelectors as $selector => $attribute) {
-            $value = $crawler->filter($selector)->first()->attr($attribute) ?? '';
+            $nodes = $crawler->filter($selector);
+            if ($nodes->count() === 0) {
+                continue;
+            }
+            $value = $nodes->first()->attr($attribute) ?? '';
             if ($value === '') {
                 continue;
             }
@@ -910,6 +932,66 @@ final class CompetitiveIntelligenceController extends AbstractController
 
         if (preg_match('/([0-9][0-9 .,\x{00A0}]*)\s*€/u', $html, $matches) === 1) {
             return $this->parsePriceText($matches[1]);
+        }
+
+        return null;
+    }
+
+    private function extractCompetitorTitleFromHtml(string $html): ?string
+    {
+        $crawler = new Crawler($html);
+
+        foreach ([
+            'meta[property="og:title"]' => 'content',
+            'meta[name="title"]' => 'content',
+            'meta[itemprop="name"]' => 'content',
+        ] as $selector => $attribute) {
+            $nodes = $crawler->filter($selector);
+            if ($nodes->count() === 0) {
+                continue;
+            }
+            $value = trim((string) ($nodes->first()->attr($attribute) ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        foreach ($crawler->filter('script[type="application/ld+json"]') as $script) {
+            $scriptText = trim((string) $script->textContent);
+            if ($scriptText === '') {
+                continue;
+            }
+
+            try {
+                $payload = json_decode($scriptText, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $entries = is_array($payload) && array_is_list($payload)
+                ? $payload
+                : [$payload];
+
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $name = trim((string) ($entry['name'] ?? ''));
+                if ($name !== '') {
+                    return $name;
+                }
+            }
+        }
+
+        foreach (['h1', 'title'] as $selector) {
+            $nodes = $crawler->filter($selector);
+            if ($nodes->count() === 0) {
+                continue;
+            }
+            $value = trim((string) $nodes->first()->text(''));
+            if ($value !== '') {
+                return $value;
+            }
         }
 
         return null;
@@ -1665,7 +1747,7 @@ final class CompetitiveIntelligenceController extends AbstractController
     /**
      * @param array<int, int> $productIds
      *
-     * @return array<int, array<int, array{id:int,competitor:Competitor,url:string}>>
+     * @return array<int, array<int, array{id:int,competitor:Competitor,url:string,competitor_price:?string,competitor_title:?string}>>
      */
     private function getFinalsByProductIds(EntityManagerInterface $entityManager, array $productIds): array
     {
@@ -1684,17 +1766,45 @@ final class CompetitiveIntelligenceController extends AbstractController
             ->getQuery()
             ->getResult();
 
+        $titleRows = $entityManager->getRepository(CompetitorUrlTestResult::class)
+            ->createQueryBuilder('t')
+            ->select(
+                't.productId AS product_id, ' .
+                'IDENTITY(t.competitor) AS competitor_id, ' .
+                't.competitorTitle AS competitor_title, ' .
+                't.lastTestedAt AS last_tested_at'
+            )
+            ->andWhere('t.productId IN (:ids)')
+            ->setParameter('ids', $productIds)
+            ->orderBy('t.lastTestedAt', 'DESC')
+            ->getQuery()
+            ->getArrayResult();
+
+        $titlesByProductAndCompetitor = [];
+        foreach ($titleRows as $titleRow) {
+            $productId = (int) ($titleRow['product_id'] ?? 0);
+            $competitorId = (int) ($titleRow['competitor_id'] ?? 0);
+            $competitorTitle = trim((string) ($titleRow['competitor_title'] ?? ''));
+            if ($productId <= 0 || $competitorId <= 0 || $competitorTitle === '') {
+                continue;
+            }
+
+            $titlesByProductAndCompetitor[$productId][$competitorId] ??= $competitorTitle;
+        }
+
         $grouped = [];
         foreach ($rows as $row) {
             if (!$row instanceof \App\Entity\CompetitorUrlFinal) {
                 continue;
             }
 
+            $competitorId = $row->getCompetitor()->getId() ?? 0;
             $grouped[$row->getId()][] = [
                 'id' => $row->getId(),
                 'competitor' => $row->getCompetitor(),
                 'url' => $row->getUrl(),
                 'competitor_price' => $row->getCompetitorPrice(),
+                'competitor_title' => $titlesByProductAndCompetitor[$row->getId()][$competitorId] ?? null,
             ];
         }
 
