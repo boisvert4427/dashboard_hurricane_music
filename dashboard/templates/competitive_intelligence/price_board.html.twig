@@ -47,7 +47,7 @@
                                 <select name="competitor" onchange="this.form.submit()">
                                     <option value="">Tous les concurrents</option>
                                     {% for competitor in board.competitors %}
-                                        <option value="{{ competitor.key }}" {% if selected_competitor == competitor.key %}selected{% endif %}>
+                                        <option value="{{ competitor.key }}" {% if selected_competitor and selected_competitor.key == competitor.key %}selected{% endif %}>
                                             {{ competitor.name }}
                                         </option>
                                     {% endfor %}
@@ -88,7 +88,7 @@
                         {% for bucket in board.histogram %}
                             <a
                                 class="price-histogram-bar price-histogram-bar-{{ bucket.tone }}{% if selected_bucket == bucket.key %} is-active{% endif %}"
-                                href="{{ path('app_competitive_price_board', { limit: limit, bucket: bucket.key, competitor: selected_competitor ?: null }) }}"
+                                href="{{ path('app_competitive_price_board', { limit: limit, bucket: bucket.key, competitor: selected_competitor ? selected_competitor.key : null }) }}"
                             >
                                 <span class="price-histogram-count">{{ bucket.count }}</span>
                                 <div class="price-histogram-track">
@@ -114,7 +114,7 @@
                 <p>
                     Lecture sur les produits ayant au moins un prix final concurrent et un prix source exploitable.
                     {% if board.selected_bucket_label %}
-                        <a href="{{ path('app_competitive_price_board', { limit: limit, competitor: selected_competitor ?: null }) }}">Retirer le filtre</a>
+                        <a href="{{ path('app_competitive_price_board', { limit: limit, competitor: selected_competitor ? selected_competitor.key : null }) }}">Retirer le filtre</a>
                     {% endif %}
                     {% if board.selected_competitor %}
                         <span>Concurrent: {{ board.selected_competitor.name }}</span>

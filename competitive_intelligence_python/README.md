@@ -25,6 +25,7 @@ Responsibilities:
 - Thomann rejects `b-stock`, `b stock`, `bstock`, and `bundle` titles before scoring.
 - Thomann and Michenaud capture title, brand, breadcrumb, and price when available.
 - Stars Music now also captures product price directly during URL matching when the page is validated.
+- Algam is not handled by the Python scrapers: its price is read separately from `tm2dn_site_v3.leo_algamwebstoreprice` and surfaced as a reference in Symfony.
 - Thomann URL fetches currently pause 2 to 5 seconds between page fetches to reduce burstiness.
 - Thomann price fetches also pause 2 to 5 seconds between requests.
 - Image URLs are kept only when the resolved final URL still matches the candidate URL.
@@ -199,7 +200,7 @@ The `title` field is no longer stored on `competitor_url_test_result`.
 ## Current state
 
 The separate Python image repair worker was tested and then rolled back. The active image flow is direct scraping again through the PHP batch launcher, with a file lock and a random pause per fetch.
-The Symfony search page now shows source thumbnails, rejected URLs, and postponed URLs, and rejected URLs can be revalidated from the search page.
+The Symfony search page now shows source thumbnails, Algam as a standalone reference price, rejected URLs, and postponed URLs, and rejected URLs can be revalidated from the search page.
 The orchestrator admin can now:
 
 - tune each task without code

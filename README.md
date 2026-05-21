@@ -136,6 +136,7 @@ Valeurs par défaut:
   - URLs rejetées
   - URLs postponed
   - photo source PrestaShop
+  - une référence prix Algam sans URL ni titre concurrent
 - la recherche permet aussi d’ajouter une URL manuellement par produit et par concurrent
 - l’ajout manuel tente immédiatement de scraper le prix de la fiche et alimente:
   - `competitor_url_test_result`
@@ -153,6 +154,7 @@ Valeurs par défaut:
   - drawer latéral de détail produit
 - `/veille-concurrentielle/prix/ecarts-fiables` isole les produits où Thomann et/ou Michenaud sont trop loin de la base de confiance Woodbrass + Stars Music
 - les deux pages ouvrent le détail produit dans un panneau latéral et réutilisent la page recherche en mode embarqué
+- Algam est affiché comme référence prix séparée depuis `tm2dn_site_v3.leo_algamwebstoreprice`
 
 ### Récap home
 

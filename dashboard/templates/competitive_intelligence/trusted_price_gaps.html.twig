@@ -9,7 +9,7 @@
                 <div class="brand-mark brand-mark-competitive">TG</div>
                 <div>
                     <div class="brand-name">Écarts prix fiables</div>
-                    <div class="brand-subtitle">Base de confiance: Woodbrass + Stars Music, contrôle de Thomann et Michenaud</div>
+                    <div class="brand-subtitle">Base de confiance: Woodbrass + Stars Music, lecture Algam, contrôle de Thomann et Michenaud</div>
                 </div>
             </div>
         </header>
@@ -98,7 +98,7 @@
         <section class="section">
             <div class="section-head">
                 <h2>{{ board.totals.products }} produits signalés</h2>
-                <p>Référence fiable = moyenne des prix disponibles `Woodbrass` et `Stars Music`.</p>
+                <p>Référence fiable = moyenne des prix disponibles `Woodbrass` et `Stars Music`. Algam est affiché en référence additionnelle.</p>
             </div>
 
             <div class="price-table-wrap">
@@ -110,6 +110,7 @@
                             <th>Base fiable</th>
                             <th>Woodbrass</th>
                             <th>Stars Music</th>
+                            <th>Algam</th>
                             <th>Thomann</th>
                             <th>Michenaud</th>
                             <th>Max écart</th>
@@ -170,6 +171,13 @@
                                         -
                                     {% endif %}
                                 </td>
+                                <td>
+                                    {% if row.algam.price is not null %}
+                                        {{ row.algam.price|number_format(2, ',', ' ') }} €
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
                                 <td class="price-competitor-cell {{ row.thomann.tone }}">
                                     {% if row.thomann.price is not null %}
                                         <div class="price-cell-delta {{ row.thomann.is_offender ? 'status-rejected' : '' }}">
@@ -198,7 +206,7 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="8" class="detail-empty">Aucun produit au-delà du seuil {{ threshold|number_format(0, ',', ' ') }}%.</td>
+                                <td colspan="9" class="detail-empty">Aucun produit au-delà du seuil {{ threshold|number_format(0, ',', ' ') }}%.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

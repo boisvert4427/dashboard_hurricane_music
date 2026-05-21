@@ -52,24 +52,25 @@
    - `competitor_url_test_result`
    - `competitor_url_final`
    - `competitor_url_price_history`
-29. Rejected URLs can be revalidated from the search page and are pushed back to `valid`.
-30. Postponed URLs can also be manually validated from the search page.
-31. Price workers now track repeated `404/410` failures on `competitor_url_final`.
-32. After 3 consecutive `404/410`, the final URL is removed and the linked test result is marked `competitor_page_status = gone`.
-33. The orchestrator is now the normal entry point for production scheduling:
+29. The search page also shows Algam as a reference price block, pulled from `tm2dn_site_v3.leo_algamwebstoreprice`, even when no competitor title or URL exists.
+30. Rejected URLs can be revalidated from the search page and are pushed back to `valid`.
+31. Postponed URLs can also be manually validated from the search page.
+32. Price workers now track repeated `404/410` failures on `competitor_url_final`.
+33. After 3 consecutive `404/410`, the final URL is removed and the linked test result is marked `competitor_page_status = gone`.
+34. The orchestrator is now the normal entry point for production scheduling:
    - `GET /api/competitive/orchestrate`
-34. The orchestrator admin page exposes one task row per competitor and per job:
+35. The orchestrator admin page exposes one task row per competitor and per job:
    - `new_urls`
    - `retry_urls`
    - `prices`
-35. `retry_urls` now always prioritises the oldest `not_found` rows by `last_tested_at`, not by `id_product`.
-36. The orchestrator admin page can manually start one task with `Lancer 1 fois`.
-37. The orchestrator admin page exposes readable logs in the browser.
-38. The price cockpit now exists at:
+36. `retry_urls` now always prioritises the oldest `not_found` rows by `last_tested_at`, not by `id_product`.
+37. The orchestrator admin page can manually start one task with `Lancer 1 fois`.
+38. The orchestrator admin page exposes readable logs in the browser.
+39. The price cockpit now exists at:
    - `GET /veille-concurrentielle/prix`
-39. The trusted-gap cockpit now exists at:
+40. The trusted-gap cockpit now exists at:
    - `GET /veille-concurrentielle/prix/ecarts-fiables`
-40. The home recap now includes `postponed` and `rejected`, so `Total` better matches the true `competitor_url_test_result` stock.
+41. The home recap now includes `postponed` and `rejected`, so `Total` better matches the true `competitor_url_test_result` stock.
 
 ## Key Routes
 

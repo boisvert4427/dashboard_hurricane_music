@@ -114,25 +114,34 @@
                             <button class="button button-primary" type="submit">Ajouter URL</button>
                         </form>
 
+                        {% if row.algam %}
+                            <div class="detail-table-wrap" style="margin-bottom:20px;">
+                                <div class="section-head" style="margin-bottom:12px;">
+                                    <h3 style="margin-bottom:0;">Référence Algam</h3>
+                                </div>
+                                <table class="detail-table module-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Source</th>
+                                            <th>Titre / URL</th>
+                                            <th>Prix</th>
+                                            <th>Mis à jour</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Algam</strong></td>
+                                            <td class="module-url-cell">n/a</td>
+                                            <td>{{ row.algam.price|number_format(2, ',', ' ') }} €</td>
+                                            <td>{{ row.algam.updated_at ?? 'n/a' }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% endif %}
+
                         {% if embedded %}
                             <div class="workflow-grid" style="margin-bottom:20px;">
-                                {% for final in row.finals %}
-                                    <article class="workflow-card">
-                                        <div class="workflow-step">Finale</div>
-                                        <h3 style="margin-top:6px;">{{ final.competitor.name }}</h3>
-                                        <p style="margin-bottom:12px;">
-                                            {{ final.competitor_price ?? 'n/a' }} |
-                                            <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">
-                                                {{ final.competitor_title ?? final.url }}
-                                            </a>
-                                        </p>
-                                        <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien et rejeter le test result ?');">
-                                            <input type="hidden" name="q" value="{{ query }}">
-                                            {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
-                                            <button class="button button-secondary" type="submit">Supprimer</button>
-                                        </form>
-                                    </article>
-                                {% endfor %}
                                 {% for postponed in row.postponed %}
                                     <article class="workflow-card">
                                         <div class="workflow-step">Postponed</div>

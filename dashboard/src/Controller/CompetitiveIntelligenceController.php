@@ -8,6 +8,7 @@ use App\Entity\Competitor;
 use App\Entity\CompetitorUrlFinal;
 use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
@@ -92,14 +93,14 @@ final class CompetitiveIntelligenceController extends AbstractController
     ): Response {
         $limit = max(10, min(150, (int) $request->query->get('limit', 60)));
         $selectedBucket = trim((string) $request->query->get('bucket', ''));
-        $selectedCompetitor = trim((string) $request->query->get('competitor', ''));
+        $selectedCompetitor = $this->getScalarQueryValue($request, 'competitor');
         $board = $this->buildCompetitivePriceBoard($entityManager, $batchProvider, $limit, $selectedBucket, $selectedCompetitor);
 
         return $this->render('competitive_intelligence/price_board.html.twig', [
             'board' => $board,
             'limit' => $limit,
             'selected_bucket' => $selectedBucket,
-            'selected_competitor' => $selectedCompetitor,
+            'selected_competitor' => $board['selected_competitor'] ?? null,
         ]);
     }
 
@@ -286,6 +287,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         $finalsByProduct = $this->getFinalsByProductIds($entityManager, $productIds);
         $rejectedByProduct = $this->getRejectedByProductIds($entityManager, $productIds);
         $postponedByProduct = $this->getPostponedByProductIds($entityManager, $productIds);
+        $algamPricesByProduct = $this->getAlgamPricesByProductIds($entityManager, $productIds);
 
         $rows = [];
         foreach ($products as $product) {
@@ -293,6 +295,7 @@ final class CompetitiveIntelligenceController extends AbstractController
             $rows[] = [
                 'product' => $product,
                 'source' => $sourceSnapshots[$productId] ?? null,
+                'algam' => $algamPricesByProduct[$productId] ?? null,
                 'finals' => $finalsByProduct[$productId] ?? [],
                 'rejected' => $rejectedByProduct[$productId] ?? [],
                 'postponed' => $postponedByProduct[$productId] ?? [],
@@ -1114,6 +1117,15 @@ final class CompetitiveIntelligenceController extends AbstractController
             $competitorKeyMap[$entry['key']] = (int) $competitor->getId();
         }
 
+        $algamEntry = [
+            'id' => 'algam',
+            'key' => 'algam',
+            'name' => 'Algam',
+            'is_external_reference' => true,
+        ];
+        $competitorMap['algam'] = $algamEntry;
+        $competitorKeyMap['algam'] = 'algam';
+
         $selectedCompetitorId = null;
         $selectedCompetitorInfo = null;
         if ($selectedCompetitor !== '' && isset($competitorKeyMap[$selectedCompetitor])) {
@@ -1156,6 +1168,18 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         $productIds = array_keys($groupedPrices);
+        $algamPrices = $this->getAlgamPricesByProductIds($entityManager, $productIds);
+        foreach ($algamPrices as $productId => $algamPrice) {
+            if (!isset($groupedPrices[$productId])) {
+                continue;
+            }
+
+            $groupedPrices[$productId]['algam'] = [
+                'price' => (float) ($algamPrice['price'] ?? 0.0),
+                'url' => null,
+                'competitor' => $algamEntry,
+            ];
+        }
         $snapshots = $batchProvider->getProductSnapshotsByIds($productIds);
 
         $allRows = [];
@@ -1184,7 +1208,16 @@ final class CompetitiveIntelligenceController extends AbstractController
                 continue;
             }
 
-            $prices = array_map(static fn (array $entry): float => (float) $entry['price'], $competitorPrices);
+            $prices = array_map(
+                static fn (array $entry): float => (float) $entry['price'],
+                array_filter(
+                    $competitorPrices,
+                    static fn (array $entry): bool => (($entry['competitor']['key'] ?? '') !== 'algam')
+                )
+            );
+            if ($prices === []) {
+                continue;
+            }
             $avgPrice = array_sum($prices) / count($prices);
             if ($avgPrice <= 0) {
                 continue;
@@ -1330,6 +1363,13 @@ final class CompetitiveIntelligenceController extends AbstractController
             $competitorMap[(int) $competitor->getId()] = $entry;
         }
 
+        $competitorMap['algam'] = [
+            'id' => 'algam',
+            'key' => 'algam',
+            'name' => 'Algam',
+            'is_external_reference' => true,
+        ];
+
         $trustedIds = [];
         $targetIds = [];
         foreach ($competitorMap as $competitorId => $competitorInfo) {
@@ -1375,6 +1415,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         $productIds = array_keys($groupedPrices);
+        $algamPrices = $this->getAlgamPricesByProductIds($entityManager, $productIds);
         $snapshots = $batchProvider->getProductSnapshotsByIds($productIds);
 
         $rows = [];
@@ -1449,6 +1490,7 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'source_price' => isset($snapshot['source_price']) ? (float) $snapshot['source_price'] : null,
                 'trusted_avg' => $trustedAvg,
                 'trusted_entries' => $trustedEntries,
+                'algam' => $this->buildReferencePriceEntry($algamPrices[$productId]['price'] ?? null),
                 'thomann' => $thomannGap,
                 'michenaud' => $michenaudGap,
                 'max_gap' => $maxGap,
@@ -2131,6 +2173,68 @@ final class CompetitiveIntelligenceController extends AbstractController
         }
 
         return $counts;
+    }
+
+    private function getScalarQueryValue(Request $request, string $key): string
+    {
+        $all = $request->query->all();
+        $value = $all[$key] ?? '';
+
+        if (is_array($value)) {
+            $preferred = $value['key'] ?? reset($value) ?? '';
+            return is_scalar($preferred) ? trim((string) $preferred) : '';
+        }
+
+        return is_scalar($value) ? trim((string) $value) : '';
+    }
+
+    /**
+     * @param list<int> $productIds
+     *
+     * @return array<int, array{price:float,updated_at:?string}>
+     */
+    private function getAlgamPricesByProductIds(EntityManagerInterface $entityManager, array $productIds): array
+    {
+        $productIds = array_values(array_unique(array_map('intval', array_filter($productIds, static fn (mixed $id): bool => (int) $id > 0))));
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $entityManager->getConnection()->executeQuery(
+            'SELECT id_product, price_ttc, date_upd
+             FROM tm2dn_site_v3.leo_algamwebstoreprice
+             WHERE id_product IN (:productIds)',
+            ['productIds' => $productIds],
+            ['productIds' => ArrayParameterType::INTEGER],
+        )->fetchAllAssociative();
+
+        $prices = [];
+        foreach ($rows as $row) {
+            $productId = (int) ($row['id_product'] ?? 0);
+            $price = isset($row['price_ttc']) ? (float) $row['price_ttc'] : null;
+            if ($productId <= 0 || $price === null || $price <= 0) {
+                continue;
+            }
+
+            $prices[$productId] = [
+                'price' => $price,
+                'updated_at' => isset($row['date_upd']) ? (string) $row['date_upd'] : null,
+            ];
+        }
+
+        return $prices;
+    }
+
+    /**
+     * @return array{price:?float}
+     */
+    private function buildReferencePriceEntry(?float $price): array
+    {
+        if ($price === null || $price <= 0) {
+            return ['price' => null];
+        }
+
+        return ['price' => $price];
     }
 
     /**

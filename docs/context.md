@@ -181,16 +181,17 @@ Concurrents actifs:
 17. L’ajout manuel tente aussi de scraper immédiatement le prix de la fiche.
 18. Les URLs rejetées peuvent être revalidées depuis la recherche.
 19. Les URLs postponed peuvent être validées depuis la recherche.
-20. L’admin orchestrateur permet de régler chaque tâche sans code et de la lancer manuellement une fois.
-21. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur.
-22. Le cockpit prix existe maintenant sur `/veille-concurrentielle/prix`.
-23. La page `/veille-concurrentielle/prix/ecarts-fiables` isole les écarts Thomann/Michenaud trop importants par rapport à la base Woodbrass + Stars Music.
-24. `retry_urls` reprend les plus anciens `not_found` selon `last_tested_at`.
-25. `competitor_url_final` garde maintenant l’état HTTP du price scraper.
-26. Après 3 `404/410` consécutifs sur une final URL:
+20. La recherche affiche aussi une référence Algam, sans URL ni titre concurrent, depuis `tm2dn_site_v3.leo_algamwebstoreprice`.
+21. L’admin orchestrateur permet de régler chaque tâche sans code et de la lancer manuellement une fois.
+22. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur.
+23. Le cockpit prix existe maintenant sur `/veille-concurrentielle/prix`.
+24. La page `/veille-concurrentielle/prix/ecarts-fiables` isole les écarts Thomann/Michenaud trop importants par rapport à la base Woodbrass + Stars Music.
+25. `retry_urls` reprend les plus anciens `not_found` selon `last_tested_at`.
+26. `competitor_url_final` garde maintenant l’état HTTP du price scraper.
+27. Après 3 `404/410` consécutifs sur une final URL:
     - l’entrée `competitor_url_final` est supprimée
     - le `competitor_url_test_result` lié passe en `competitor_page_status = gone`
-27. Le récap home compte aussi `postponed` et `rejected`.
+28. Le récap home compte aussi `postponed` et `rejected`.
 
 ### Worker Python
 

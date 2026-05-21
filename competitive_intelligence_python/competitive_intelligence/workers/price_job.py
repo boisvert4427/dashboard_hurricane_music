@@ -8,6 +8,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -77,7 +78,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     _human_pause()
                 response = http.get(url, headers=_page_headers(competitor_domain))
                 response.raise_for_status()
-                price = _extract_price(competitor_domain, competitor_name, response.text)
+                price = _extract_price(competitor_domain, competitor_name, response.text, response.url)
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
                 print(
@@ -196,7 +197,7 @@ def _price_source_label(domain: str, name: str) -> str:
     return "generic_html"
 
 
-def _extract_price(domain: str, name: str, html: str) -> float | None:
+def _extract_price(domain: str, name: str, html: str, final_url: str | None = None) -> float | None:
     if "woodbrass" in domain or "woodbrass" in name:
         return _extract_woodbrass_price(html)
 
@@ -207,7 +208,7 @@ def _extract_price(domain: str, name: str, html: str) -> float | None:
         return _extract_stars_price(html)
 
     if "michenaud" in domain or "michenaud" in name:
-        return _extract_michenaud_price(html)
+        return _extract_michenaud_price(html, final_url)
 
     price = _extract_meta_price(html)
     if price is not None:
@@ -310,7 +311,10 @@ def _extract_stars_price(html: str) -> float | None:
     return None
 
 
-def _extract_michenaud_price(html: str) -> float | None:
+def _extract_michenaud_price(html: str, final_url: str | None = None) -> float | None:
+    if not _looks_like_michenaud_product_page(final_url, html):
+        return None
+
     soup = BeautifulSoup(html, "html.parser")
     selectors = [
         "span.price",
@@ -324,6 +328,34 @@ def _extract_michenaud_price(html: str) -> float | None:
         if price is not None:
             return price
     return None
+
+
+def _looks_like_michenaud_product_page(final_url: str | None, html: str) -> bool:
+    if final_url:
+        path = urlparse(final_url).path or ""
+        if re.search(r"/p\d+/", path, re.I):
+            return True
+
+    title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+    title = title_match.group(1).strip().lower() if title_match else ""
+    if "catalogue france" in title or title == "epiphone":
+        return False
+
+    canonical_match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', html, re.I)
+    canonical_url = canonical_match.group(1).strip() if canonical_match else ""
+    if canonical_url:
+        canonical_path = urlparse(canonical_url).path or ""
+        if re.search(r"/p\d+/", canonical_path, re.I):
+            return True
+        if re.search(r"/m\d+-", canonical_path, re.I):
+            return False
+
+    meta_price_present = (
+        'itemprop="price"' in html
+        or 'property="product:price:amount"' in html
+        or 'property="og:price:amount"' in html
+    )
+    return meta_price_present
 
 
 def _extract_meta_price(html: str) -> float | None:
