@@ -65,7 +65,7 @@
    - `prices`
 36. `retry_urls` now always prioritises the oldest `not_found` rows by `last_tested_at`, not by `id_product`.
 37. The orchestrator admin page can manually start one task with `Lancer 1 fois`.
-38. The orchestrator admin page exposes readable logs in the browser.
+38. The orchestrator admin page exposes readable logs in the browser and falls back to `last_log_file` when the task is not in the recent-log index anymore.
 39. The price cockpit now exists at:
    - `GET /veille-concurrentielle/prix`
 40. The trusted-gap cockpit now exists at:

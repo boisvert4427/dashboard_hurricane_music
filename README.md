@@ -171,6 +171,7 @@ L’admin orchestrateur expose:
 - une liste de logs récents
 - un aperçu des dernières lignes
 - un log complet lisible dans le navigateur
+- si un log n’est pas dans la liste récente, la ligne peut retomber sur `last_log_file` tant que le fichier existe encore
 
 Route de lecture:
 

@@ -183,7 +183,7 @@ Concurrents actifs:
 19. Les URLs postponed peuvent être validées depuis la recherche.
 20. La recherche affiche aussi une référence Algam, sans URL ni titre concurrent, depuis `tm2dn_site_v3.leo_algamwebstoreprice`.
 21. L’admin orchestrateur permet de régler chaque tâche sans code et de la lancer manuellement une fois.
-22. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur.
+22. Les logs des tâches sont consultables depuis l’admin et lisibles dans le navigateur, avec un fallback sur `last_log_file` si le log n’est plus dans l’index récent.
 23. Le cockpit prix existe maintenant sur `/veille-concurrentielle/prix`.
 24. La page `/veille-concurrentielle/prix/ecarts-fiables` isole les écarts Thomann/Michenaud trop importants par rapport à la base Woodbrass + Stars Music.
 25. `retry_urls` reprend les plus anciens `not_found` selon `last_tested_at`.

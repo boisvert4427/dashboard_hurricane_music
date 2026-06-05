@@ -216,9 +216,35 @@ final class CompetitiveIntelligenceController extends AbstractController
             (int) ($config['global']['shop_id'] ?? 1),
         );
         $latestLogsByTask = $taskLogService->latestLogsByTask();
+        $logDirectory = $taskLogService->getLogDirectory();
         $taskRows = array_map(static function (array $row) use ($latestLogsByTask): array {
             $taskKey = (string) ($row['key'] ?? '');
             $row['latest_log'] = $taskKey !== '' ? ($latestLogsByTask[$taskKey] ?? null) : null;
+
+            return $row;
+        }, $taskRows);
+        $taskRows = array_map(static function (array $row) use ($state, $logDirectory): array {
+            if (is_array($row['latest_log'] ?? null)) {
+                return $row;
+            }
+
+            $taskKey = (string) ($row['key'] ?? '');
+            $stateTasks = is_array($state['tasks'] ?? null) ? $state['tasks'] : [];
+            $taskState = $taskKey !== '' && isset($stateTasks[$taskKey]) && is_array($stateTasks[$taskKey]) ? $stateTasks[$taskKey] : [];
+            $lastLogFile = isset($taskState['last_log_file']) && is_string($taskState['last_log_file']) ? basename(trim($taskState['last_log_file'])) : '';
+            if ($lastLogFile === '') {
+                return $row;
+            }
+
+            $logPath = rtrim($logDirectory, '/') . '/' . $lastLogFile;
+            if (!is_file($logPath) || !is_readable($logPath)) {
+                return $row;
+            }
+
+            $row['latest_log'] = [
+                'filename' => $lastLogFile,
+                'path' => $logPath,
+            ];
 
             return $row;
         }, $taskRows);

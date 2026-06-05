@@ -206,4 +206,4 @@ The orchestrator admin can now:
 - tune each task without code
 - launch one task manually
 - inspect recent logs
-- open full logs in the browser
+- open full logs in the browser, including via the `last_log_file` fallback when the log is not in the recent index anymore
