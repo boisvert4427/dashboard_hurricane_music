@@ -188,10 +188,11 @@ Concurrents actifs:
 24. La page `/veille-concurrentielle/prix/ecarts-fiables` isole les écarts Thomann/Michenaud trop importants par rapport à la base Woodbrass + Stars Music.
 25. `retry_urls` reprend les plus anciens `not_found` selon `last_tested_at`.
 26. `competitor_url_final` garde maintenant l’état HTTP du price scraper.
-27. Après 3 `404/410` consécutifs sur une final URL:
+27. La passe prix priorise d’abord les finals sans historique, puis les plus anciens derniers scrapes, et reboucle au lieu de s’arrêter à l’ID max.
+28. Après 3 `404/410` consécutifs sur une final URL:
     - l’entrée `competitor_url_final` est supprimée
     - le `competitor_url_test_result` lié passe en `competitor_page_status = gone`
-28. Le récap home compte aussi `postponed` et `rejected`.
+29. Le récap home compte aussi `postponed` et `rejected`.
 
 ### Worker Python
 

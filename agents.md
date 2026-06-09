@@ -136,7 +136,7 @@
 - Debug mode writes PNG artifacts under `debug/`.
 - The validation page is paginated in blocks of 50 and shows the total pending count.
 - The home recap is aligned with the validation pending count.
-- The final price crawl should stay limited and only target finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals.
+- The final price crawl should stay limited, prioritize finals not yet in `competitor_url_price_history`, then the oldest last-scraped finals, and wrap around instead of stopping at the highest `id`.
 - For Stars Music, URL matching now also needs to propagate product price when the product page is successfully matched.
 - Repeated `404/410` on final prices should be treated as URL health degradation, not as immediate hard deletion on first failure.
 - For image repair, keep the batch small and respect the direct-scrape lock/pause behavior on Thomann.

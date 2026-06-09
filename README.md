@@ -106,6 +106,8 @@ Valeurs par défaut:
 - `competitor_url_final` garde le prix courant
 - `Stars Music` remonte maintenant aussi le prix pendant le matching URL quand la fiche produit est validée
 - la sélection priorise les finals absents de l’historique, puis les plus anciens derniers scrapes de prix
+- la passe prix reboucle sur l’ensemble des finals au lieu de s’arrêter à l’`id` max
+- `after_id` reste un curseur de reprise, pas un critère métier
 - `competitor_url_final` stocke aussi maintenant l’état HTTP:
   - `last_http_status`
   - `consecutive_http_failures`

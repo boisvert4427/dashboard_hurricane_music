@@ -38,6 +38,8 @@ Responsibilities:
 - `postponed` stays in validation and is hidden from the main validation list.
 - `retry_urls` now prioritises the oldest `not_found` rows by `last_tested_at`.
 - Final prices are captured only from `competitor_url_final` entries and appended to `competitor_url_price_history`.
+- The final price crawl prioritizes finals with no history first, then the oldest last-scraped finals, and wraps around instead of stopping at the highest `id`.
+- `after_id` is a resume cursor, not the business selector for price priority.
 - Final prices now also feed URL-health state back to Symfony on `404/410`.
 - After 3 consecutive `404/410`, Symfony removes the final URL and marks the linked test result page status as `gone`.
 
