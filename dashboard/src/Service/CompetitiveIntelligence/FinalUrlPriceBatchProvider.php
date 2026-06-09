@@ -22,41 +22,13 @@ final class FinalUrlPriceBatchProvider
     {
         $limit = max(1, min(200, $limit));
 
-        $rows = $this->databaseConnection->fetchAllAssociative(
-            'SELECT f.id AS id_product,
-                    f.competitor_id,
-                    c.name AS competitor_name,
-                    c.domain AS competitor_domain,
-                    f.url,
-                    f.competitor_price AS source_price,
-                    last_price.last_scraped_at AS last_scraped_at
-             FROM competitor_url_final f
-             INNER JOIN competitor c ON c.id = f.competitor_id
-             LEFT JOIN (
-                 SELECT competitor_id, id_product, url, MAX(observed_at) AS last_scraped_at
-                 FROM competitor_url_price_history
-                 GROUP BY competitor_id, id_product, url
-             ) last_price
-               ON last_price.competitor_id = f.competitor_id
-              AND last_price.id_product = f.id
-              AND last_price.url = f.url
-             WHERE f.competitor_id = :competitor_id
-               AND f.id > :after_id
-             ORDER BY (last_price.last_scraped_at IS NOT NULL) ASC,
-                      last_price.last_scraped_at ASC,
-                      f.id ASC
-             LIMIT :limit',
-            [
-                'competitor_id' => $competitorId,
-                'after_id' => $afterId,
-                'limit' => $limit,
-            ],
-            [
-                'competitor_id' => ParameterType::INTEGER,
-                'after_id' => ParameterType::INTEGER,
-                'limit' => ParameterType::INTEGER,
-            ]
-        );
+        $rows = $this->fetchBatchSegment($competitorId, $afterId, $limit, false);
+        if (count($rows) < $limit) {
+            $rows = array_merge(
+                $rows,
+                $this->fetchBatchSegment($competitorId, $afterId, $limit - count($rows), true)
+            );
+        }
 
         $items = array_map(
             static function (array $row) use ($competitorId): array {
@@ -87,6 +59,54 @@ final class FinalUrlPriceBatchProvider
         ];
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchBatchSegment(int $competitorId, int $afterId, int $limit, bool $wrapAround): array
+    {
+        if ($limit <= 0) {
+            return [];
+        }
+
+        $operator = $wrapAround ? '<=' : '>';
+
+        return $this->databaseConnection->fetchAllAssociative(
+            'SELECT f.id AS id_product,
+                    f.competitor_id,
+                    c.name AS competitor_name,
+                    c.domain AS competitor_domain,
+                    f.url,
+                    f.competitor_price AS source_price,
+                    last_price.last_scraped_at AS last_scraped_at
+             FROM competitor_url_final f
+             INNER JOIN competitor c ON c.id = f.competitor_id
+             LEFT JOIN (
+                 SELECT competitor_id, id_product, url, MAX(observed_at) AS last_scraped_at
+                 FROM competitor_url_price_history
+                 GROUP BY competitor_id, id_product, url
+             ) last_price
+               ON last_price.competitor_id = f.competitor_id
+              AND last_price.id_product = f.id
+              AND last_price.url = f.url
+             WHERE f.competitor_id = :competitor_id
+               AND f.id ' . $operator . ' :after_id
+             ORDER BY (last_price.last_scraped_at IS NOT NULL) ASC,
+                      last_price.last_scraped_at ASC,
+                      f.id ASC
+             LIMIT :limit',
+            [
+                'competitor_id' => $competitorId,
+                'after_id' => $afterId,
+                'limit' => $limit,
+            ],
+            [
+                'competitor_id' => ParameterType::INTEGER,
+                'after_id' => ParameterType::INTEGER,
+                'limit' => ParameterType::INTEGER,
+            ]
+        );
+    }
+
     public function hasPendingWork(int $competitorId, int $afterId = 0): bool
     {
         return (bool) $this->databaseConnection->fetchOne(
@@ -94,15 +114,12 @@ final class FinalUrlPriceBatchProvider
                 SELECT 1
                 FROM competitor_url_final f
                 WHERE f.competitor_id = :competitor_id
-                  AND f.id > :after_id
             )',
             [
                 'competitor_id' => $competitorId,
-                'after_id' => $afterId,
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
-                'after_id' => ParameterType::INTEGER,
             ]
         );
     }
