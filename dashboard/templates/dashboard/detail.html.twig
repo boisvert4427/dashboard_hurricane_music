@@ -16,6 +16,8 @@
 
         <section class="toolbar-panel">
             <form class="filter-form" method="get" action="{{ path('app_detail') }}">
+                <input type="hidden" name="view" value="{{ active_filters.view|default('table') }}">
+                <input type="hidden" name="group_by" value="{{ active_filters.group_by|default('idart') }}">
                 <div class="filter-field">
                     <label for="detail-search">Recherche</label>
                     <input id="detail-search" type="search" name="q" value="{{ active_filters.q|default('') }}" placeholder="Facture, produit, marque, canal...">
@@ -72,6 +74,15 @@
                     </select>
                 </div>
                 <div class="filter-field">
+                    <label for="detail-group-by">Grouper par</label>
+                    <select id="detail-group-by" name="group_by">
+                        <option value="idart" {% if active_filters.group_by|default('idart') == 'idart' %}selected{% endif %}>IDART</option>
+                        <option value="brand" {% if active_filters.group_by|default('idart') == 'brand' %}selected{% endif %}>Fabricant</option>
+                        <option value="channel" {% if active_filters.group_by|default('idart') == 'channel' %}selected{% endif %}>Canal</option>
+                        <option value="category" {% if active_filters.group_by|default('idart') == 'category' %}selected{% endif %}>Catégorie</option>
+                    </select>
+                </div>
+                <div class="filter-field">
                     <label for="detail-sort">Tri</label>
                     <select id="detail-sort" name="sort">
                         <option value="invoice_date" {% if sort == 'invoice_date' %}selected{% endif %}>Date</option>
@@ -110,135 +121,7 @@
 
         <section class="section">
             <div class="section-head">
-                <h2>Comparaisons</h2>
-                <p>Période courante, N-1, mois précédent et objectif.</p>
-            </div>
-
-            <div class="kpi-grid kpi-grid-detail">
-                <article class="kpi-card">
-                    <div class="card-head">
-                        <div class="card-title-wrap">
-                            <div class="card-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M7 16V8m4 8V5m4 11V9m4 7v-4" /></svg>
-                            </div>
-                            <div>
-                                <div class="kpi-label">Période courante</div>
-                                <div class="kpi-hint kpi-hint-short">{{ active_filters.start|default('début du mois') }} → {{ active_filters.end|default('aujourd’hui') }}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="kpi-value">{{ summary.total_ht|number_format(0, ',', ' ') }} €</div>
-                    <div class="metric-chip-grid">
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Factures</span>
-                            <strong>{{ summary.invoice_count }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Lignes</span>
-                            <strong>{{ summary.line_count }}</strong>
-                        </div>
-                    </div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">Variation</div>
-                    <div class="kpi-value">{{ comparison_previous_year.total_ht|number_format(0, ',', ' ') }} €</div>
-                    <div class="metric-chip-grid">
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Marge</span>
-                            <strong>{{ comparison_previous_year.margin_ht|number_format(0, ',', ' ') }} € · {{ comparison_previous_year.total_ht > 0 ? (comparison_previous_year.margin_ht / comparison_previous_year.total_ht * 100)|number_format(1, ',', ' ') ~ ' %' : '--' }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Panier moyen</span>
-                            <strong>{{ comparison_previous_year.invoice_count > 0 ? (comparison_previous_year.total_ht / comparison_previous_year.invoice_count)|number_format(0, ',', ' ') ~ ' €' : '0 €' }}</strong>
-                        </div>
-                    </div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">vs mois précédent</div>
-                    <div class="kpi-value">{{ comparison_previous_month.total_ht|number_format(0, ',', ' ') }} €</div>
-                    <div class="metric-chip-grid">
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Variation</span>
-                            <strong>
-                                {% set prevMonthDelta = comparison_previous_month.total_ht > 0 ? ((summary.total_ht - comparison_previous_month.total_ht) / comparison_previous_month.total_ht) * 100 : null %}
-                                {{ prevMonthDelta is null ? '--' : (prevMonthDelta > 0 ? '+' : '') ~ prevMonthDelta|number_format(1, ',', ' ') ~ ' %' }}
-                            </strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Marge</span>
-                            <strong>{{ comparison_previous_month.margin_ht|number_format(0, ',', ' ') }} € · {{ comparison_previous_month.total_ht > 0 ? (comparison_previous_month.margin_ht / comparison_previous_month.total_ht * 100)|number_format(1, ',', ' ') ~ ' %' : '--' }}</strong>
-                        </div>
-                    </div>
-                </article>
-                <article class="kpi-card">
-                    <div class="kpi-label">Objectif</div>
-                    <div class="kpi-value">
-                        {% if objective_summary.objective_ht > 0 %}
-                            {{ objective_summary.objective_ht|number_format(0, ',', ' ') }} €
-                        {% else %}
-                            non défini
-                        {% endif %}
-                    </div>
-                    <div class="metric-chip-grid">
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Atteinte</span>
-                            <strong>{{ objective_summary.objective_ratio is null ? '--' : objective_summary.objective_ratio|number_format(1, ',', ' ') ~ ' %' }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Reste</span>
-                            <strong>{{ objective_summary.objective_remaining is null ? '--' : objective_summary.objective_remaining|number_format(0, ',', ' ') ~ ' €' }}</strong>
-                        </div>
-                    </div>
-                </article>
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-head">
-                <h2>Alertes métier</h2>
-                <p>Ce qui sort du lot sur la période filtrée.</p>
-            </div>
-
-            <div class="alert-grid alert-grid-detail">
-                <article class="alert-card">
-                    <div class="alert-title">Hausses marques</div>
-                    {% for item in alerts.brand_gainers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune hausse.</div>
-                    {% endfor %}
-                </article>
-                <article class="alert-card">
-                    <div class="alert-title">Baisses marques</div>
-                    {% for item in alerts.brand_losers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune baisse.</div>
-                    {% endfor %}
-                </article>
-                <article class="alert-card">
-                    <div class="alert-title">Canaux à surveiller</div>
-                    {% for item in alerts.channel_anomalies %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.label }}</strong>
-                            <span>{{ item.delta }} | panier {{ item.basket_delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune anomalie.</div>
-                    {% endfor %}
-                </article>
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-head">
-                <h2>Lignes détaillées</h2>
+                <h2>Tableau ligne par ligne</h2>
                 <p>{{ pagination.total_rows }} ligne(s) trouvée(s).</p>
             </div>
 
@@ -252,7 +135,9 @@
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Marque</a></th>
                             <th>Produit</th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'quantity', 'direction': sort == 'quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Qté</a></th>
+                            <th>Qté -1</th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'total_ht', 'direction': sort == 'total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">CA HT</a></th>
+                            <th>CA HT -1</th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'margin_ht', 'direction': sort == 'margin_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Marge</a></th>
                             <th>Occasion</th>
                         </tr>
@@ -271,7 +156,9 @@
                                     </div>
                                 </td>
                                 <td>{{ row.quantity|number_format(3, ',', ' ') }}</td>
+                                <td>{{ row.previous_quantity|number_format(3, ',', ' ') }}</td>
                                 <td>{{ row.total_ht|number_format(0, ',', ' ') }} €</td>
+                                <td>{{ row.previous_total_ht|number_format(0, ',', ' ') }} €</td>
                                 <td>{{ row.margin_ht|number_format(0, ',', ' ') }} €{% if row.total_ht > 0 %} · {{ (row.margin_ht / row.total_ht * 100)|number_format(1, ',', ' ') }} %{% endif %}</td>
                                 <td>
                                     <span class="pill {% if row.is_occasion %}pill-accent{% endif %}">{{ row.is_occasion ? 'oui' : 'non' }}</span>
@@ -279,7 +166,7 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="9" class="detail-empty">Aucune ligne trouvée.</td>
+                                <td colspan="11" class="detail-empty">Aucune ligne trouvée.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

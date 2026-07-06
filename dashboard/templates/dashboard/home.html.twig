@@ -51,7 +51,13 @@
                 </div>
                 <p>Période sélectionnée : {{ period_label }}. Comparaison : {{ previous_period_label }}. Tu peux saisir les dates à la main ou ouvrir le calendrier.</p>
             </div>
+            <div class="view-switch" aria-label="Mode d'affichage">
+                <a class="button button-primary" href="{{ path('app_home', active_filters|merge({'view': 'cards', 'group_by': active_filters.group_by|default('idart')})) }}">Cartes</a>
+                <a class="button button-secondary" href="{{ path('app_detail', active_filters|merge({'view': 'table', 'group_by': active_filters.group_by|default('idart'), 'page': 1})) }}">Tableau</a>
+            </div>
             <form class="filter-form" method="get" action="{{ path('app_home') }}">
+                <input type="hidden" name="view" value="{{ active_filters.view|default('cards') }}">
+                <input type="hidden" name="group_by" value="{{ active_filters.group_by|default('idart') }}">
                 <div class="filter-field">
                     <label for="filter-start">Début</label>
                     <div class="date-field" data-date-field>
@@ -139,7 +145,7 @@
 
             <div class="kpi-grid kpi-grid-home">
                 {% for kpi in kpis %}
-                    <article class="kpi-card" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                    <article class="kpi-card" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                         <div class="card-head">
                             <div class="card-title-wrap">
                                 <div class="card-icon" aria-hidden="true">
@@ -201,7 +207,7 @@
 
                 <div class="channel-grid channel-grid-bars">
                     {% for channel in channels %}
-                        <article class="channel-card" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}" role="link" tabindex="0">
+                        <article class="channel-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}" role="link" tabindex="0">
                             <div class="channel-card-head">
                                 <div class="channel-title-wrap">
                                     <div class="channel-icon" aria-hidden="true">
@@ -210,7 +216,7 @@
                                         </svg>
                                     </div>
                                     <div>
-                                        <div class="channel-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">{{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                        <div class="channel-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}">{{ channel.label }}{{ active_filter_suffix }}</a></div>
                                         <div class="channel-hint">{{ channel.hint }}{{ active_filter_suffix }}</div>
                                     </div>
                                 </div>
@@ -307,14 +313,14 @@
             </div>
 
             <div class="occasion-grid">
-                <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_detail', active_filters|merge({'occasion': 'hors_occasion', 'page': 1})) }}" role="link" tabindex="0">
+                <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_home', active_filters|merge({'occasion': 'hors_occasion'})) }}" role="link" tabindex="0">
                     <div class="card-head">
                             <div class="card-title-wrap">
                                 <div class="card-icon card-icon-brand" aria-hidden="true">
                                     <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l2.2 4.5L19 8.2l-3.5 3.4.8 4.9L12 14.9 7.7 16.5l.8-4.9L5 8.2l4.8-.7L12 3z" /></svg>
                                 </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'occasion': 'hors_occasion', 'page': 1})) }}">Neuf global{{ active_filter_suffix }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'occasion': 'hors_occasion'})) }}">Neuf global{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                             <div class="kpi-delta-badge {{ neuf.delta_class }}">{{ neuf.delta }}</div>
@@ -368,14 +374,14 @@
                 </article>
 
                 {% for channel in neuf.channels|slice(0, 3) %}
-                    <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion', 'page': 1})) }}" role="link" tabindex="0">
+                    <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion'})) }}" role="link" tabindex="0">
                         <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-channel" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
                                     </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion', 'page': 1})) }}">Neuf {{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion'})) }}">Neuf {{ channel.label }}{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                             <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta }}</div>
@@ -443,14 +449,14 @@
                 </div>
 
                 <div class="occasion-grid">
-                    <article class="occasion-card occasion-card-global" id="section-brand-occasion" data-card-link="{{ path('app_detail', active_filters|merge({'occasion': 'occasion', 'page': 1})) }}" role="link" tabindex="0">
+                    <article class="occasion-card occasion-card-global" id="section-brand-occasion" data-card-link="{{ path('app_home', active_filters|merge({'occasion': 'occasion'})) }}" role="link" tabindex="0">
                         <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-occasion" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" role="presentation"><path d="M7 4h10l2 3v13H5V4h2zm0 0v4h10V4M9 13h6M9 16h4" /></svg>
                                     </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'occasion': 'occasion', 'page': 1})) }}">Global occasion{{ active_filter_suffix }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'occasion': 'occasion'})) }}">Global occasion{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                             <div class="kpi-delta-badge {{ occasion.delta_class }}">{{ occasion.delta }}</div>
@@ -504,14 +510,14 @@
                     </article>
 
                     {% for channel in occasion.channels %}
-                        <article class="occasion-card" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}" role="link" tabindex="0">
+                        <article class="occasion-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}" role="link" tabindex="0">
                             <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-channel" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
                                     </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">Occasion {{ channel.label }}{{ active_filter_suffix_without_occasion }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}">Occasion {{ channel.label }}{{ active_filter_suffix_without_occasion }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta_short }}</div>
@@ -581,7 +587,7 @@
 
                 <div class="insight-grid insight-grid-home">
                     {% for brand in brand_highlights.top_brands %}
-                        <article class="insight-card" data-card-link="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}" role="link" tabindex="0">
+                        <article class="insight-card" data-card-link="{{ path('app_home', active_filters|merge({'brand_id': brand.brand_id})) }}" role="link" tabindex="0">
                             <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-brand" aria-hidden="true">
@@ -589,7 +595,7 @@
                                     </div>
                                     <div>
                                         <div class="insight-label">Marque #{{ loop.index }}</div>
-                                        <div class="insight-brand"><a href="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}">{{ brand.brand_name }}</a></div>
+                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'brand_id': brand.brand_id})) }}">{{ brand.brand_name }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ brand.global_delta_class }}">{{ brand.global_delta is null ? '--' : (brand.global_delta > 0 ? '+' : '') ~ brand.global_delta|number_format(1, ',', ' ') ~ ' %' }}</div>
@@ -666,7 +672,7 @@
 
                 <div class="insight-grid insight-grid-home">
                     {% for category in category_highlights.top_categories %}
-                        <article class="insight-card" data-card-link="{{ path('app_detail', active_filters|merge({'category': category.category_name, 'page': 1})) }}" role="link" tabindex="0">
+                        <article class="insight-card" data-card-link="{{ path('app_home', active_filters|merge({'category': category.category_name})) }}" role="link" tabindex="0">
                             <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-brand" aria-hidden="true">
@@ -674,7 +680,7 @@
                                     </div>
                                     <div>
                                         <div class="insight-label">Catégorie #{{ loop.index }}</div>
-                                        <div class="insight-brand"><a href="{{ path('app_detail', active_filters|merge({'category': category.category_name, 'page': 1})) }}">{{ category.category_name }}</a></div>
+                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'category': category.category_name})) }}">{{ category.category_name }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ category.global_delta_class }}">{{ category.global_delta_display }}</div>
@@ -763,7 +769,7 @@
             </div>
 
             <div class="alert-grid alert-grid-home">
-                <article class="alert-card alert-card--up" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                <article class="alert-card alert-card--up" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                     <div class="alert-card__head">
                         <div class="alert-title">Plus fortes hausses marques</div>
                         <div class="alert-badge alert-badge-up">Hausse</div>
@@ -778,7 +784,7 @@
                     {% endfor %}
                 </article>
 
-                <article class="alert-card alert-card--down" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                <article class="alert-card alert-card--down" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                     <div class="alert-card__head">
                         <div class="alert-title">Plus fortes baisses marques</div>
                         <div class="alert-badge alert-badge-down">Baisse</div>
@@ -793,7 +799,7 @@
                     {% endfor %}
                 </article>
 
-                <article class="alert-card alert-card--warning" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                <article class="alert-card alert-card--warning" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                     <div class="alert-card__head">
                         <div class="alert-title">Canaux en anomalie</div>
                         <div class="alert-badge alert-badge-warning">Alerte</div>
@@ -808,7 +814,7 @@
                     {% endfor %}
                 </article>
 
-                <article class="alert-card alert-card--basket" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                <article class="alert-card alert-card--basket" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                     <div class="alert-card__head">
                         <div class="alert-title">Panier en mouvement</div>
                         <div class="alert-badge alert-badge-neutral">Suivi</div>

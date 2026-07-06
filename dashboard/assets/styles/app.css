@@ -2036,6 +2036,17 @@ body.dashboard-home .toolbar-head p {
     text-align: right;
 }
 
+body.dashboard-home .view-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 14px;
+}
+
+body.dashboard-home .view-switch .button {
+    min-width: 120px;
+}
+
 body.dashboard-home .home-sections-nav {
     margin-top: 16px;
     display: flex;
@@ -2630,6 +2641,10 @@ body.dashboard-home .alert-card--basket {
     box-shadow: var(--shadow);
 }
 
+body.dashboard-home .detail-table-wrap {
+    background: rgba(255, 255, 255, 0.98);
+}
+
 .detail-table {
     width: 100%;
     border-collapse: collapse;
@@ -2658,6 +2673,15 @@ body.dashboard-home .alert-card--basket {
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--muted);
+}
+
+body.dashboard-home .detail-table th {
+    background: rgba(247, 249, 255, 0.98);
+    color: #4a6bcc;
+}
+
+body.dashboard-home .detail-table td {
+    border-bottom-color: rgba(37, 61, 97, 0.08);
 }
 
 .validation-batch-form {

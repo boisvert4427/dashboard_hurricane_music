@@ -655,6 +655,14 @@ final class DashboardController extends AbstractController
         if (!in_array($occasion, ['', 'occasion', 'hors_occasion'], true)) {
             $occasion = '';
         }
+        $view = (string) $request->query->get('view', $includeSearch ? 'table' : 'cards');
+        if (!in_array($view, ['cards', 'table'], true)) {
+            $view = $includeSearch ? 'table' : 'cards';
+        }
+        $groupBy = (string) $request->query->get('group_by', 'idart');
+        if (!in_array($groupBy, ['idart', 'brand', 'channel', 'category'], true)) {
+            $groupBy = 'idart';
+        }
 
         $filters = [
             'start' => $this->sanitizeDate($request->query->getString('start')) ?? $defaultStart,
@@ -663,6 +671,8 @@ final class DashboardController extends AbstractController
             'brand_id' => $request->query->getString('brand_id') !== '' ? $request->query->getString('brand_id') : null,
             'category' => $request->query->getString('category') !== '' ? $request->query->getString('category') : null,
             'occasion' => $occasion !== '' ? $occasion : null,
+            'view' => $view,
+            'group_by' => $groupBy,
             'q' => $includeSearch ? trim($request->query->getString('q')) : null,
         ];
 
