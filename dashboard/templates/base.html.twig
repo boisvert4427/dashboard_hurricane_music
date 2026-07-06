@@ -22,7 +22,7 @@
     {% set embedded = app.request.query.get('embed') == '1' %}
     {% set isCompetitiveRoute = currentRoute starts with 'app_competitive_' %}
     {% set isDashboardRoute = currentRoute in ['app_home', 'app_detail', 'app_detail_export'] %}
-    <body class="{{ embedded ? 'is-embedded' : 'has-app-header' }}">
+    <body class="{{ (embedded ? 'is-embedded' : 'has-app-header') ~ (currentRoute in ['app_home', 'app_detail'] ? ' dashboard-home' : '') }}">
         {% if not embedded %}
             <header class="app-header">
                 <div class="app-header__inner">
@@ -107,6 +107,14 @@
                 {% endfor %}
             </div>
         {% endfor %}
+        {% if not embedded %}
+            <div class="app-loader" data-app-loader aria-hidden="true">
+                <div class="app-loader__card" role="status" aria-live="polite">
+                    <span class="app-loader__spinner" aria-hidden="true"></span>
+                    <span class="app-loader__text">Chargement en cours</span>
+                </div>
+            </div>
+        {% endif %}
         {% block body %}{% endblock %}
 
         {% if not embedded %}

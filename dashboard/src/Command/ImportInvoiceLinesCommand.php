@@ -15,7 +15,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
     name: 'app:etl:import-invoice-lines',
-    description: 'Import K_LI_FAC into reporting_invoice_line_fact.'
+    description: 'Import new K_LI_FAC rows into reporting_invoice_line_fact.'
 )]
 final class ImportInvoiceLinesCommand extends Command
 {
@@ -31,16 +31,18 @@ final class ImportInvoiceLinesCommand extends Command
     protected function configure(): void
     {
         $this->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Limit the number of imported rows for a test run.');
+        $this->addOption('since', null, InputOption::VALUE_REQUIRED, 'Import rows from this date (YYYY-MM-DD) and refresh matching reporting rows.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $limit = $this->parseLimit($input->getOption('limit'));
+        $since = $this->parseSinceDate($input->getOption('since'));
 
         try {
             $output->writeln('Starting import from K_LI_FAC...');
             $importService = new InvoiceLineImportService($this->reportingConnection, $this->prestashopConnection);
-            $stats = $importService->run(500, $limit);
+            $stats = $importService->run(500, $limit, $since);
         } catch (\Throwable $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
@@ -61,5 +63,16 @@ final class ImportInvoiceLinesCommand extends Command
         $limit = (int) $value;
 
         return $limit > 0 ? $limit : null;
+    }
+
+    private function parseSinceDate(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('Y-m-d', (string) $value);
+
+        return $date !== false ? $date->format('Y-m-d') : null;
     }
 }

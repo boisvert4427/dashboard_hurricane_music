@@ -3,30 +3,70 @@
 {% block title %}Dashboard Hurricane Music{% endblock %}
 
 {% block body %}
+    {% set hide_occasion_section = active_filters.occasion|default('') != '' %}
+    {% set hide_brand_section = active_filters.brand_id|default('') != '' %}
+    {% set hide_category_section = active_filters.category|default('') != '' %}
+    {% set hide_channel_section = active_filters.channel|default('') != '' %}
+    {% set active_filter_labels = [] %}
+    {% if active_filters.channel|default('') != '' %}
+        {% for option in filter_options.channels %}
+            {% if option.value == active_filters.channel %}
+                {% set active_filter_labels = active_filter_labels|merge([option.label]) %}
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    {% if active_filters.brand_id|default('') != '' %}
+        {% for option in filter_options.brands %}
+            {% if option.value == active_filters.brand_id %}
+                {% set active_filter_labels = active_filter_labels|merge([option.label]) %}
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    {% if active_filters.category|default('') != '' %}
+        {% for option in filter_options.categories %}
+            {% if option.value == active_filters.category %}
+                {% set active_filter_labels = active_filter_labels|merge([option.label]) %}
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+    {% if active_filters.occasion|default('') == 'occasion' %}
+        {% set active_filter_labels = active_filter_labels|merge(['Occasion']) %}
+    {% elseif active_filters.occasion|default('') == 'hors_occasion' %}
+        {% set active_filter_labels = active_filter_labels|merge(['Hors occasion']) %}
+    {% endif %}
+    {% set active_filter_suffix = active_filter_labels ? ' - ' ~ active_filter_labels|join(' / ') : '' %}
+    {% set active_filter_labels_without_occasion = [] %}
+    {% for label in active_filter_labels %}
+        {% if label != 'Occasion' and label != 'Hors occasion' %}
+            {% set active_filter_labels_without_occasion = active_filter_labels_without_occasion|merge([label]) %}
+        {% endif %}
+    {% endfor %}
+    {% set active_filter_suffix_without_occasion = active_filter_labels_without_occasion ? ' - ' ~ active_filter_labels_without_occasion|join(' / ') : '' %}
     <main class="app-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="brand-mark">HM</div>
-                <div>
-                    <div class="brand-name">Hurricane Music</div>
-                    <div class="brand-subtitle">Dashboard de pilotage interne</div>
-                </div>
-            </div>
-            <div class="status-pills">
-                <span class="pill pill-accent">{{ period_label }}</span>
-                <span class="pill">{{ previous_period_label }}</span>
-            </div>
-        </header>
-
         <section class="toolbar-panel">
+            <div class="toolbar-head">
+                <div>
+                    <div class="toolbar-eyebrow">Filtres de lecture</div>
+                    <h1 class="toolbar-title">Choisir la période et le périmètre</h1>
+                </div>
+                <p>Période sélectionnée : {{ period_label }}. Comparaison : {{ previous_period_label }}. Tu peux saisir les dates à la main ou ouvrir le calendrier.</p>
+            </div>
             <form class="filter-form" method="get" action="{{ path('app_home') }}">
                 <div class="filter-field">
                     <label for="filter-start">Début</label>
-                    <input id="filter-start" type="date" name="start" value="{{ active_filters.start|default('') }}">
+                    <div class="date-field" data-date-field>
+                        <input id="filter-start" class="date-field__input" type="text" name="start" value="{{ active_filters.start|default('') }}" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" spellcheck="false" data-date-field-input>
+                        <button class="date-field__button" type="button" aria-label="Ouvrir le calendrier" data-date-field-trigger>📅</button>
+                        <input class="date-field__native" type="date" tabindex="-1" aria-hidden="true" data-date-field-native>
+                    </div>
                 </div>
                 <div class="filter-field">
                     <label for="filter-end">Fin</label>
-                    <input id="filter-end" type="date" name="end" value="{{ active_filters.end|default('') }}">
+                    <div class="date-field" data-date-field>
+                        <input id="filter-end" class="date-field__input" type="text" name="end" value="{{ active_filters.end|default('') }}" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" spellcheck="false" data-date-field-input>
+                        <button class="date-field__button" type="button" aria-label="Ouvrir le calendrier" data-date-field-trigger>📅</button>
+                        <input class="date-field__native" type="date" tabindex="-1" aria-hidden="true" data-date-field-native>
+                    </div>
                 </div>
                 <div class="filter-field">
                     <label for="filter-channel">Canal</label>
@@ -47,6 +87,15 @@
                     </select>
                 </div>
                 <div class="filter-field">
+                    <label for="filter-category">Catégorie</label>
+                    <select id="filter-category" name="category">
+                        <option value="">Toutes</option>
+                        {% for option in filter_options.categories %}
+                            <option value="{{ option.value }}" {% if active_filters.category|default('') == option.value %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-field">
                     <label for="filter-occasion">Occasion</label>
                     <select id="filter-occasion" name="occasion">
                         <option value="">Toutes</option>
@@ -56,22 +105,41 @@
                 </div>
                 <div class="filter-actions">
                     <button class="button button-primary" type="submit">Appliquer</button>
-                    <a class="button button-secondary" href="{{ path('app_home') }}">Réinitialiser</a>
-                    <a class="button button-secondary" href="{{ path('app_detail', active_filters|merge({'page': 1})) }}">Détail</a>
-                    <a class="button button-secondary" href="{{ path('app_detail_export', active_filters) }}">CSV</a>
+                    <div class="filter-actions-row">
+                        <a class="button button-secondary" href="{{ path('app_home') }}">Réinitialiser</a>
+                        <a class="button button-secondary" href="{{ path('app_detail_export', active_filters) }}">CSV</a>
+                    </div>
                 </div>
             </form>
         </section>
 
-        <section class="section">
+        <nav class="home-sections-nav" aria-label="Accès rapide aux sections">
+            <a href="#section-kpis">Global</a>
+            {% if not hide_channel_section %}
+                <a href="#section-channels">Canaux</a>
+            {% endif %}
+            <a href="#section-neuf">Neuf</a>
+            {% if not hide_occasion_section %}
+                <a href="#section-occasion">Occasion</a>
+            {% endif %}
+            {% if not hide_brand_section %}
+                <a href="#section-brands">Top marques</a>
+            {% endif %}
+            {% if not hide_category_section %}
+                <a href="#section-categories">Catégories</a>
+            {% endif %}
+            <a href="#section-alerts">Alertes</a>
+        </nav>
+
+        <section class="section" id="section-kpis">
             <div class="section-head">
-                <h2>Global depuis le 1er</h2>
+                <h2>Global{{ active_filter_suffix }}</h2>
                 <p>{{ period_label }} comparé à {{ previous_period_label }}.</p>
             </div>
 
             <div class="kpi-grid kpi-grid-home">
                 {% for kpi in kpis %}
-                    <article class="kpi-card">
+                    <article class="kpi-card" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
                         <div class="card-head">
                             <div class="card-title-wrap">
                                 <div class="card-icon" aria-hidden="true">
@@ -94,6 +162,20 @@
                         </div>
 
                         <div class="kpi-value">{{ kpi.current }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill {{ kpi.trend_1y_class }}">
+                                <span class="trend-mini__label">1A glissant</span>
+                                <span class="trend-mini__value">{{ kpi.trend_1y_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ kpi.trend_6m_class }}">
+                                <span class="trend-mini__label">6M glissant</span>
+                                <span class="trend-mini__value">{{ kpi.trend_6m_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ kpi.trend_3m_class }}">
+                                <span class="trend-mini__label">3M glissant</span>
+                                <span class="trend-mini__value">{{ kpi.trend_3m_display }}</span>
+                            </span>
+                        </div>
 
                         <div class="kpi-comparison {{ kpi.delta_class }}">
                             <div class="kpi-mini-stat">
@@ -110,212 +192,46 @@
             </div>
         </section>
 
-        <section class="section">
-            <div class="section-head">
-                <h2>Occasion</h2>
-                <p>Recap du rayon occasion sur la période en cours, avec comparaison N-1.</p>
-            </div>
+        {% if not hide_channel_section %}
+            <section class="section" id="section-channels">
+                <div class="section-head">
+                    <h2>Répartition par canal{{ active_filter_suffix }}</h2>
+                    <p>Barres proportionnelles au CA de la période en cours.</p>
+                </div>
 
-            <div class="occasion-grid">
-                <article class="occasion-card occasion-card-global">
-                    <div class="card-head">
-                            <div class="card-title-wrap">
-                            <div class="card-icon card-icon-occasion" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" role="presentation"><path d="M7 4h10l2 3v13H5V4h2zm0 0v4h10V4M9 13h6M9 16h4" /></svg>
-                            </div>
-                            <div>
-                                <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'occasion': 'occasion', 'page': 1})) }}">Global occasion</a></div>
-                                <div class="occasion-share">{{ occasion.share_global }}</div>
-                            </div>
-                        </div>
-                        <div class="kpi-delta-badge {{ occasion.delta_class }}">{{ occasion.delta }}</div>
-                    </div>
-
-                    <div class="occasion-value">{{ occasion.current_total }}</div>
-
-                    <div class="metric-chip-grid">
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">N-1 CA</span>
-                            <strong>{{ occasion.previous_total }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Variation</span>
-                            <strong>{{ occasion.delta }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Lignes</span>
-                            <strong>{{ occasion.current_lines }} / {{ occasion.previous_lines }}</strong>
-                        </div>
-                        <div class="metric-chip">
-                            <span class="metric-chip-label">Factures</span>
-                            <strong>{{ occasion.current_invoices }} / {{ occasion.previous_invoices }}</strong>
-                        </div>
-                    </div>
-                </article>
-
-                {% for channel in occasion.channels %}
-                    <article class="occasion-card">
-                        <div class="card-head">
-                            <div class="card-title-wrap">
-                                <div class="card-icon card-icon-channel" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
+                <div class="channel-grid channel-grid-bars">
+                    {% for channel in channels %}
+                        <article class="channel-card" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}" role="link" tabindex="0">
+                            <div class="channel-card-head">
+                                <div class="channel-title-wrap">
+                                    <div class="channel-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation">
+                                            <path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div class="channel-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">{{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                        <div class="channel-hint">{{ channel.hint }}{{ active_filter_suffix }}</div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">{{ channel.label }}</a></div>
-                                    <div class="occasion-share">{{ channel.share_global }}</div>
-                                </div>
-                            </div>
-                            <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta }}</div>
-                        </div>
-
-                        <div class="occasion-value">{{ channel.current_total }}</div>
-
-                        <div class="metric-chip-grid metric-chip-grid-tight">
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">N-1</span>
-                                <strong>{{ channel.previous_total }}</strong>
-                            </div>
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">Variation</span>
-                                <strong>{{ channel.delta }}</strong>
-                            </div>
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">Lignes</span>
-                                <strong>{{ channel.current_lines }} / {{ channel.previous_lines }}</strong>
-                            </div>
-                        </div>
-                    </article>
-                {% endfor %}
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-head">
-                <h2>Top 5 marques</h2>
-                <p>Les marques qui pèsent le plus sur la période.</p>
-            </div>
-
-            <div class="insight-grid insight-grid-home">
-                {% for brand in brand_highlights.top_brands %}
-                    <article class="insight-card">
-                        <div class="card-head">
-                            <div class="card-title-wrap">
-                                <div class="card-icon card-icon-brand" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l2.2 4.5L19 8.2l-3.5 3.4.8 4.9L12 14.9 7.7 16.5l.8-4.9L5 8.2l4.8-.7L12 3z" /></svg>
-                                </div>
-                                <div>
-                                    <div class="insight-label">Marque #{{ loop.index }}</div>
-                                    <div class="insight-brand"><a href="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}">{{ brand.brand_name }}</a></div>
-                                </div>
-                            </div>
-                            <div class="kpi-delta-badge {{ brand.delta_class }}">{{ brand.delta }}</div>
-                        </div>
-
-                        <div class="insight-label">Hors occasion</div>
-                        <div class="insight-value">{{ brand.current_total }}</div>
-                        <div class="insight-share">{{ brand.share_global }}</div>
-
-                        <div class="metric-chip-grid metric-chip-grid-brand">
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">Occasion</span>
-                                <strong>{{ brand.current_occasion_total }}</strong>
-                            </div>
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">N-1</span>
-                                <strong>{{ brand.previous_total }}</strong>
-                            </div>
-                            <div class="metric-chip">
-                                <span class="metric-chip-label">Variation</span>
-                                <strong>{{ brand.delta }}</strong>
-                            </div>
-                        </div>
-                    </article>
-                {% endfor %}
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-head">
-                <h2>Alertes métier</h2>
-                <p>Les écarts qui méritent une lecture rapide.</p>
-            </div>
-
-            <div class="alert-grid alert-grid-home">
-                <article class="alert-card">
-                    <div class="alert-title">Plus fortes hausses marques</div>
-                    {% for item in alerts.brand_gainers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune hausse disponible.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card">
-                    <div class="alert-title">Plus fortes baisses marques</div>
-                    {% for item in alerts.brand_losers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune baisse disponible.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card">
-                    <div class="alert-title">Canaux en anomalie</div>
-                    {% for item in alerts.channel_anomalies %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.label }}</strong>
-                            <span>{{ item.delta }} | panier {{ item.basket_delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune anomalie détectée.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card">
-                    <div class="alert-title">Panier en mouvement</div>
-                    {% for item in alerts.basket_anomalies %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.label }}</strong>
-                            <span>{{ item.basket_delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune variation notable.</div>
-                    {% endfor %}
-                </article>
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-head">
-                <h2>Répartition par canal</h2>
-                <p>Barres proportionnelles au CA du mois en cours.</p>
-            </div>
-
-            <div class="channel-grid channel-grid-bars">
-                {% for channel in channels %}
-                    <article class="channel-card">
-                        <div class="channel-card-head">
-                            <div class="channel-title-wrap">
-                                <div class="channel-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" role="presentation">
-                                        <path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <div class="channel-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">{{ channel.label }}</a></div>
-                                    <div class="channel-hint">{{ channel.hint }}</div>
-                                </div>
-                            </div>
                             <div class="channel-share-badge">{{ channel.share_global }}</div>
                         </div>
 
                         <div class="channel-value">{{ channel.value }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill {{ channel.trend_1y_class }}">
+                                <span class="trend-mini__label">1A glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_1y_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ channel.trend_6m_class }}">
+                                <span class="trend-mini__label">6M glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_6m_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ channel.trend_3m_class }}">
+                                <span class="trend-mini__label">3M glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_3m_display }}</span>
+                            </span>
+                        </div>
 
                         <div class="channel-stats">
                             <div class="channel-stat">
@@ -337,7 +253,7 @@
                                 </span>
                                 <div>
                                     <span class="channel-stat-label">Marge</span>
-                                    <strong>{{ channel.margin }}</strong>
+                                    <strong>{{ channel.margin }} · {{ channel.margin_percent }}</strong>
                                 </div>
                             </div>
                             <div class="channel-stat">
@@ -375,41 +291,543 @@
                             </div>
                         </div>
 
-                        <div class="channel-bar">
-                            <span style="width: {{ channel.share|round(0, 'floor') }}%"></span>
-                        </div>
+                            <div class="channel-bar">
+                                <span style="width: {{ channel.share|round(0, 'floor') }}%"></span>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
 
-                        <div class="channel-highlights">
-                            {% for brand in channel.highlights.top_brands %}
-                                <div class="channel-highlight">
-                                <div class="channel-highlight-head">
-                                    <span class="brand-rank">#{{ loop.index }}</span>
-                                        <strong><a href="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}">{{ brand.brand_name }}</a></strong>
-                                    </div>
-                                    <div class="channel-metric-grid">
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">CA</span>
-                                            <strong>{{ brand.current_total }}</strong>
-                                        </div>
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">N-1</span>
-                                            <strong>{{ brand.previous_total }}</strong>
-                                        </div>
-                                        <div class="metric-chip metric-chip-delta {{ brand.delta_class }}">
-                                            <span class="metric-chip-label">Variation</span>
-                                            <strong>{{ brand.delta }}</strong>
-                                        </div>
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">Part du global</span>
-                                            <strong>{{ brand.share_global }}</strong>
-                                        </div>
+        <section class="section" id="section-neuf">
+            <div class="section-head">
+                <h2>Neuf{{ active_filter_suffix }}</h2>
+                <p>Recap du rayon neuf sur la période, avec comparaison N-1.</p>
+            </div>
+
+            <div class="occasion-grid">
+                <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_detail', active_filters|merge({'occasion': 'hors_occasion', 'page': 1})) }}" role="link" tabindex="0">
+                    <div class="card-head">
+                            <div class="card-title-wrap">
+                                <div class="card-icon card-icon-brand" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l2.2 4.5L19 8.2l-3.5 3.4.8 4.9L12 14.9 7.7 16.5l.8-4.9L5 8.2l4.8-.7L12 3z" /></svg>
+                                </div>
+                                    <div>
+                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'occasion': 'hors_occasion', 'page': 1})) }}">Neuf global{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
-                            {% endfor %}
+                            <div class="kpi-delta-badge {{ neuf.delta_class }}">{{ neuf.delta }}</div>
+                        </div>
+
+                        <div class="occasion-value">{{ neuf.current_total }}</div>
+                        <div class="insight-sub" style="margin-top: 14px;">Répartition{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% global</span>
+                                <span class="trend-mini__value">{{ neuf.share_global_value }}</span>
+                            </span>
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% neuf</span>
+                                <span class="trend-mini__value">{{ neuf.share_section_value }}</span>
+                            </span>
+                        </div>
+                        <div class="insight-sub" style="margin-top: 14px;">Tendance{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill {{ neuf.trend_1y_class }}">
+                                <span class="trend-mini__label">1A glissant</span>
+                                <span class="trend-mini__value">{{ neuf.trend_1y_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ neuf.trend_6m_class }}">
+                                <span class="trend-mini__label">6M glissant</span>
+                                <span class="trend-mini__value">{{ neuf.trend_6m_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ neuf.trend_3m_class }}">
+                                <span class="trend-mini__label">3M glissant</span>
+                                <span class="trend-mini__value">{{ neuf.trend_3m_display }}</span>
+                            </span>
+                        </div>
+                    <div class="metric-chip-grid">
+                        <div class="metric-chip">
+                            <span class="metric-chip-label">N-1 CA</span>
+                            <strong>{{ neuf.previous_total }}</strong>
+                        </div>
+                        <div class="metric-chip">
+                            <span class="metric-chip-label">Variation</span>
+                            <strong>{{ neuf.delta }}</strong>
+                        </div>
+                        <div class="metric-chip">
+                            <span class="metric-chip-label">Lignes</span>
+                            <strong>{{ neuf.current_lines }} / {{ neuf.previous_lines }}</strong>
+                        </div>
+                        <div class="metric-chip">
+                            <span class="metric-chip-label">Factures</span>
+                            <strong>{{ neuf.current_invoices }} / {{ neuf.previous_invoices }}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                {% for channel in neuf.channels|slice(0, 3) %}
+                    <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion', 'page': 1})) }}" role="link" tabindex="0">
+                        <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-channel" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion', 'page': 1})) }}">Neuf {{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                    </div>
+                                </div>
+                            <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta }}</div>
+                        </div>
+
+                        <div class="occasion-value">{{ channel.current_total }}</div>
+                        <div class="insight-sub" style="margin-top: 14px;">Répartition{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% global</span>
+                                <span class="trend-mini__value">{{ channel.share_global_value }}</span>
+                            </span>
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% neuf</span>
+                                <span class="trend-mini__value">{{ channel.share_section_value }}</span>
+                            </span>
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% {{ channel.label|lower }}</span>
+                                <span class="trend-mini__value">{{ channel.share_channel_value }}</span>
+                            </span>
+                        </div>
+                        <div class="insight-sub" style="margin-top: 14px;">Tendance{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill {{ channel.trend_1y_class }}">
+                                <span class="trend-mini__label">1A glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_1y_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ channel.trend_6m_class }}">
+                                <span class="trend-mini__label">6M glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_6m_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ channel.trend_3m_class }}">
+                                <span class="trend-mini__label">3M glissant</span>
+                                <span class="trend-mini__value">{{ channel.trend_3m_display }}</span>
+                            </span>
+                        </div>
+                        <div class="metric-chip-grid metric-chip-grid-tight">
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">N-1 CA</span>
+                                <strong>{{ channel.previous_total }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Variation</span>
+                                <strong>{{ channel.delta }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Lignes</span>
+                                <strong>{{ channel.current_lines }} / {{ channel.previous_lines }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Factures</span>
+                                <strong>{{ channel.current_invoices }} / {{ channel.previous_invoices }}</strong>
+                            </div>
                         </div>
                     </article>
                 {% endfor %}
             </div>
         </section>
+
+        {% if not hide_occasion_section %}
+            <section class="section" id="section-occasion">
+                <div class="section-head">
+                    <h2>Occasion{{ active_filter_suffix }}</h2>
+                    <p>Recap du rayon occasion sur la période, avec comparaison N-1.</p>
+                </div>
+
+                <div class="occasion-grid">
+                    <article class="occasion-card occasion-card-global" id="section-brand-occasion" data-card-link="{{ path('app_detail', active_filters|merge({'occasion': 'occasion', 'page': 1})) }}" role="link" tabindex="0">
+                        <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-occasion" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M7 4h10l2 3v13H5V4h2zm0 0v4h10V4M9 13h6M9 16h4" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'occasion': 'occasion', 'page': 1})) }}">Global occasion{{ active_filter_suffix }}</a></div>
+                                    </div>
+                                </div>
+                            <div class="kpi-delta-badge {{ occasion.delta_class }}">{{ occasion.delta }}</div>
+                        </div>
+
+                        <div class="occasion-value">{{ occasion.current_total }}</div>
+                        <div class="insight-sub" style="margin-top: 14px;">Répartition{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% global</span>
+                                <span class="trend-mini__value">{{ occasion.share_global_value }}</span>
+                            </span>
+                            <span class="trend-mini__pill">
+                                <span class="trend-mini__label">% occasion</span>
+                                <span class="trend-mini__value">{{ occasion.share_section_value }}</span>
+                            </span>
+                        </div>
+                        <div class="insight-sub" style="margin-top: 14px;">Tendance{{ active_filter_suffix }}</div>
+                        <div class="trend-mini">
+                            <span class="trend-mini__pill {{ occasion.trend_1y_class }}">
+                                <span class="trend-mini__label">1A glissant</span>
+                                <span class="trend-mini__value">{{ occasion.trend_1y_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ occasion.trend_6m_class }}">
+                                <span class="trend-mini__label">6M glissant</span>
+                                <span class="trend-mini__value">{{ occasion.trend_6m_display }}</span>
+                            </span>
+                            <span class="trend-mini__pill {{ occasion.trend_3m_class }}">
+                                <span class="trend-mini__label">3M glissant</span>
+                                <span class="trend-mini__value">{{ occasion.trend_3m_display }}</span>
+                            </span>
+                        </div>
+                        <div class="metric-chip-grid">
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">N-1 CA</span>
+                                <strong>{{ occasion.previous_total }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Variation</span>
+                                <strong>{{ occasion.delta }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Lignes</span>
+                                <strong>{{ occasion.current_lines }} / {{ occasion.previous_lines }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Factures</span>
+                                <strong>{{ occasion.current_invoices }} / {{ occasion.previous_invoices }}</strong>
+                            </div>
+                        </div>
+                    </article>
+
+                    {% for channel in occasion.channels %}
+                        <article class="occasion-card" data-card-link="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}" role="link" tabindex="0">
+                            <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-channel" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label"><a href="{{ path('app_detail', active_filters|merge({'channel': channel.label, 'page': 1})) }}">Occasion {{ channel.label }}{{ active_filter_suffix_without_occasion }}</a></div>
+                                    </div>
+                                </div>
+                                <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta_short }}</div>
+                            </div>
+
+                            <div class="occasion-value">{{ channel.current_total }}</div>
+                            <div class="insight-sub" style="margin-top: 14px;">Répartition</div>
+                            <div class="trend-mini">
+                                <span class="trend-mini__pill">
+                                    <span class="trend-mini__label">% global</span>
+                                    <span class="trend-mini__value">{{ channel.share_global_value }}</span>
+                                </span>
+                                <span class="trend-mini__pill">
+                                    <span class="trend-mini__label">% occasion</span>
+                                    <span class="trend-mini__value">{{ channel.share_section_value }}</span>
+                                </span>
+                                <span class="trend-mini__pill">
+                                    <span class="trend-mini__label">% {{ channel.label|lower }}</span>
+                                    <span class="trend-mini__value">{{ channel.share_channel_value }}</span>
+                                </span>
+                            </div>
+                            <div class="insight-sub" style="margin-top: 14px;">Tendance</div>
+                            <div class="trend-mini">
+                                <span class="trend-mini__pill {{ channel.trend_1y_class }}">
+                                    <span class="trend-mini__label">1A glissant</span>
+                                    <span class="trend-mini__value">{{ channel.trend_1y_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ channel.trend_6m_class }}">
+                                    <span class="trend-mini__label">6M glissant</span>
+                                    <span class="trend-mini__value">{{ channel.trend_6m_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ channel.trend_3m_class }}">
+                                    <span class="trend-mini__label">3M glissant</span>
+                                    <span class="trend-mini__value">{{ channel.trend_3m_display }}</span>
+                                </span>
+                            </div>
+                            <div class="metric-chip-grid metric-chip-grid-four">
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">N-1</span>
+                                    <strong>{{ channel.previous_total }}</strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Variation</span>
+                                    <strong><small class="{{ channel.delta_class }}">{{ channel.delta_short }}</small></strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Lignes</span>
+                                    <strong>{{ channel.current_lines }} / {{ channel.previous_lines }}</strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Factures</span>
+                                    <strong>{{ channel.current_invoices }} / {{ channel.previous_invoices }}</strong>
+                                </div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        {% if not hide_brand_section %}
+            <section class="section" id="section-brands">
+                <div class="section-head">
+                <h2>Top 8 marques{{ active_filter_suffix }}</h2>
+                    <p>Les marques qui pèsent le plus sur la période.</p>
+                </div>
+
+                <div class="insight-grid insight-grid-home">
+                    {% for brand in brand_highlights.top_brands %}
+                        <article class="insight-card" data-card-link="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}" role="link" tabindex="0">
+                            <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-brand" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l2.2 4.5L19 8.2l-3.5 3.4.8 4.9L12 14.9 7.7 16.5l.8-4.9L5 8.2l4.8-.7L12 3z" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label">Marque #{{ loop.index }}</div>
+                                        <div class="insight-brand"><a href="{{ path('app_detail', active_filters|merge({'brand_id': brand.brand_id, 'page': 1})) }}">{{ brand.brand_name }}</a></div>
+                                    </div>
+                                </div>
+                                <div class="kpi-delta-badge {{ brand.global_delta_class }}">{{ brand.global_delta is null ? '--' : (brand.global_delta > 0 ? '+' : '') ~ brand.global_delta|number_format(1, ',', ' ') ~ ' %' }}</div>
+                            </div>
+
+                            <div class="insight-label">Global société</div>
+                            <div class="insight-value">{{ brand.current_global_total }}</div>
+                            <div class="insight-share">{{ brand.share_global }}</div>
+                            <div class="trend-mini">
+                                <span class="trend-mini__pill {{ brand.trend_1y_class }}">
+                                    <span class="trend-mini__label">1A glissant</span>
+                                    <span class="trend-mini__value">{{ brand.trend_1y_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ brand.trend_6m_class }}">
+                                    <span class="trend-mini__label">6M glissant</span>
+                                    <span class="trend-mini__value">{{ brand.trend_6m_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ brand.trend_3m_class }}">
+                                    <span class="trend-mini__label">3M glissant</span>
+                                    <span class="trend-mini__value">{{ brand.trend_3m_display }}</span>
+                                </span>
+                            </div>
+
+                            {% if brand.channels is not empty %}
+                            <div class="insight-sub" style="margin-top: 14px;">Canaux de vente{{ active_filter_suffix }}</div>
+                                <div class="metric-chip-grid metric-chip-grid-brand-channels">
+                                    {% for channel in brand.channels %}
+                                        <div class="metric-chip">
+                                            <span class="metric-chip-label">{{ channel.label }}</span>
+                                            <strong>
+                                                {{ channel.current_total }}<br>
+                                                <small class="{{ channel.delta_class }}">{{ channel.delta }}</small>
+                                            </strong>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <div class="metric-chip-grid metric-chip-grid-brand">
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">N-1 global</span>
+                                    <strong>
+                                        {{ brand.previous_global_total }}<br>
+                                        <small class="{{ brand.global_delta_class }}">{{ brand.global_delta_display }}</small>
+                                    </strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Neuf</span>
+                                    <strong>
+                                        {{ brand.current_total }}<br>
+                                        <small class="{{ brand.delta_class }}">{{ brand.delta_display }}</small>
+                                    </strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Occasion</span>
+                                    <strong>
+                                        {{ brand.current_occasion_total }}<br>
+                                        <small class="{{ brand.occasion_delta_class }}">{{ brand.occasion_delta_display }}</small>
+                                    </strong>
+                                </div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        {% if not hide_category_section %}
+            <section class="section" id="section-categories">
+                <div class="section-head">
+                <h2>Catégories{{ active_filter_suffix }}</h2>
+                    <p>Rayon, famille et sous-famille regroupés sur la période.</p>
+                </div>
+
+                <div class="insight-grid insight-grid-home">
+                    {% for category in category_highlights.top_categories %}
+                        <article class="insight-card" data-card-link="{{ path('app_detail', active_filters|merge({'category': category.category_name, 'page': 1})) }}" role="link" tabindex="0">
+                            <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-brand" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M4 5h16v14H4zM8 5v14M4 11h16" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label">Catégorie #{{ loop.index }}</div>
+                                        <div class="insight-brand"><a href="{{ path('app_detail', active_filters|merge({'category': category.category_name, 'page': 1})) }}">{{ category.category_name }}</a></div>
+                                    </div>
+                                </div>
+                                <div class="kpi-delta-badge {{ category.global_delta_class }}">{{ category.global_delta_display }}</div>
+                            </div>
+
+                            <div class="insight-label">Global société</div>
+                            <div class="insight-value">{{ category.current_global_total }}</div>
+                            <div class="insight-share">{{ category.share_global }}</div>
+                            <div class="trend-mini">
+                                <span class="trend-mini__pill {{ category.trend_1y_class }}">
+                                    <span class="trend-mini__label">1A glissant</span>
+                                    <span class="trend-mini__value">{{ category.trend_1y_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ category.trend_6m_class }}">
+                                    <span class="trend-mini__label">6M glissant</span>
+                                    <span class="trend-mini__value">{{ category.trend_6m_display }}</span>
+                                </span>
+                                <span class="trend-mini__pill {{ category.trend_3m_class }}">
+                                    <span class="trend-mini__label">3M glissant</span>
+                                    <span class="trend-mini__value">{{ category.trend_3m_display }}</span>
+                                </span>
+                            </div>
+
+                            {% if category.channels is not empty %}
+                                <div class="insight-sub" style="margin-top: 14px;">Canaux de vente{{ active_filter_suffix }}</div>
+                                <div class="metric-chip-grid metric-chip-grid-brand-channels">
+                                    {% for channel in category.channels %}
+                                        <div class="metric-chip">
+                                            <span class="metric-chip-label">{{ channel.label }}</span>
+                                            <strong>
+                                                {{ channel.current_global_total }}<br>
+                                                <small class="{{ channel.global_delta_class }}">{{ channel.global_delta_display }}</small>
+                                            </strong>
+                                        </div>
+                                        <div class="metric-chip">
+                                            <span class="metric-chip-label">Neuf</span>
+                                            <strong>
+                                                {{ channel.current_total }}<br>
+                                                <small class="{{ channel.delta_class }}">{{ channel.delta_display }}</small>
+                                            </strong>
+                                        </div>
+                                        <div class="metric-chip">
+                                            <span class="metric-chip-label">Occasion</span>
+                                            <strong>
+                                                {{ channel.current_occasion_total }}<br>
+                                                <small class="{{ channel.occasion_delta_class }}">{{ channel.occasion_delta_display }}</small>
+                                            </strong>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <div class="metric-chip-grid metric-chip-grid-brand">
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">N-1 global</span>
+                                    <strong>
+                                        {{ category.previous_global_total }}<br>
+                                        <small class="{{ category.global_delta_class }}">{{ category.global_delta_display }}</small>
+                                    </strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Neuf</span>
+                                    <strong>
+                                        {{ category.current_total }}<br>
+                                        <small class="{{ category.delta_class }}">{{ category.delta_display }}</small>
+                                    </strong>
+                                </div>
+                                <div class="metric-chip">
+                                    <span class="metric-chip-label">Occasion</span>
+                                    <strong>
+                                        {{ category.current_occasion_total }}<br>
+                                        <small class="{{ category.occasion_delta_class }}">{{ category.occasion_delta_display }}</small>
+                                    </strong>
+                                </div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        <section class="section" id="section-alerts">
+            <div class="section-head">
+                <h2>Alertes métier{{ active_filter_suffix }}</h2>
+                <p>Les écarts qui méritent une lecture rapide.</p>
+            </div>
+
+            <div class="alert-grid alert-grid-home">
+                <article class="alert-card alert-card--up" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                    <div class="alert-card__head">
+                        <div class="alert-title">Plus fortes hausses marques</div>
+                        <div class="alert-badge alert-badge-up">Hausse</div>
+                    </div>
+                    {% for item in alerts.brand_gainers %}
+                        <div class="alert-row {{ item.delta_class }}">
+                            <strong>{{ item.brand_name }}</strong>
+                            <span>{{ item.delta }}</span>
+                        </div>
+                    {% else %}
+                        <div class="alert-empty">Aucune hausse disponible.</div>
+                    {% endfor %}
+                </article>
+
+                <article class="alert-card alert-card--down" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                    <div class="alert-card__head">
+                        <div class="alert-title">Plus fortes baisses marques</div>
+                        <div class="alert-badge alert-badge-down">Baisse</div>
+                    </div>
+                    {% for item in alerts.brand_losers %}
+                        <div class="alert-row {{ item.delta_class }}">
+                            <strong>{{ item.brand_name }}</strong>
+                            <span>{{ item.delta }}</span>
+                        </div>
+                    {% else %}
+                        <div class="alert-empty">Aucune baisse disponible.</div>
+                    {% endfor %}
+                </article>
+
+                <article class="alert-card alert-card--warning" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                    <div class="alert-card__head">
+                        <div class="alert-title">Canaux en anomalie</div>
+                        <div class="alert-badge alert-badge-warning">Alerte</div>
+                    </div>
+                    {% for item in alerts.channel_anomalies %}
+                        <div class="alert-row alert-row--channel {{ item.delta_class }}">
+                            <strong>{{ item.label }}</strong>
+                            <span class="alert-row__meta">{{ item.delta }} · panier {{ item.basket_delta }}</span>
+                        </div>
+                    {% else %}
+                        <div class="alert-empty">Aucune anomalie détectée.</div>
+                    {% endfor %}
+                </article>
+
+                <article class="alert-card alert-card--basket" data-card-link="{{ path('app_detail', active_filters|merge({'page': 1})) }}" role="link" tabindex="0">
+                    <div class="alert-card__head">
+                        <div class="alert-title">Panier en mouvement</div>
+                        <div class="alert-badge alert-badge-neutral">Suivi</div>
+                    </div>
+                    {% for item in alerts.basket_anomalies %}
+                        <div class="alert-row {{ item.delta_class }}">
+                            <strong>{{ item.label }}</strong>
+                            <span>{{ item.basket_delta }}</span>
+                        </div>
+                    {% else %}
+                        <div class="alert-empty">Aucune variation notable.</div>
+                    {% endfor %}
+                </article>
+            </div>
+        </section>
+
+        <footer class="home-footer">
+            <div>Dernière mise à jour : {{ "now"|date("d/m/Y - H:i") }}</div>
+            <div>Données synchronisées</div>
+        </footer>
     </main>
 {% endblock %}

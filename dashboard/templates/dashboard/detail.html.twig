@@ -22,11 +22,19 @@
                 </div>
                 <div class="filter-field">
                     <label for="detail-start">Début</label>
-                    <input id="detail-start" type="date" name="start" value="{{ active_filters.start|default('') }}">
+                    <div class="date-field" data-date-field>
+                        <input id="detail-start" class="date-field__input" type="text" name="start" value="{{ active_filters.start|default('') }}" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" spellcheck="false" data-date-field-input>
+                        <button class="date-field__button" type="button" aria-label="Ouvrir le calendrier" data-date-field-trigger>📅</button>
+                        <input class="date-field__native" type="date" tabindex="-1" aria-hidden="true" data-date-field-native>
+                    </div>
                 </div>
                 <div class="filter-field">
                     <label for="detail-end">Fin</label>
-                    <input id="detail-end" type="date" name="end" value="{{ active_filters.end|default('') }}">
+                    <div class="date-field" data-date-field>
+                        <input id="detail-end" class="date-field__input" type="text" name="end" value="{{ active_filters.end|default('') }}" placeholder="YYYY-MM-DD" inputmode="numeric" autocomplete="off" spellcheck="false" data-date-field-input>
+                        <button class="date-field__button" type="button" aria-label="Ouvrir le calendrier" data-date-field-trigger>📅</button>
+                        <input class="date-field__native" type="date" tabindex="-1" aria-hidden="true" data-date-field-native>
+                    </div>
                 </div>
                 <div class="filter-field">
                     <label for="detail-channel">Canal</label>
@@ -43,6 +51,15 @@
                         <option value="">Toutes</option>
                         {% for option in filter_options.brands %}
                             <option value="{{ option.value }}" {% if active_filters.brand_id|default('') == option.value %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-field">
+                    <label for="detail-category">Catégorie</label>
+                    <select id="detail-category" name="category">
+                        <option value="">Toutes</option>
+                        {% for option in filter_options.categories %}
+                            <option value="{{ option.value }}" {% if active_filters.category|default('') == option.value %}selected{% endif %}>{{ option.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -123,12 +140,12 @@
                     </div>
                 </article>
                 <article class="kpi-card">
-                    <div class="kpi-label">vs N-1</div>
+                    <div class="kpi-label">Variation</div>
                     <div class="kpi-value">{{ comparison_previous_year.total_ht|number_format(0, ',', ' ') }} €</div>
                     <div class="metric-chip-grid">
                         <div class="metric-chip">
                             <span class="metric-chip-label">Marge</span>
-                            <strong>{{ comparison_previous_year.margin_ht|number_format(0, ',', ' ') }} €</strong>
+                            <strong>{{ comparison_previous_year.margin_ht|number_format(0, ',', ' ') }} € · {{ comparison_previous_year.total_ht > 0 ? (comparison_previous_year.margin_ht / comparison_previous_year.total_ht * 100)|number_format(1, ',', ' ') ~ ' %' : '--' }}</strong>
                         </div>
                         <div class="metric-chip">
                             <span class="metric-chip-label">Panier moyen</span>
@@ -144,12 +161,12 @@
                             <span class="metric-chip-label">Variation</span>
                             <strong>
                                 {% set prevMonthDelta = comparison_previous_month.total_ht > 0 ? ((summary.total_ht - comparison_previous_month.total_ht) / comparison_previous_month.total_ht) * 100 : null %}
-                                {{ prevMonthDelta is null ? 'n/a' : (prevMonthDelta > 0 ? '+' : '') ~ prevMonthDelta|number_format(1, ',', ' ') ~ ' %' }}
+                                {{ prevMonthDelta is null ? '--' : (prevMonthDelta > 0 ? '+' : '') ~ prevMonthDelta|number_format(1, ',', ' ') ~ ' %' }}
                             </strong>
                         </div>
                         <div class="metric-chip">
                             <span class="metric-chip-label">Marge</span>
-                            <strong>{{ comparison_previous_month.margin_ht|number_format(0, ',', ' ') }} €</strong>
+                            <strong>{{ comparison_previous_month.margin_ht|number_format(0, ',', ' ') }} € · {{ comparison_previous_month.total_ht > 0 ? (comparison_previous_month.margin_ht / comparison_previous_month.total_ht * 100)|number_format(1, ',', ' ') ~ ' %' : '--' }}</strong>
                         </div>
                     </div>
                 </article>
@@ -165,11 +182,11 @@
                     <div class="metric-chip-grid">
                         <div class="metric-chip">
                             <span class="metric-chip-label">Atteinte</span>
-                            <strong>{{ objective_summary.objective_ratio is null ? 'n/a' : objective_summary.objective_ratio|number_format(1, ',', ' ') ~ ' %' }}</strong>
+                            <strong>{{ objective_summary.objective_ratio is null ? '--' : objective_summary.objective_ratio|number_format(1, ',', ' ') ~ ' %' }}</strong>
                         </div>
                         <div class="metric-chip">
                             <span class="metric-chip-label">Reste</span>
-                            <strong>{{ objective_summary.objective_remaining is null ? 'n/a' : objective_summary.objective_remaining|number_format(0, ',', ' ') ~ ' €' }}</strong>
+                            <strong>{{ objective_summary.objective_remaining is null ? '--' : objective_summary.objective_remaining|number_format(0, ',', ' ') ~ ' €' }}</strong>
                         </div>
                     </div>
                 </article>
@@ -255,7 +272,7 @@
                                 </td>
                                 <td>{{ row.quantity|number_format(3, ',', ' ') }}</td>
                                 <td>{{ row.total_ht|number_format(0, ',', ' ') }} €</td>
-                                <td>{{ row.margin_ht|number_format(0, ',', ' ') }} €</td>
+                                <td>{{ row.margin_ht|number_format(0, ',', ' ') }} €{% if row.total_ht > 0 %} · {{ (row.margin_ht / row.total_ht * 100)|number_format(1, ',', ' ') }} %{% endif %}</td>
                                 <td>
                                     <span class="pill {% if row.is_occasion %}pill-accent{% endif %}">{{ row.is_occasion ? 'oui' : 'non' }}</span>
                                 </td>

@@ -21,17 +21,12 @@ final class InvoiceLineImportService
     /**
      * @return array{inserted:int, source_rows:int}
      */
-    public function run(int $batchSize = 500, ?int $maxRows = null): array
+    public function run(int $batchSize = 500, ?int $maxRows = null, ?string $sinceDate = null): array
     {
         $this->createSchemaIfNeeded();
 
-        try {
-            $this->reportingConnection->executeStatement('DELETE FROM reporting_invoice_line_fact');
-        } catch (Exception $e) {
-            throw new RuntimeException('Unable to clear reporting table: ' . $e->getMessage(), 0, $e);
-        }
-
-        $lastId = 0;
+        $sinceDate = $this->normalizeSinceDate($sinceDate);
+        $lastId = $sinceDate !== null ? 0 : $this->getLastImportedSourceLineId();
         $inserted = 0;
         $sourceRows = 0;
         $now = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
@@ -51,36 +46,48 @@ final class InvoiceLineImportService
                     sprintf(
                         <<<SQL
                         SELECT
-                            IDLigneFac,
-                            IDFAC,
-                            NumFacPoste,
-                            IDART,
-                            CODE,
-                            DESIGNATION_PRODUIT,
-                            IDCLI,
-                            SITE,
-                            MODE_VENTE,
-                            WEB,
-                            NO_WEB,
-                            Q_FAC,
-                            PrixTTC,
-                            TotalHT,
-                            TotalTTC,
-                            MARGE,
-                            Remise,
-                            RemiseMontant,
-                            TauxTVA,
-                            OrigineData,
-                            TypePiece,
-                            DH_Facture,
-                            DateFacture,
-                            HeureFacture
-                        FROM K_LI_FAC
-                        WHERE IDLigneFac > %d
-                        ORDER BY IDLigneFac ASC
+                            l.IDLigneFac,
+                            l.IDFAC,
+                            l.NumFacPoste,
+                            l.IDART,
+                            l.CODE,
+                            l.DESIGNATION_PRODUIT,
+                            l.IDCLI,
+                            l.SITE,
+                            l.MODE_VENTE,
+                            l.WEB,
+                            l.NO_WEB,
+                            l.Q_FAC,
+                            l.PrixTTC,
+                            l.TotalHT,
+                            l.TotalTTC,
+                            l.MARGE,
+                            l.Remise,
+                            l.RemiseMontant,
+                            l.TauxTVA,
+                            l.OrigineData,
+                            l.TypePiece,
+                            l.DH_Facture,
+                            l.DateFacture,
+                            l.HeureFacture,
+                            a.DESIGNATION AS ARTICLE_DESIGNATION,
+                            a.CODE AS ARTICLE_CODE,
+                            a.IDRAY AS ARTICLE_IDRAY,
+                            a.IDFAM AS ARTICLE_IDFAM,
+                            a.IDSSFAM AS ARTICLE_IDSSFAM,
+                            a.ID_FAB AS ARTICLE_ID_FAB,
+                            a.supplier AS ARTICLE_SUPPLIER,
+                            a.REF_FOU AS ARTICLE_REF_FOU,
+                            a.IDFOU AS ARTICLE_IDFOU
+                        FROM K_LI_FAC l
+                        LEFT JOIN K_ARTICLE a ON a.IDART = l.IDART
+                        WHERE l.IDLigneFac > %d
+                        %s
+                        ORDER BY l.IDLigneFac ASC
                         LIMIT %d
                         SQL,
                         $lastId,
+                        $sinceDate !== null ? sprintf("AND COALESCE(DATE(l.DH_Facture), l.DateFacture) >= '%s'", $sinceDate) : '',
                         $batchSize
                     )
                 );
@@ -128,14 +135,54 @@ final class InvoiceLineImportService
         ];
     }
 
+    private function normalizeSinceDate(?string $sinceDate): ?string
+    {
+        if ($sinceDate === null || $sinceDate === '') {
+            return null;
+        }
+
+        $date = DateTimeImmutable::createFromFormat('Y-m-d', $sinceDate);
+        if ($date === false) {
+            throw new RuntimeException('Invalid since date format, expected YYYY-MM-DD.');
+        }
+
+        return $date->format('Y-m-d');
+    }
+
+    private function getLastImportedSourceLineId(): int
+    {
+        try {
+            return (int) $this->reportingConnection->fetchOne(
+                'SELECT COALESCE(MAX(source_line_id), 0) FROM reporting_invoice_line_fact'
+            );
+        } catch (Exception) {
+            return 0;
+        }
+    }
+
     private function createSchemaIfNeeded(): void
     {
         $exists = $this->reportingConnection->fetchOne("SHOW TABLES LIKE 'reporting_invoice_line_fact'");
         if ($exists) {
-            $this->ensureColumnExists('brand_name', <<<'SQL'
+        $this->ensureColumnExists('brand_name', <<<'SQL'
                 ALTER TABLE reporting_invoice_line_fact
                     ADD COLUMN brand_name VARCHAR(255) DEFAULT NULL AFTER brand_id,
                     ADD KEY idx_brand_name (brand_name)
+            SQL);
+        $this->ensureColumnExists('rayon_name', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN rayon_name VARCHAR(255) DEFAULT NULL AFTER ray_id,
+                    ADD KEY idx_rayon_name (rayon_name)
+            SQL);
+        $this->ensureColumnExists('family_name', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN family_name VARCHAR(255) DEFAULT NULL AFTER family_id,
+                    ADD KEY idx_family_name (family_name)
+            SQL);
+        $this->ensureColumnExists('subfamily_name', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN subfamily_name VARCHAR(255) DEFAULT NULL AFTER subfamily_id,
+                    ADD KEY idx_subfamily_name (subfamily_name)
             SQL);
 
             return;
@@ -153,8 +200,11 @@ final class InvoiceLineImportService
                 product_code VARCHAR(50) NOT NULL,
                 product_name VARCHAR(255) NOT NULL,
                 ray_id INT DEFAULT NULL,
+                rayon_name VARCHAR(255) DEFAULT NULL,
                 family_id INT DEFAULT NULL,
+                family_name VARCHAR(255) DEFAULT NULL,
                 subfamily_id INT DEFAULT NULL,
+                subfamily_name VARCHAR(255) DEFAULT NULL,
                 brand_id INT DEFAULT NULL,
                 brand_name VARCHAR(255) DEFAULT NULL,
                 supplier_id INT DEFAULT NULL,
@@ -213,7 +263,7 @@ final class InvoiceLineImportService
 
         try {
             $articleRows = $this->prestashopConnection->fetchAllAssociative(
-                'SELECT IDART, DESIGNATION, CODE, IDRAY, IDFAM, IDSSFAM, ID_FAB, supplier, REF_FOU, IDFOU FROM K_ARTICLE WHERE IDART IN (:ids)',
+                'SELECT a.IDART, a.DESIGNATION, a.CODE, a.IDRAY, r.Rayon AS rayon_name, a.IDFAM, f.Famille AS family_name, a.IDSSFAM, sf.SSFam AS subfamily_name, a.ID_FAB, a.supplier, a.REF_FOU, a.IDFOU FROM K_ARTICLE a LEFT JOIN WEB_RAYON r ON r.IDRAY = a.IDRAY LEFT JOIN WEB_FAMILLE f ON f.IDFAM = a.IDFAM LEFT JOIN WEB_SSFAMILLE sf ON sf.IDSSFAM = a.IDSSFAM WHERE a.IDART IN (:ids)',
                 ['ids' => array_values($ids)],
                 ['ids' => ArrayParameterType::INTEGER]
             );
@@ -286,8 +336,11 @@ final class InvoiceLineImportService
         $articleCode = is_array($article) ? ($article['CODE'] ?? '') : '';
         $articleDesignation = is_array($article) ? ($article['DESIGNATION'] ?? '') : '';
         $articleRay = is_array($article) ? ($article['IDRAY'] ?? null) : null;
+        $articleRayonName = is_array($article) ? ($article['rayon_name'] ?? '') : '';
         $articleFamily = is_array($article) ? ($article['IDFAM'] ?? null) : null;
+        $articleFamilyName = is_array($article) ? ($article['family_name'] ?? '') : '';
         $articleSubfamily = is_array($article) ? ($article['IDSSFAM'] ?? null) : null;
+        $articleSubfamilyName = is_array($article) ? ($article['subfamily_name'] ?? '') : '';
         $articleBrand = is_array($article) ? ($article['ID_FAB'] ?? null) : null;
         $articleSupplierId = is_array($article) ? ($article['IDFOU'] ?? null) : null;
         $articleSupplierName = is_array($article) ? ($article['supplier'] ?? '') : '';
@@ -308,8 +361,11 @@ final class InvoiceLineImportService
             $productCode,
             $productName,
             $this->intOrNull($articleRay),
+            $this->value($articleRayonName),
             $this->intOrNull($articleFamily),
+            $this->value($articleFamilyName),
             $this->intOrNull($articleSubfamily),
+            $this->value($articleSubfamilyName),
             $this->intOrNull($articleBrand),
             $this->value($articleBrandName),
             $this->intOrNull($articleSupplierId),
@@ -372,8 +428,11 @@ final class InvoiceLineImportService
             'product_code',
             'product_name',
             'ray_id',
+            'rayon_name',
             'family_id',
+            'family_name',
             'subfamily_id',
+            'subfamily_name',
             'brand_id',
             'brand_name',
             'supplier_id',
@@ -399,7 +458,41 @@ final class InvoiceLineImportService
 
         $placeholders = '(' . implode(',', array_fill(0, count($columns), '?')) . ')';
         $valuesSql = implode(',', array_fill(0, count($rows), $placeholders));
-        $sql = 'INSERT INTO reporting_invoice_line_fact (' . implode(',', $columns) . ') VALUES ' . $valuesSql;
+        $sql = 'INSERT INTO reporting_invoice_line_fact (' . implode(',', $columns) . ') VALUES ' . $valuesSql . ' ON DUPLICATE KEY UPDATE ' . implode(', ', [
+            'source_invoice_id = VALUES(source_invoice_id)',
+            'invoice_number = VALUES(invoice_number)',
+            'invoice_date = VALUES(invoice_date)',
+            'invoice_datetime = VALUES(invoice_datetime)',
+            'product_id = VALUES(product_id)',
+            'product_code = VALUES(product_code)',
+            'product_name = VALUES(product_name)',
+            'ray_id = VALUES(ray_id)',
+            'rayon_name = VALUES(rayon_name)',
+            'family_id = VALUES(family_id)',
+            'family_name = VALUES(family_name)',
+            'subfamily_id = VALUES(subfamily_id)',
+            'subfamily_name = VALUES(subfamily_name)',
+            'brand_id = VALUES(brand_id)',
+            'brand_name = VALUES(brand_name)',
+            'supplier_id = VALUES(supplier_id)',
+            'supplier_name = VALUES(supplier_name)',
+            'supplier_reference = VALUES(supplier_reference)',
+            'customer_id = VALUES(customer_id)',
+            'mode_vente = VALUES(mode_vente)',
+            'channel_code = VALUES(channel_code)',
+            'channel_name = VALUES(channel_name)',
+            'quantity = VALUES(quantity)',
+            'unit_price_ttc = VALUES(unit_price_ttc)',
+            'total_ht = VALUES(total_ht)',
+            'total_ttc = VALUES(total_ttc)',
+            'margin_ht = VALUES(margin_ht)',
+            'discount_percent = VALUES(discount_percent)',
+            'discount_amount = VALUES(discount_amount)',
+            'tax_rate = VALUES(tax_rate)',
+            'raw_origin = VALUES(raw_origin)',
+            'raw_type_piece = VALUES(raw_type_piece)',
+            'updated_at = VALUES(updated_at)',
+        ]);
 
         $params = [];
         foreach ($rows as $row) {
