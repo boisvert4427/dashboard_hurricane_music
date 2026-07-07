@@ -21,8 +21,35 @@ final class DashboardController extends AbstractController
         $globalTotal = (float) ($data['current_summary']['total_ht'] ?? 0);
         $channelTotalsByLabel = [];
         foreach ($data['channels'] as $channel) {
-            $channelTotalsByLabel[(string) ($channel['label'] ?? '')] = (float) ($channel['current'] ?? 0);
+            $channelTotalsByLabel[(string) ($channel['value'] ?? $channel['label'] ?? '')] = (float) ($channel['current'] ?? 0);
         }
+        $palette = ['#3b82f6', '#34d399', '#7dd3fc', '#94a3b8', '#a78bfa', '#f59e0b'];
+        $sortedChannels = $data['channels'];
+        usort(
+            $sortedChannels,
+            static fn (array $a, array $b): int => (float) ($b['current'] ?? 0) <=> (float) ($a['current'] ?? 0)
+        );
+        $channelsSummary = array_map(
+            static function (array $channel, int $index) use ($globalTotal, $palette): array {
+                $current = (float) $channel['current'];
+
+                return [
+                    'label' => $channel['label'],
+                    'current' => $current,
+                    'value' => self::formatInteger($current),
+                    'share_global_value' => self::formatPercentValue($current, $globalTotal),
+                    'share_global_ratio' => $globalTotal > 0 ? ($current / $globalTotal) * 100.0 : 0.0,
+                    'dot_color' => $palette[$index % count($palette)],
+                ];
+            },
+            $sortedChannels,
+            array_keys($sortedChannels)
+        );
+        $formattedBrandHighlights = self::formatBrandHighlights($data['brand_highlights'], $globalTotal, true);
+        $formattedCategoryHighlights = self::formatCategoryHighlights($data['category_highlights'], $globalTotal);
+        $brandChartData = self::buildSummaryChartData($formattedBrandHighlights['top_brands'] ?? [], 'brand_name', 'current_global_total_raw', $globalTotal);
+        $categoryChartData = self::buildSummaryChartData($formattedCategoryHighlights['top_categories'] ?? [], 'category_name', 'current_global_total_raw', $globalTotal);
+        $neufOccasionComparison = self::buildNeufOccasionComparison($data['neuf'] ?? [], $data['occasion'] ?? [], $globalTotal);
         $rollingSummaries = $data['rolling_summaries'] ?? [];
 
         return $this->render('dashboard/home.html.twig', [
@@ -33,10 +60,15 @@ final class DashboardController extends AbstractController
             'filter_options' => $data['filters'],
             'alerts' => $data['alerts'],
             'objective_summary' => $data['objective_summary'],
+            'channels_total_display' => self::formatInteger($globalTotal),
             'neuf' => self::sortChannelCards(self::formatNeufSection($data['neuf'], $globalTotal, $channelTotalsByLabel)),
             'occasion' => self::sortChannelCards(self::formatOccasionSection($data['occasion'], $globalTotal, $channelTotalsByLabel)),
-            'brand_highlights' => self::formatBrandHighlights($data['brand_highlights'], $globalTotal, true),
-            'category_highlights' => self::formatCategoryHighlights($data['category_highlights'], $globalTotal),
+            'channels_summary' => $channelsSummary,
+            'brand_highlights' => $formattedBrandHighlights,
+            'category_highlights' => $formattedCategoryHighlights,
+            'brand_chart_data' => $brandChartData,
+            'category_chart_data' => $categoryChartData,
+            'neuf_occasion_comparison' => $neufOccasionComparison,
             'kpis' => array_map(static function (array $kpi) use ($rollingSummaries): array {
                 $deltaClass = match (true) {
                     ($kpi['delta'] ?? null) === null => 'delta-neutral',
@@ -103,10 +135,13 @@ final class DashboardController extends AbstractController
 
                     return [
                         'label' => $channel['label'],
+                        'filter_value' => $channel['value'] ?? $channel['label'],
                         'value' => self::formatInteger($current),
                         'current_total' => self::formatInteger($current),
                         'previous_total' => self::formatInteger((float) ($channel['previous'] ?? 0)),
                         'share_global' => self::formatPercent($current, $globalTotal),
+                        'share_global_value' => self::formatPercentValue($current, $globalTotal),
+                        'share_global_ratio' => $globalTotal > 0 ? ($current / $globalTotal) * 100.0 : 0.0,
                         'share' => $maxCurrent > 0 ? ($current / $maxCurrent) * 100.0 : 0.0,
                         'margin' => self::formatInteger((float) $channel['margin']),
                         'margin_percent' => self::formatRatioPercent((float) ($channel['margin'] ?? 0), $current),
@@ -245,11 +280,14 @@ final class DashboardController extends AbstractController
                         (float) $channel['delta'] < 0 => 'delta-down',
                         default => 'delta-neutral',
                     };
-                    $channelLabel = (string) ($channel['label'] ?? 'Autre');
+                    $channelLabel = (string) ($channel['value'] ?? $channel['label'] ?? 'Autre');
                     $channelTotal = (float) ($channelTotalsByLabel[$channelLabel] ?? 0);
 
                     return [
+                        'value' => $channelLabel,
                         'label' => $channel['label'] ?? 'Autre',
+                        'current_total_raw' => (float) ($channel['current_total'] ?? 0),
+                        'previous_total_raw' => (float) ($channel['previous_total'] ?? 0),
                         'current_total' => self::formatInteger($channel['current_total'] ?? 0),
                         'previous_total' => self::formatInteger($channel['previous_total'] ?? 0),
                         'share_global' => self::formatPercent((float) ($channel['current_total'] ?? 0), $globalTotal),
@@ -318,11 +356,14 @@ final class DashboardController extends AbstractController
                         (float) $channel['delta'] < 0 => 'delta-down',
                         default => 'delta-neutral',
                     };
-                    $channelLabel = (string) ($channel['label'] ?? 'Autre');
+                    $channelLabel = (string) ($channel['value'] ?? $channel['label'] ?? 'Autre');
                     $channelTotal = (float) ($channelTotalsByLabel[$channelLabel] ?? 0);
 
                     return [
+                        'value' => $channelLabel,
                         'label' => $channel['label'] ?? 'Autre',
+                        'current_total_raw' => (float) ($channel['current_total'] ?? 0),
+                        'previous_total_raw' => (float) ($channel['previous_total'] ?? 0),
                         'current_total' => self::formatInteger($channel['current_total'] ?? 0),
                         'previous_total' => self::formatInteger($channel['previous_total'] ?? 0),
                         'share_global' => self::formatPercent((float) ($channel['current_total'] ?? 0), $globalTotal),
@@ -378,7 +419,9 @@ final class DashboardController extends AbstractController
                     ? (($currentGlobalTotal - $previousGlobalTotal) / $previousGlobalTotal) * 100.0
                     : null;
                 $brandDelta = $brand['delta_raw'] ?? null;
-                $occasionDelta = $brand['occasion_delta'] ?? null;
+                $occasionDelta = $previousOccasionTotal > 0
+                    ? (($currentOccasionTotal - $previousOccasionTotal) / $previousOccasionTotal) * 100.0
+                    : null;
                 $trend1y = $brand['trend_1y_raw'] ?? null;
                 $trend6m = $brand['trend_6m_raw'] ?? null;
                 $trend3m = $brand['trend_3m_raw'] ?? null;
@@ -389,6 +432,12 @@ final class DashboardController extends AbstractController
                 return [
                     'brand_id' => $brand['brand_id'] ?? null,
                     'brand_name' => $brand['brand_name'] ?? 'Marque',
+                    'current_total_raw' => $currentTotal,
+                    'current_occasion_total_raw' => $currentOccasionTotal,
+                    'current_global_total_raw' => $currentGlobalTotal,
+                    'previous_total_raw' => $previousTotal,
+                    'previous_occasion_total_raw' => $previousOccasionTotal,
+                    'previous_global_total_raw' => $previousGlobalTotal,
                     'current_total' => $hasNeufValue ? self::formatInteger($currentTotal) : '-- €',
                     'current_occasion_total' => $hasOccasionValue ? self::formatInteger($currentOccasionTotal) : '-- €',
                     'current_global_total' => $hasBrandValue ? self::formatInteger($currentGlobalTotal) : '-- €',
@@ -414,15 +463,30 @@ final class DashboardController extends AbstractController
                     'trend_6m_class' => self::deltaClass(is_float($trend6m) ? $trend6m : null),
                     'trend_3m_class' => self::deltaClass(is_float($trend3m) ? $trend3m : null),
                     'channels' => array_map(
-                        static function (array $channel) use ($brand): array {
-                            $channelTotal = (float) ($channel['current_total_raw'] ?? 0);
+                        static function (array $channel): array {
+                            $currentTotal = (float) ($channel['current_total_raw'] ?? 0);
+                            $currentOccasionTotal = (float) ($channel['current_occasion_total_raw'] ?? 0);
+                            $currentGlobalTotal = (float) ($channel['current_global_total_raw'] ?? ($currentTotal + $currentOccasionTotal));
+                            $globalDelta = $channel['global_delta'] ?? null;
+                            $delta = $channel['delta'] ?? null;
+                            $occasionDelta = $channel['occasion_delta'] ?? null;
 
                             return [
+                                'value' => $channel['value'] ?? $channel['label'] ?? 'Canal',
                                 'label' => $channel['label'] ?? 'Canal',
-                                'current_total' => self::formatInteger($channelTotal),
+                                'current_total' => self::formatInteger($currentTotal),
+                                'current_occasion_total' => self::formatInteger($currentOccasionTotal),
+                                'current_global_total' => self::formatInteger($currentGlobalTotal),
                                 'previous_total' => self::formatInteger((float) ($channel['previous_total_raw'] ?? 0)),
-                                'delta' => $channel['delta'] === null ? '--' : (($channel['delta'] > 0 ? '+' : '') . number_format((float) $channel['delta'], 1, ',', ' ') . ' %'),
+                                'previous_occasion_total' => self::formatInteger((float) ($channel['previous_occasion_total_raw'] ?? 0)),
+                                'previous_global_total' => self::formatInteger((float) ($channel['previous_global_total_raw'] ?? 0)),
+                                'delta' => $delta === null ? '--' : (($delta > 0 ? '+' : '') . number_format((float) $delta, 1, ',', ' ') . ' %'),
+                                'delta_display' => $delta === null ? '--' : (($delta > 0 ? '+' : '') . number_format((float) $delta, 1, ',', ' ') . ' %'),
                                 'delta_class' => $channel['delta_class'] ?? 'delta-neutral',
+                                'global_delta_display' => $globalDelta === null ? '--' : (($globalDelta > 0 ? '+' : '') . number_format((float) $globalDelta, 1, ',', ' ') . ' %'),
+                                'global_delta_class' => $channel['global_delta_class'] ?? 'delta-neutral',
+                                'occasion_delta_display' => $occasionDelta === null ? '--' : (($occasionDelta > 0 ? '+' : '') . number_format((float) $occasionDelta, 1, ',', ' ') . ' %'),
+                                'occasion_delta_class' => $channel['occasion_delta_class'] ?? 'delta-neutral',
                             ];
                         },
                         $brand['channels'] ?? []
@@ -551,6 +615,165 @@ final class DashboardController extends AbstractController
     }
 
     /**
+     * @param array<int, array<string, mixed>> $channels
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function sortChannelsByCurrentValue(array $channels): array
+    {
+        usort(
+            $channels,
+            static function (array $a, array $b): int {
+                $aCurrent = (float) ($a['current'] ?? 0);
+                $bCurrent = (float) ($b['current'] ?? 0);
+
+                return $bCurrent <=> $aCurrent;
+            }
+        );
+
+        return $channels;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function buildSummaryChartData(array $items, string $labelKey, string $valueKey, float $globalTotal): array
+    {
+        $palette = ['#3b82f6', '#34d399', '#7dd3fc', '#94a3b8', '#a78bfa', '#f59e0b', '#ec4899', '#14b8a6'];
+        $sorted = $items;
+
+        usort(
+            $sorted,
+            static fn (array $a, array $b): int => (float) ($b[$valueKey] ?? 0) <=> (float) ($a[$valueKey] ?? 0)
+        );
+
+        return array_values(array_map(
+            static function (array $item, int $index) use ($labelKey, $valueKey, $globalTotal, $palette): array {
+                $value = (float) ($item[$valueKey] ?? 0);
+
+                return [
+                    'label' => (string) ($item[$labelKey] ?? 'Élément'),
+                    'current' => $value,
+                    'value' => self::formatInteger($value),
+                    'share_global_value' => self::formatPercentValue($value, $globalTotal),
+                    'share_global_ratio' => $globalTotal > 0 ? ($value / $globalTotal) * 100.0 : 0.0,
+                    'dot_color' => $palette[$index % count($palette)],
+                ];
+            },
+            $sorted,
+            array_keys($sorted)
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $neuf
+     * @param array<string, mixed> $occasion
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function buildNeufOccasionComparison(array $neuf, array $occasion, float $globalTotal): array
+    {
+        $palette = ['#3b82f6', '#34d399'];
+
+        $extractNumber = static function (array $row, string $key): float {
+            $rawKey = $key . '_raw';
+            if (isset($row[$rawKey]) && is_numeric($row[$rawKey])) {
+                return (float) $row[$rawKey];
+            }
+
+            if (isset($row[$key]) && is_numeric($row[$key])) {
+                return (float) $row[$key];
+            }
+
+            if (isset($row[$key]) && is_string($row[$key])) {
+                return (float) preg_replace('/[^0-9,\-\.]/', '', $row[$key]);
+            }
+
+            return 0.0;
+        };
+
+        $mapChannels = static function (array $section): array {
+            $result = [];
+            foreach ($section['channels'] ?? [] as $channel) {
+                $label = (string) ($channel['label'] ?? $channel['value'] ?? 'Autre');
+                $result[$label] = $channel;
+            }
+
+            return $result;
+        };
+
+        $neufChannels = $mapChannels($neuf);
+        $occasionChannels = $mapChannels($occasion);
+        $labels = array_unique(array_merge(
+            ['Global'],
+            array_keys($neufChannels),
+            array_keys($occasionChannels)
+        ));
+
+        $cards = [];
+        foreach ($labels as $label) {
+            if ($label === 'Global') {
+                $currentNeuf = $extractNumber($neuf, 'current_total');
+                $currentOccasion = $extractNumber($occasion, 'current_total');
+                $previousNeuf = $extractNumber($neuf, 'previous_total');
+                $previousOccasion = $extractNumber($occasion, 'previous_total');
+            } else {
+                $currentNeuf = isset($neufChannels[$label]) ? $extractNumber($neufChannels[$label], 'current_total') : 0.0;
+                $currentOccasion = isset($occasionChannels[$label]) ? $extractNumber($occasionChannels[$label], 'current_total') : 0.0;
+                $previousNeuf = isset($neufChannels[$label]) ? $extractNumber($neufChannels[$label], 'previous_total') : 0.0;
+                $previousOccasion = isset($occasionChannels[$label]) ? $extractNumber($occasionChannels[$label], 'previous_total') : 0.0;
+            }
+
+            $currentTotal = $currentNeuf + $currentOccasion;
+            $previousTotal = $previousNeuf + $previousOccasion;
+            $delta = $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null;
+
+            $cards[] = [
+                'label' => $label === 'Global' ? 'Global' : $label,
+                'current_total' => self::formatInteger($currentTotal),
+                'previous_total' => self::formatInteger($previousTotal),
+                'delta' => self::formatDelta($delta),
+                'delta_class' => $delta === null ? 'delta-neutral' : ($delta > 0 ? 'delta-up' : ($delta < 0 ? 'delta-down' : 'delta-neutral')),
+                'share_global' => self::formatPercent($currentTotal, $globalTotal),
+                'chart_data' => [
+                    [
+                        'label' => 'Neuf',
+                        'current' => $currentNeuf,
+                        'value' => self::formatInteger($currentNeuf),
+                        'share_global_value' => self::formatPercentValue($currentNeuf, $currentTotal),
+                        'dot_color' => $palette[0],
+                    ],
+                    [
+                        'label' => 'Occasion',
+                        'current' => $currentOccasion,
+                        'value' => self::formatInteger($currentOccasion),
+                        'share_global_value' => self::formatPercentValue($currentOccasion, $currentTotal),
+                        'dot_color' => $palette[1],
+                    ],
+                ],
+            ];
+        }
+
+        usort(
+            $cards,
+            static function (array $a, array $b): int {
+                if (($a['label'] ?? '') === 'Global') {
+                    return -1;
+                }
+                if (($b['label'] ?? '') === 'Global') {
+                    return 1;
+                }
+
+                return (float) str_replace([' ', '€'], '', (string) ($b['current_total'] ?? '0')) <=> (float) str_replace([' ', '€'], '', (string) ($a['current_total'] ?? '0'));
+            }
+        );
+
+        return array_slice($cards, 0, 4);
+    }
+
+    /**
      * @param array<string, mixed> $categoryHighlights
      *
      * @return array<string, mixed>
@@ -581,6 +804,12 @@ final class DashboardController extends AbstractController
 
                 return [
                     'category_name' => $category['category_name'] ?? 'Catégorie',
+                    'current_total_raw' => $currentTotal,
+                    'current_occasion_total_raw' => $currentOccasionTotal,
+                    'current_global_total_raw' => $currentGlobalTotal,
+                    'previous_total_raw' => $previousTotal,
+                    'previous_occasion_total_raw' => $previousOccasionTotal,
+                    'previous_global_total_raw' => $previousGlobalTotal,
                     'current_total' => $hasNeufValue ? self::formatInteger($currentTotal) : '-- €',
                     'current_occasion_total' => $hasOccasionValue ? self::formatInteger($currentOccasionTotal) : '-- €',
                     'current_global_total' => $hasCategoryValue ? self::formatInteger($currentGlobalTotal) : '-- €',

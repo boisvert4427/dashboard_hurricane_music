@@ -124,6 +124,7 @@
             {% if not hide_channel_section %}
                 <a href="#section-channels">Canaux</a>
             {% endif %}
+            <a href="#section-neuf-occasion">Neuf / Occasion</a>
             <a href="#section-neuf">Neuf</a>
             {% if not hide_occasion_section %}
                 <a href="#section-occasion">Occasion</a>
@@ -134,7 +135,6 @@
             {% if not hide_category_section %}
                 <a href="#section-categories">Catégories</a>
             {% endif %}
-            <a href="#section-alerts">Alertes</a>
         </nav>
 
         <section class="section" id="section-kpis">
@@ -206,8 +206,15 @@
                 </div>
 
                 <div class="channel-grid channel-grid-bars">
-                    {% for channel in channels %}
-                        <article class="channel-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}" role="link" tabindex="0">
+                    {% if channels is not empty %}
+                        {% set channel_summary_gradient = [] %}
+                        {% set donut_start = 0 %}
+                        {% for channel in channels_summary %}
+                            {% set channel_summary_gradient = channel_summary_gradient|merge([channel.label ~ ' ' ~ channel.share_global_value]) %}
+                            {% set donut_end = donut_start + channel.share_global_ratio %}
+                            {% set donut_start = donut_end %}
+                        {% endfor %}
+                        <article class="channel-card channel-card-summary" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
                             <div class="channel-card-head">
                                 <div class="channel-title-wrap">
                                     <div class="channel-icon" aria-hidden="true">
@@ -216,7 +223,60 @@
                                         </svg>
                                     </div>
                                     <div>
-                                        <div class="channel-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}">{{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                        <div class="channel-label">CA{{ active_filter_suffix }}</div>
+                                        <div class="channel-hint">Répartition par canal{{ active_filter_suffix }}</div>
+                                    </div>
+                                </div>
+                                <div class="channel-share-badge">{{ channel_summary_gradient|length }} canaux</div>
+                            </div>
+
+                            <div class="channel-summary">
+                                <div class="channel-summary__tabs" aria-hidden="true">
+                                    <span class="channel-summary__tab is-active">CA</span>
+                                    <span class="channel-summary__tab">Marge</span>
+                                    <span class="channel-summary__tab">Quantité</span>
+                                </div>
+
+                                <div class="channel-summary__body">
+                                    <div
+                                        class="channel-summary__donut"
+                                        data-channel-summary-chart
+                                        data-channel-summary-total="{{ channels_total_display }}"
+                                        data-channel-summary-data="{{ channels_summary|json_encode|e('html_attr') }}"
+                                    >
+                                        <canvas data-channel-summary-canvas aria-label="Répartition par canal"></canvas>
+                                        <div class="channel-summary__donut-inner">
+                                            <strong>{{ channels_total_display }}</strong>
+                                            <span>CA total</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="channel-summary__legend">
+                                        {% for channel in channels_summary %}
+                                            <div class="channel-summary__legend-row">
+                                                <span class="channel-summary__dot" style="background: {{ loop.index0 == 0 ? '#3b82f6' : loop.index0 == 1 ? '#34d399' : loop.index0 == 2 ? '#7dd3fc' : '#94a3b8' }};"></span>
+                                                <strong>{{ channel.label }}</strong>
+                                                <span>{{ channel.value }}</span>
+                                                <span>{{ channel.share_global_value }}</span>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </article>
+                    {% endif %}
+
+                    {% for channel in channels %}
+                        <article class="channel-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.filter_value|default(channel.label)})) }}" role="link" tabindex="0">
+                            <div class="channel-card-head">
+                                <div class="channel-title-wrap">
+                                    <div class="channel-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation">
+                                            <path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div class="channel-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.filter_value|default(channel.label)})) }}">{{ channel.label }}{{ active_filter_suffix }}</a></div>
                                         <div class="channel-hint">{{ channel.hint }}{{ active_filter_suffix }}</div>
                                     </div>
                                 </div>
@@ -306,6 +366,75 @@
             </section>
         {% endif %}
 
+        <section class="section" id="section-neuf-occasion">
+            <div class="section-head">
+                <h2>Neuf / Occasion{{ active_filter_suffix }}</h2>
+                <p>Répartition du CA neuf et occasion par canal sur la période.</p>
+            </div>
+
+            <div class="comparison-grid">
+                {% for card in neuf_occasion_comparison %}
+                    <article class="comparison-card" data-card-link="{{ path('app_home', active_filters|merge(card.label == 'Global' ? {'occasion': null} : {'channel': card.label})) }}" role="link" tabindex="0">
+                        <div class="card-head">
+                            <div class="card-title-wrap">
+                                <div class="card-icon card-icon-channel" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3v18M7 7.5C7 5.57 8.79 4 11 4h2c2.21 0 4 1.57 4 3.5S15.21 11 13 11h-2c-2.21 0-4 1.57-4 3.5S8.79 18 11 18h2c2.21 0 4-1.57 4-3.5" /></svg>
+                                </div>
+                                <div>
+                                    <div class="insight-label">{{ card.label }}</div>
+                                    <div class="insight-brand">Répartition Neuf vs Occasion</div>
+                                </div>
+                            </div>
+                            <div class="kpi-delta-badge {{ card.delta_class }}">{{ card.delta }}</div>
+                        </div>
+
+                        <div
+                            class="channel-summary channel-summary--compact"
+                            data-channel-summary-chart
+                            data-channel-summary-total="{{ card.current_total }}"
+                            data-channel-summary-data="{{ card.chart_data|json_encode|e('html_attr') }}"
+                        >
+                            <div class="channel-summary__body">
+                                <div class="channel-summary__donut channel-summary__donut--small">
+                                    <canvas data-channel-summary-canvas aria-label="Répartition Neuf / Occasion"></canvas>
+                                    <div class="channel-summary__donut-inner">
+                                        <strong>{{ card.current_total }}</strong>
+                                        <span>CA total</span>
+                                    </div>
+                                </div>
+
+                                <div class="channel-summary__legend">
+                                    {% for item in card.chart_data %}
+                                        <div class="channel-summary__legend-row">
+                                            <span class="channel-summary__dot" style="background: {{ item.dot_color }};"></span>
+                                            <strong>{{ item.label }}</strong>
+                                            <span>{{ item.value }}</span>
+                                            <span>{{ item.share_global_value }}</span>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="metric-chip-grid metric-chip-grid-tight">
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">N-1</span>
+                                <strong>{{ card.previous_total }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">Variation</span>
+                                <strong>{{ card.delta }}</strong>
+                            </div>
+                            <div class="metric-chip">
+                                <span class="metric-chip-label">% global</span>
+                                <strong>{{ card.share_global }}</strong>
+                            </div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
         <section class="section" id="section-neuf">
             <div class="section-head">
                 <h2>Neuf{{ active_filter_suffix }}</h2>
@@ -374,14 +503,14 @@
                 </article>
 
                 {% for channel in neuf.channels|slice(0, 3) %}
-                    <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion'})) }}" role="link" tabindex="0">
+                    <article class="occasion-card occasion-card-neuf" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.value|default(channel.label), 'occasion': 'hors_occasion'})) }}" role="link" tabindex="0">
                         <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-channel" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
                                     </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label, 'occasion': 'hors_occasion'})) }}">Neuf {{ channel.label }}{{ active_filter_suffix }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.value|default(channel.label), 'occasion': 'hors_occasion'})) }}">Neuf {{ channel.label }}{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                             <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta }}</div>
@@ -510,14 +639,14 @@
                     </article>
 
                     {% for channel in occasion.channels %}
-                        <article class="occasion-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}" role="link" tabindex="0">
+                    <article class="occasion-card" data-card-link="{{ path('app_home', active_filters|merge({'channel': channel.value|default(channel.label)})) }}" role="link" tabindex="0">
                             <div class="card-head">
                                 <div class="card-title-wrap">
                                     <div class="card-icon card-icon-channel" aria-hidden="true">
                                         <svg viewBox="0 0 24 24" role="presentation"><path d="M4 19h16M6 16V8m4 8V5m4 11v-6m4 6V9" /></svg>
                                     </div>
                                     <div>
-                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.label})) }}">Occasion {{ channel.label }}{{ active_filter_suffix_without_occasion }}</a></div>
+                                        <div class="insight-label"><a href="{{ path('app_home', active_filters|merge({'channel': channel.value|default(channel.label)})) }}">Occasion {{ channel.label }}{{ active_filter_suffix_without_occasion }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta_short }}</div>
@@ -586,6 +715,50 @@
                 </div>
 
                 <div class="insight-grid insight-grid-home">
+                    {% if brand_chart_data is not empty %}
+                        <article class="insight-card insight-card-summary" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
+                            <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-brand" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l2.2 4.5L19 8.2l-3.5 3.4.8 4.9L12 14.9 7.7 16.5l.8-4.9L5 8.2l4.8-.7L12 3z" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label">Répartition marques</div>
+                                        <div class="insight-brand">Global société</div>
+                                    </div>
+                                </div>
+                                <div class="kpi-delta-badge delta-neutral">{{ brand_chart_data|length }} marques</div>
+                            </div>
+                            <div
+                                class="channel-summary channel-summary--compact"
+                                data-channel-summary-chart
+                                data-channel-summary-total="{{ channels_total_display }}"
+                                data-channel-summary-data="{{ brand_chart_data|json_encode|e('html_attr') }}"
+                            >
+                                <div class="channel-summary__body">
+                                    <div class="channel-summary__donut channel-summary__donut--small">
+                                        <canvas data-channel-summary-canvas aria-label="Répartition des marques"></canvas>
+                                        <div class="channel-summary__donut-inner">
+                                            <strong>{{ channels_total_display }}</strong>
+                                            <span>CA total</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="channel-summary__legend">
+                                        {% for item in brand_chart_data %}
+                                            <div class="channel-summary__legend-row">
+                                                <span class="channel-summary__dot" style="background: {{ item.dot_color }};"></span>
+                                                <strong>{{ item.label }}</strong>
+                                                <span>{{ item.value }}</span>
+                                                <span>{{ item.share_global_value }}</span>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </article>
+                    {% endif %}
+
                     {% for brand in brand_highlights.top_brands %}
                         <article class="insight-card" data-card-link="{{ path('app_home', active_filters|merge({'brand_id': brand.brand_id})) }}" role="link" tabindex="0">
                             <div class="card-head">
@@ -595,13 +768,12 @@
                                     </div>
                                     <div>
                                         <div class="insight-label">Marque #{{ loop.index }}</div>
-                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'brand_id': brand.brand_id})) }}">{{ brand.brand_name }}</a></div>
+                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'brand_id': brand.brand_id})) }}">{{ brand.brand_name }}{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ brand.global_delta_class }}">{{ brand.global_delta is null ? '--' : (brand.global_delta > 0 ? '+' : '') ~ brand.global_delta|number_format(1, ',', ' ') ~ ' %' }}</div>
                             </div>
 
-                            <div class="insight-label">Global société</div>
                             <div class="insight-value">{{ brand.current_global_total }}</div>
                             <div class="insight-share">{{ brand.share_global }}</div>
                             <div class="trend-mini">
@@ -619,44 +791,70 @@
                                 </span>
                             </div>
 
-                            {% if brand.channels is not empty %}
-                            <div class="insight-sub" style="margin-top: 14px;">Canaux de vente{{ active_filter_suffix }}</div>
-                                <div class="metric-chip-grid metric-chip-grid-brand-channels">
+                            <table class="share-matrix share-matrix--4 category-matrix brand-matrix">
+                                <thead>
+                                    <tr>
+                                        <th>Bloc</th>
+                                        <th>Global</th>
+                                        <th>Neuf</th>
+                                        <th>Occasion</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__label">Global société</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ brand.current_global_total }}</span>
+                                                <small class="{{ brand.global_delta_class }}">{{ brand.global_delta_display }}</small>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ brand.current_total }}</span>
+                                                <small class="{{ brand.delta_class }}">{{ brand.delta_display }}</small>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ brand.current_occasion_total }}</span>
+                                                <small class="{{ brand.occasion_delta_class }}">{{ brand.occasion_delta_display }}</small>
+                                            </div>
+                                        </td>
+                                    </tr>
                                     {% for channel in brand.channels %}
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">{{ channel.label }}</span>
-                                            <strong>
-                                                {{ channel.current_total }}<br>
-                                                <small class="{{ channel.delta_class }}">{{ channel.delta }}</small>
-                                            </strong>
-                                        </div>
+                                        <tr>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__label">{{ channel.label }}</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_global_total }}</span>
+                                                    <small class="{{ channel.global_delta_class }}">{{ channel.global_delta_display }}</small>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_total }}</span>
+                                                    <small class="{{ channel.delta_class }}">{{ channel.delta_display }}</small>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_occasion_total }}</span>
+                                                    <small class="{{ channel.occasion_delta_class }}">{{ channel.occasion_delta_display }}</small>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     {% endfor %}
-                                </div>
-                            {% endif %}
-
-                            <div class="metric-chip-grid metric-chip-grid-brand">
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">N-1 global</span>
-                                    <strong>
-                                        {{ brand.previous_global_total }}<br>
-                                        <small class="{{ brand.global_delta_class }}">{{ brand.global_delta_display }}</small>
-                                    </strong>
-                                </div>
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">Neuf</span>
-                                    <strong>
-                                        {{ brand.current_total }}<br>
-                                        <small class="{{ brand.delta_class }}">{{ brand.delta_display }}</small>
-                                    </strong>
-                                </div>
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">Occasion</span>
-                                    <strong>
-                                        {{ brand.current_occasion_total }}<br>
-                                        <small class="{{ brand.occasion_delta_class }}">{{ brand.occasion_delta_display }}</small>
-                                    </strong>
-                                </div>
-                            </div>
+                                </tbody>
+                            </table>
                         </article>
                     {% endfor %}
                 </div>
@@ -671,6 +869,50 @@
                 </div>
 
                 <div class="insight-grid insight-grid-home">
+                    {% if category_chart_data is not empty %}
+                        <article class="insight-card insight-card-summary" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
+                            <div class="card-head">
+                                <div class="card-title-wrap">
+                                    <div class="card-icon card-icon-brand" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" role="presentation"><path d="M4 5h16v14H4zM8 5v14M4 11h16" /></svg>
+                                    </div>
+                                    <div>
+                                        <div class="insight-label">Répartition catégories</div>
+                                        <div class="insight-brand">Global société</div>
+                                    </div>
+                                </div>
+                                <div class="kpi-delta-badge delta-neutral">{{ category_chart_data|length }} catégories</div>
+                            </div>
+                            <div
+                                class="channel-summary channel-summary--compact"
+                                data-channel-summary-chart
+                                data-channel-summary-total="{{ channels_total_display }}"
+                                data-channel-summary-data="{{ category_chart_data|json_encode|e('html_attr') }}"
+                            >
+                                <div class="channel-summary__body">
+                                    <div class="channel-summary__donut channel-summary__donut--small">
+                                        <canvas data-channel-summary-canvas aria-label="Répartition des catégories"></canvas>
+                                        <div class="channel-summary__donut-inner">
+                                            <strong>{{ channels_total_display }}</strong>
+                                            <span>CA total</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="channel-summary__legend">
+                                        {% for item in category_chart_data %}
+                                            <div class="channel-summary__legend-row">
+                                                <span class="channel-summary__dot" style="background: {{ item.dot_color }};"></span>
+                                                <strong>{{ item.label }}</strong>
+                                                <span>{{ item.value }}</span>
+                                                <span>{{ item.share_global_value }}</span>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </article>
+                    {% endif %}
+
                     {% for category in category_highlights.top_categories %}
                         <article class="insight-card" data-card-link="{{ path('app_home', active_filters|merge({'category': category.category_name})) }}" role="link" tabindex="0">
                             <div class="card-head">
@@ -680,15 +922,13 @@
                                     </div>
                                     <div>
                                         <div class="insight-label">Catégorie #{{ loop.index }}</div>
-                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'category': category.category_name})) }}">{{ category.category_name }}</a></div>
+                                        <div class="insight-brand"><a href="{{ path('app_home', active_filters|merge({'category': category.category_name})) }}">{{ category.category_name }}{{ active_filter_suffix }}</a></div>
                                     </div>
                                 </div>
                                 <div class="kpi-delta-badge {{ category.global_delta_class }}">{{ category.global_delta_display }}</div>
                             </div>
 
-                            <div class="insight-label">Global société</div>
                             <div class="insight-value">{{ category.current_global_total }}</div>
-                            <div class="insight-share">{{ category.share_global }}</div>
                             <div class="trend-mini">
                                 <span class="trend-mini__pill {{ category.trend_1y_class }}">
                                     <span class="trend-mini__label">1A glissant</span>
@@ -704,132 +944,75 @@
                                 </span>
                             </div>
 
-                            {% if category.channels is not empty %}
-                                <div class="insight-sub" style="margin-top: 14px;">Canaux de vente{{ active_filter_suffix }}</div>
-                                <div class="metric-chip-grid metric-chip-grid-brand-channels">
+                            <table class="share-matrix share-matrix--4 category-matrix">
+                                <thead>
+                                    <tr>
+                                        <th>Bloc</th>
+                                        <th>Global</th>
+                                        <th>Neuf</th>
+                                        <th>Occasion</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__label">Global</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ category.current_global_total }}</span>
+                                                <small class="{{ category.global_delta_class }}">{{ category.global_delta_display }}</small>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ category.current_total }}</span>
+                                                <small class="{{ category.delta_class }}">{{ category.delta_display }}</small>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="category-matrix__cell">
+                                                <span class="category-matrix__value">{{ category.current_occasion_total }}</span>
+                                                <small class="{{ category.occasion_delta_class }}">{{ category.occasion_delta_display }}</small>
+                                            </div>
+                                        </td>
+                                    </tr>
                                     {% for channel in category.channels %}
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">{{ channel.label }}</span>
-                                            <strong>
-                                                {{ channel.current_global_total }}<br>
-                                                <small class="{{ channel.global_delta_class }}">{{ channel.global_delta_display }}</small>
-                                            </strong>
-                                        </div>
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">Neuf</span>
-                                            <strong>
-                                                {{ channel.current_total }}<br>
-                                                <small class="{{ channel.delta_class }}">{{ channel.delta_display }}</small>
-                                            </strong>
-                                        </div>
-                                        <div class="metric-chip">
-                                            <span class="metric-chip-label">Occasion</span>
-                                            <strong>
-                                                {{ channel.current_occasion_total }}<br>
-                                                <small class="{{ channel.occasion_delta_class }}">{{ channel.occasion_delta_display }}</small>
-                                            </strong>
-                                        </div>
+                                        <tr>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__label">{{ channel.label }}</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_global_total }}</span>
+                                                    <small class="{{ channel.global_delta_class }}">{{ channel.global_delta_display }}</small>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_total }}</span>
+                                                    <small class="{{ channel.delta_class }}">{{ channel.delta_display }}</small>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="category-matrix__cell">
+                                                    <span class="category-matrix__value">{{ channel.current_occasion_total }}</span>
+                                                    <small class="{{ channel.occasion_delta_class }}">{{ channel.occasion_delta_display }}</small>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     {% endfor %}
-                                </div>
-                            {% endif %}
-
-                            <div class="metric-chip-grid metric-chip-grid-brand">
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">N-1 global</span>
-                                    <strong>
-                                        {{ category.previous_global_total }}<br>
-                                        <small class="{{ category.global_delta_class }}">{{ category.global_delta_display }}</small>
-                                    </strong>
-                                </div>
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">Neuf</span>
-                                    <strong>
-                                        {{ category.current_total }}<br>
-                                        <small class="{{ category.delta_class }}">{{ category.delta_display }}</small>
-                                    </strong>
-                                </div>
-                                <div class="metric-chip">
-                                    <span class="metric-chip-label">Occasion</span>
-                                    <strong>
-                                        {{ category.current_occasion_total }}<br>
-                                        <small class="{{ category.occasion_delta_class }}">{{ category.occasion_delta_display }}</small>
-                                    </strong>
-                                </div>
-                            </div>
+                                </tbody>
+                            </table>
                         </article>
                     {% endfor %}
                 </div>
             </section>
         {% endif %}
-
-        <section class="section" id="section-alerts">
-            <div class="section-head">
-                <h2>Alertes métier{{ active_filter_suffix }}</h2>
-                <p>Les écarts qui méritent une lecture rapide.</p>
-            </div>
-
-            <div class="alert-grid alert-grid-home">
-                <article class="alert-card alert-card--up" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
-                    <div class="alert-card__head">
-                        <div class="alert-title">Plus fortes hausses marques</div>
-                        <div class="alert-badge alert-badge-up">Hausse</div>
-                    </div>
-                    {% for item in alerts.brand_gainers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune hausse disponible.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card alert-card--down" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
-                    <div class="alert-card__head">
-                        <div class="alert-title">Plus fortes baisses marques</div>
-                        <div class="alert-badge alert-badge-down">Baisse</div>
-                    </div>
-                    {% for item in alerts.brand_losers %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.brand_name }}</strong>
-                            <span>{{ item.delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune baisse disponible.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card alert-card--warning" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
-                    <div class="alert-card__head">
-                        <div class="alert-title">Canaux en anomalie</div>
-                        <div class="alert-badge alert-badge-warning">Alerte</div>
-                    </div>
-                    {% for item in alerts.channel_anomalies %}
-                        <div class="alert-row alert-row--channel {{ item.delta_class }}">
-                            <strong>{{ item.label }}</strong>
-                            <span class="alert-row__meta">{{ item.delta }} · panier {{ item.basket_delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune anomalie détectée.</div>
-                    {% endfor %}
-                </article>
-
-                <article class="alert-card alert-card--basket" data-card-link="{{ path('app_home', active_filters) }}" role="link" tabindex="0">
-                    <div class="alert-card__head">
-                        <div class="alert-title">Panier en mouvement</div>
-                        <div class="alert-badge alert-badge-neutral">Suivi</div>
-                    </div>
-                    {% for item in alerts.basket_anomalies %}
-                        <div class="alert-row {{ item.delta_class }}">
-                            <strong>{{ item.label }}</strong>
-                            <span>{{ item.basket_delta }}</span>
-                        </div>
-                    {% else %}
-                        <div class="alert-empty">Aucune variation notable.</div>
-                    {% endfor %}
-                </article>
-            </div>
-        </section>
 
         <footer class="home-footer">
             <div>Dernière mise à jour : {{ "now"|date("d/m/Y - H:i") }}</div>

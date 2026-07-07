@@ -309,7 +309,7 @@ final class KpiRepository
         return [
             'channels' => array_map(static fn (array $row): array => [
                 'value' => (string) ($row['label'] ?? 'Autre'),
-                'label' => (string) ($row['label'] ?? 'Autre'),
+                'label' => self::formatChannelDisplayLabel((string) ($row['label'] ?? 'Autre')),
             ], $channels),
             'brands' => array_map(static fn (array $row): array => [
                 'value' => (string) ($row['id'] ?? 0),
@@ -673,7 +673,8 @@ final class KpiRepository
             $previousBasket = ((int) $previous['invoice_count']) > 0 ? $previousTotal / (int) $previous['invoice_count'] : 0.0;
 
             $rows[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_total' => $currentTotal,
                 'previous_total' => $previousTotal,
                 'delta' => $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null,
@@ -719,7 +720,8 @@ final class KpiRepository
             $previousBasket = ((int) $previous['invoice_count']) > 0 ? (float) $previous['total_ht'] / (int) $previous['invoice_count'] : 0.0;
 
             $rows[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_basket' => $currentBasket,
                 'previous_basket' => $previousBasket,
                 'basket_delta' => $previousBasket > 0 ? (($currentBasket - $previousBasket) / $previousBasket) * 100.0 : null,
@@ -729,6 +731,7 @@ final class KpiRepository
         usort($rows, static fn (array $a, array $b): int => abs((float) ($b['basket_delta'] ?? 0)) <=> abs((float) ($a['basket_delta'] ?? 0)));
 
         return array_map(static fn (array $row): array => [
+            'value' => $row['value'],
             'label' => $row['label'],
             'current_basket' => number_format((int) round((float) $row['current_basket']), 0, ',', ' ') . ' €',
             'previous_basket' => number_format((int) round((float) $row['previous_basket']), 0, ',', ' ') . ' €',
@@ -802,7 +805,8 @@ final class KpiRepository
             $trend3mCurrent = (float) ($trend3mCurrentRows[$channelName]['total_ht'] ?? 0);
             $trend3mPrevious = (float) ($trend3mPreviousRows[$channelName]['total_ht'] ?? 0);
             $channels[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current' => $currentTotal,
                 'margin' => (float) ($row['margin_ht'] ?? 0),
                 'invoices' => $invoiceCount,
@@ -964,8 +968,10 @@ final class KpiRepository
         $currentOccasionTotals = $this->fetchBrandTotals($currentStart, $currentEnd, $channelName, true, $filters);
         $previousTotals = $this->fetchBrandTotals($previousStart, $previousEnd, $channelName, false, $filters);
         $previousOccasionTotals = $this->fetchBrandTotals($previousStart, $previousEnd, $channelName, true, $filters);
-        $currentChannelTotals = $this->fetchBrandChannelTotals($currentStart, $currentEnd, $filters);
-        $previousChannelTotals = $this->fetchBrandChannelTotals($previousStart, $previousEnd, $filters);
+        $currentChannelTotals = $this->fetchBrandChannelTotals($currentStart, $currentEnd, $filters, false);
+        $currentOccasionChannelTotals = $this->fetchBrandChannelTotals($currentStart, $currentEnd, $filters, true);
+        $previousChannelTotals = $this->fetchBrandChannelTotals($previousStart, $previousEnd, $filters, false);
+        $previousOccasionChannelTotals = $this->fetchBrandChannelTotals($previousStart, $previousEnd, $filters, true);
         $trend1yPeriod = $this->buildRollingComparisonPeriod($currentEnd, 12);
         $trend6mPeriod = $this->buildRollingComparisonPeriod($currentEnd, 6);
         $trend3mPeriod = $this->buildRollingComparisonPeriod($currentEnd, 3);
@@ -1037,7 +1043,9 @@ final class KpiRepository
                 'channels' => $this->buildBrandChannelBreakdown(
                     $brandId,
                     $currentChannelTotals,
-                    $previousChannelTotals
+                    $currentOccasionChannelTotals,
+                    $previousChannelTotals,
+                    $previousOccasionChannelTotals
                 ),
             ];
         }
@@ -1269,7 +1277,13 @@ final class KpiRepository
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function buildBrandChannelBreakdown(int|string $brandId, array $currentChannelTotals, array $previousChannelTotals): array
+    private function buildBrandChannelBreakdown(
+        int|string $brandId,
+        array $currentChannelTotals,
+        array $currentOccasionChannelTotals,
+        array $previousChannelTotals,
+        array $previousOccasionChannelTotals
+    ): array
     {
         $preferredOrder = [
             'Nantes' => 0,
@@ -1281,8 +1295,10 @@ final class KpiRepository
         ];
 
         $currentRows = $currentChannelTotals[$brandId] ?? [];
+        $currentOccasionRows = $currentOccasionChannelTotals[$brandId] ?? [];
         $previousRows = $previousChannelTotals[$brandId] ?? [];
-        $channelNames = array_unique(array_merge(array_keys($currentRows), array_keys($previousRows)));
+        $previousOccasionRows = $previousOccasionChannelTotals[$brandId] ?? [];
+        $channelNames = array_unique(array_merge(array_keys($currentRows), array_keys($currentOccasionRows), array_keys($previousRows), array_keys($previousOccasionRows)));
         usort($channelNames, static function (string $a, string $b) use ($preferredOrder): int {
             $aRank = $preferredOrder[$a] ?? 99;
             $bRank = $preferredOrder[$b] ?? 99;
@@ -1293,19 +1309,42 @@ final class KpiRepository
         $channels = [];
         foreach (array_slice($channelNames, 0, 3) as $channelName) {
             $currentRow = $currentRows[$channelName] ?? ['total_ht' => 0.0];
+            $currentOccasionRow = $currentOccasionRows[$channelName] ?? ['total_ht' => 0.0];
             $previousRow = $previousRows[$channelName] ?? ['total_ht' => 0.0];
+            $previousOccasionRow = $previousOccasionRows[$channelName] ?? ['total_ht' => 0.0];
             $currentTotal = (float) ($currentRow['total_ht'] ?? 0);
+            $currentOccasionTotal = (float) ($currentOccasionRow['total_ht'] ?? 0);
             $previousTotal = (float) ($previousRow['total_ht'] ?? 0);
+            $previousOccasionTotal = (float) ($previousOccasionRow['total_ht'] ?? 0);
+            $currentGlobalTotal = $currentTotal + $currentOccasionTotal;
+            $previousGlobalTotal = $previousTotal + $previousOccasionTotal;
 
             $channels[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_total_raw' => $currentTotal,
+                'current_occasion_total_raw' => $currentOccasionTotal,
                 'previous_total_raw' => $previousTotal,
+                'previous_occasion_total_raw' => $previousOccasionTotal,
+                'current_global_total_raw' => $currentGlobalTotal,
+                'previous_global_total_raw' => $previousGlobalTotal,
                 'delta' => $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null,
+                'global_delta' => $previousGlobalTotal > 0 ? (($currentGlobalTotal - $previousGlobalTotal) / $previousGlobalTotal) * 100.0 : null,
+                'occasion_delta' => $previousOccasionTotal > 0 ? (($currentOccasionTotal - $previousOccasionTotal) / $previousOccasionTotal) * 100.0 : null,
                 'delta_class' => $previousTotal > 0
                     ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 > 0
                         ? 'delta-up'
                         : ((($currentTotal - $previousTotal) / $previousTotal) * 100.0 < 0 ? 'delta-down' : 'delta-neutral')
+                    : 'delta-neutral',
+                'global_delta_class' => $previousGlobalTotal > 0
+                    ? (($currentGlobalTotal - $previousGlobalTotal) / $previousGlobalTotal) * 100.0 > 0
+                        ? 'delta-up'
+                        : ((($currentGlobalTotal - $previousGlobalTotal) / $previousGlobalTotal) * 100.0 < 0 ? 'delta-down' : 'delta-neutral')
+                    : 'delta-neutral',
+                'occasion_delta_class' => $previousOccasionTotal > 0
+                    ? (($currentOccasionTotal - $previousOccasionTotal) / $previousOccasionTotal) * 100.0 > 0
+                        ? 'delta-up'
+                        : ((($currentOccasionTotal - $previousOccasionTotal) / $previousOccasionTotal) * 100.0 < 0 ? 'delta-down' : 'delta-neutral')
                     : 'delta-neutral',
             ];
         }
@@ -1359,7 +1398,8 @@ final class KpiRepository
             $previousGlobalTotal = $previousTotal + $previousOccasionTotal;
 
             $channels[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_total_raw' => $currentTotal,
                 'current_occasion_total_raw' => $currentOccasionTotal,
                 'previous_total_raw' => $previousTotal,
@@ -1530,7 +1570,8 @@ final class KpiRepository
             $previousTotal = (float) $previous['total_ht'];
 
             $channels[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_total' => $currentTotal,
                 'previous_total' => $previousTotal,
                 'delta' => $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null,
@@ -1607,9 +1648,12 @@ final class KpiRepository
     /**
      * @return array<int, array<string, array<string, array<string, mixed>>>>
      */
-    private function fetchBrandChannelTotals(DateTimeImmutable $start, DateTimeImmutable $end, array $filters = []): array
+    private function fetchBrandChannelTotals(DateTimeImmutable $start, DateTimeImmutable $end, array $filters = [], bool $includeOccasion = false): array
     {
         [$whereSql, $params] = $this->buildWhereClause($start, $end, $filters, 'r');
+        $occasionFilterSql = $this->buildOccasionFilterSql('r');
+        $whereSql .= $includeOccasion ? ' AND ' . $occasionFilterSql : ' AND NOT ' . $occasionFilterSql;
+
         $rows = $this->reportingConnection->fetchAllAssociative(
             sprintf(
                 <<<'SQL'
@@ -1720,7 +1764,8 @@ final class KpiRepository
             $previousTotal = (float) $previous['total_ht'];
 
             $channels[] = [
-                'label' => $channelName,
+                'value' => $channelName,
+                'label' => self::formatChannelDisplayLabel($channelName),
                 'current_total' => $currentTotal,
                 'previous_total' => $previousTotal,
                 'delta' => $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null,
@@ -1840,5 +1885,14 @@ final class KpiRepository
         }
 
         return $totals;
+    }
+
+    private static function formatChannelDisplayLabel(string $channelName): string
+    {
+        return match ($channelName) {
+            'Nantes' => 'NTS',
+            'Bordeaux' => 'BDX',
+            default => $channelName,
+        };
     }
 }
