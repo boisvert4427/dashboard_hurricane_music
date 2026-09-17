@@ -3,6 +3,14 @@
 {% block title %}Détail lignes | Dashboard Hurricane Music{% endblock %}
 
 {% block body %}
+    {% set detail_group_by = active_filters.group_by|default('idart') %}
+    {% set detail_group_label = {
+        'idart': 'Produit',
+        'brand': 'Fabricant',
+        'channel': 'Canal',
+        'category': 'Catégorie'
+    }[detail_group_by]|default('Produit') %}
+    {% set detail_invoice_label = detail_group_by == 'idart' ? 'Facture' : 'Nb factures' %}
     <main class="app-shell">
         <header class="topbar">
             <div class="brand">
@@ -130,10 +138,10 @@
                     <thead>
                         <tr>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_date', 'direction': sort == 'invoice_date' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Date</a></th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_number', 'direction': sort == 'invoice_number' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Facture</a></th>
+                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_number', 'direction': sort == 'invoice_number' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">{{ detail_invoice_label }}</a></th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'channel_name', 'direction': sort == 'channel_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Canal</a></th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Marque</a></th>
-                            <th>Produit</th>
+                            <th>{{ detail_group_label }}</th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'quantity', 'direction': sort == 'quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Qté</a></th>
                             <th>Qté -1</th>
                             <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'total_ht', 'direction': sort == 'total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">CA HT</a></th>

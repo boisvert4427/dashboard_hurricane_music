@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\InvoiceLineImportService;
+use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -26,6 +27,7 @@ final class EtlController extends AbstractController
         $expectedToken = (string) $this->getParameter('etl_web_token');
         $providedToken = (string) ($request->query->get('token') ?? $request->headers->get('X-ETL-TOKEN', ''));
         $limit = $this->parseLimit($request->query->get('limit'));
+        $since = $this->parseSinceDate($request->query->get('since')) ?? (new DateTimeImmutable('today'))->modify('first day of this month')->format('Y-m-d');
 
         if ($expectedToken === '') {
             return $this->json([
@@ -43,7 +45,7 @@ final class EtlController extends AbstractController
 
         try {
             $importService = new InvoiceLineImportService($reportingConnection, $prestashopConnection);
-            $stats = $importService->run(500, $limit);
+            $stats = $importService->run(500, $limit, $since);
         } catch (\Throwable $e) {
             return $this->json([
                 'ok' => false,
@@ -67,5 +69,16 @@ final class EtlController extends AbstractController
         $limit = (int) $value;
 
         return $limit > 0 ? $limit : null;
+    }
+
+    private function parseSinceDate(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $date = DateTimeImmutable::createFromFormat('Y-m-d', (string) $value);
+
+        return $date !== false ? $date->format('Y-m-d') : null;
     }
 }

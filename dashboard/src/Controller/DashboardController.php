@@ -592,7 +592,9 @@ final class DashboardController extends AbstractController
 
         $preferredOrder = [
             'Nantes' => 0,
+            'NTS' => 0,
             'Bordeaux' => 1,
+            'BDX' => 1,
             'Web' => 2,
             'Ecole' => 3,
             'École' => 3,
@@ -694,11 +696,25 @@ final class DashboardController extends AbstractController
             return 0.0;
         };
 
-        $mapChannels = static function (array $section): array {
+        $normalizeLabel = static function (string $label): string {
+            $normalized = strtolower(trim($label));
+            return match ($normalized) {
+                'bordeaux', 'bdx' => 'bordeaux',
+                'nantes', 'nts' => 'nantes',
+                'web' => 'web',
+                'ecole', 'école' => 'ecole',
+                default => $normalized,
+            };
+        };
+
+        $mapChannels = static function (array $section) use ($normalizeLabel): array {
             $result = [];
             foreach ($section['channels'] ?? [] as $channel) {
                 $label = (string) ($channel['label'] ?? $channel['value'] ?? 'Autre');
                 $result[$label] = $channel;
+                $result[(string) ($channel['value'] ?? '')] = $channel;
+                $result[$normalizeLabel($label)] = $channel;
+                $result[$normalizeLabel((string) ($channel['value'] ?? ''))] = $channel;
             }
 
             return $result;
@@ -706,24 +722,23 @@ final class DashboardController extends AbstractController
 
         $neufChannels = $mapChannels($neuf);
         $occasionChannels = $mapChannels($occasion);
-        $labels = array_unique(array_merge(
-            ['Global'],
-            array_keys($neufChannels),
-            array_keys($occasionChannels)
-        ));
-
         $cards = [];
-        foreach ($labels as $label) {
-            if ($label === 'Global') {
+        $canonicalOrder = ['global', 'bordeaux', 'nantes', 'web', 'ecole'];
+        foreach ($canonicalOrder as $canonicalLabel) {
+            if ($canonicalLabel === 'global') {
                 $currentNeuf = $extractNumber($neuf, 'current_total');
                 $currentOccasion = $extractNumber($occasion, 'current_total');
                 $previousNeuf = $extractNumber($neuf, 'previous_total');
                 $previousOccasion = $extractNumber($occasion, 'previous_total');
             } else {
-                $currentNeuf = isset($neufChannels[$label]) ? $extractNumber($neufChannels[$label], 'current_total') : 0.0;
-                $currentOccasion = isset($occasionChannels[$label]) ? $extractNumber($occasionChannels[$label], 'current_total') : 0.0;
-                $previousNeuf = isset($neufChannels[$label]) ? $extractNumber($neufChannels[$label], 'previous_total') : 0.0;
-                $previousOccasion = isset($occasionChannels[$label]) ? $extractNumber($occasionChannels[$label], 'previous_total') : 0.0;
+                if (!isset($neufChannels[$canonicalLabel]) && !isset($occasionChannels[$canonicalLabel])) {
+                    continue;
+                }
+
+                $currentNeuf = isset($neufChannels[$canonicalLabel]) ? $extractNumber($neufChannels[$canonicalLabel], 'current_total') : 0.0;
+                $currentOccasion = isset($occasionChannels[$canonicalLabel]) ? $extractNumber($occasionChannels[$canonicalLabel], 'current_total') : 0.0;
+                $previousNeuf = isset($neufChannels[$canonicalLabel]) ? $extractNumber($neufChannels[$canonicalLabel], 'previous_total') : 0.0;
+                $previousOccasion = isset($occasionChannels[$canonicalLabel]) ? $extractNumber($occasionChannels[$canonicalLabel], 'previous_total') : 0.0;
             }
 
             $currentTotal = $currentNeuf + $currentOccasion;
@@ -731,7 +746,20 @@ final class DashboardController extends AbstractController
             $delta = $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null;
 
             $cards[] = [
-                'label' => $label === 'Global' ? 'Global' : $label,
+                'label' => $canonicalLabel === 'global' ? 'Global' : (match ($canonicalLabel) {
+                    'bordeaux' => 'BDX',
+                    'nantes' => 'NTS',
+                    'web' => 'Web',
+                    'ecole' => 'École',
+                    default => $canonicalLabel,
+                }),
+                'value' => $canonicalLabel === 'global' ? null : (match ($canonicalLabel) {
+                    'bordeaux' => 'Bordeaux',
+                    'nantes' => 'Nantes',
+                    'web' => 'Web',
+                    'ecole' => 'École',
+                    default => $canonicalLabel,
+                }),
                 'current_total' => self::formatInteger($currentTotal),
                 'previous_total' => self::formatInteger($previousTotal),
                 'delta' => self::formatDelta($delta),

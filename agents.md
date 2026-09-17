@@ -20,7 +20,10 @@
 - Table de sortie: `reporting_invoice_line_fact`.
 - Import par défaut: incrémental.
 - Rattrapage: `php bin/console app:etl:import-invoice-lines --since=YYYY-MM-DD`.
-- La home met en avant le global, les canaux, le neuf, l’occasion, les marques et les catégories.
+- Route web d’import: `/etl/import?token=...&since=YYYY-MM-DD`.
+- La home met en avant le global, les canaux, le bloc `Neuf / Occasion`, les marques et les catégories.
+- Les cartes de répartition utilisent `Chart.js`.
+- La home propose une vue cartes, la vue détail une vue tableau ligne par ligne.
 - Le détail sert à filtrer, trier et exporter les lignes.
 - Les montants affichés sont en HT.
 

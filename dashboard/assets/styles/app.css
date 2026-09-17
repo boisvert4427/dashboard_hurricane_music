@@ -1389,6 +1389,18 @@ body.price-drawer-open {
     align-items: flex-start;
     gap: 14px;
     flex-wrap: wrap;
+    position: relative;
+    padding-right: 96px;
+    min-height: 54px;
+}
+
+.channel-card-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    margin-left: auto;
+    width: 100%;
 }
 
 .channel-title-wrap {
@@ -2602,6 +2614,14 @@ body.dashboard-home .card-icon-occasion {
 body.dashboard-home .card-head,
 body.dashboard-home .channel-card-head {
     gap: 10px;
+}
+
+body.dashboard-home .channel-card-head .kpi-delta-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin: 0;
+    z-index: 2;
 }
 
 body.dashboard-home .kpi-comparison {

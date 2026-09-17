@@ -114,7 +114,12 @@ final class InvoiceLineImportService
                 }
 
                 $article = $articleRows[(int) ($row['IDART'] ?? 0)] ?? null;
-                $payload[] = $this->mapRow($row, $article, $brandNames, $now);
+                $mappedRow = $this->mapRow($row, $article, $brandNames, $now);
+                if ($mappedRow === null) {
+                    continue;
+                }
+
+                $payload[] = $mappedRow;
                 $lastId = max($lastId, (int) ($row['IDLigneFac'] ?? 0));
             }
 
@@ -329,9 +334,13 @@ final class InvoiceLineImportService
      * @param array<int, string> $brandNames
      * @return array<int, mixed>
      */
-    private function mapRow(array $row, ?array $article, array $brandNames, string $now): array
+    private function mapRow(array $row, ?array $article, array $brandNames, string $now): ?array
     {
-        [$invoiceDate, $invoiceDateTime] = $this->resolveInvoiceTimestamps($row);
+        $invoiceTimestamps = $this->resolveInvoiceTimestamps($row);
+        if ($invoiceTimestamps === null) {
+            return null;
+        }
+        [$invoiceDate, $invoiceDateTime] = $invoiceTimestamps;
 
         $articleCode = is_array($article) ? ($article['CODE'] ?? '') : '';
         $articleDesignation = is_array($article) ? ($article['DESIGNATION'] ?? '') : '';
@@ -520,9 +529,9 @@ final class InvoiceLineImportService
 
     /**
      * @param array<string, mixed> $row
-     * @return array{0: string, 1: string}
+     * @return array{0: string, 1: string}|null
      */
-    private function resolveInvoiceTimestamps(array $row): array
+    private function resolveInvoiceTimestamps(array $row): ?array
     {
         $datetime = $this->parseDateTime($row['DH_Facture'] ?? null);
         if ($datetime instanceof DateTimeImmutable) {
@@ -543,9 +552,7 @@ final class InvoiceLineImportService
             return [$dateOnly->format('Y-m-d'), $combinedDateTime->format('Y-m-d H:i:s')];
         }
 
-        $today = new DateTimeImmutable('today');
-
-        return [$today->format('Y-m-d'), $today->format('Y-m-d') . ' 00:00:00'];
+        return null;
     }
 
     /**

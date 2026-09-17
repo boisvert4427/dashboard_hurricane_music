@@ -280,8 +280,12 @@
                                         <div class="channel-hint">{{ channel.hint }}{{ active_filter_suffix }}</div>
                                     </div>
                                 </div>
-                            <div class="channel-share-badge">{{ channel.share_global }}</div>
-                        </div>
+                                <div class="kpi-delta-badge {{ channel.delta_class }}">{{ channel.delta_short }}</div>
+                            </div>
+
+                            <div class="channel-card-meta">
+                                <div class="channel-share-badge">{{ channel.share_global }}</div>
+                            </div>
 
                         <div class="channel-value">{{ channel.value }}</div>
                         <div class="trend-mini">
@@ -374,7 +378,7 @@
 
             <div class="comparison-grid">
                 {% for card in neuf_occasion_comparison %}
-                    <article class="comparison-card" data-card-link="{{ path('app_home', active_filters|merge(card.label == 'Global' ? {'occasion': null} : {'channel': card.label})) }}" role="link" tabindex="0">
+                    <article class="comparison-card" data-card-link="{{ path('app_home', active_filters|merge(card.label == 'Global' ? {'occasion': null} : {'channel': card.value})) }}" role="link" tabindex="0">
                         <div class="card-head">
                             <div class="card-title-wrap">
                                 <div class="card-icon card-icon-channel" aria-hidden="true">

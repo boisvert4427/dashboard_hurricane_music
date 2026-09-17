@@ -327,8 +327,28 @@ final class KpiRepository
      */
     public function getDetailData(array $filters, int $page = 1, int $perPage = 50, string $sort = 'invoice_date', string $direction = 'desc'): array
     {
+        $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
+        if ($groupBy !== 'idart') {
+            return $this->getGroupedDetailData($filters, $groupBy, $page, $perPage, $sort, $direction);
+        }
+
         $period = $this->resolvePeriod($filters);
         [$whereSql, $params] = $this->buildWhereClause($period['current_start'], $period['current_end'], $filters, 'r');
+        [$previousWhereSql, $previousParams] = $this->buildWhereClause($period['previous_year_start'], $period['previous_year_end'], $filters, 'p');
+
+        $previousWhereSql = str_replace(
+            [':start_date', ':end_date', ':channel_name', ':brand_id', ':category_name', ':search'],
+            [':previous_start_date', ':previous_end_date', ':previous_channel_name', ':previous_brand_id', ':previous_category_name', ':previous_search'],
+            $previousWhereSql
+        );
+        $previousParams = [
+            'previous_start_date' => $previousParams['start_date'] ?? null,
+            'previous_end_date' => $previousParams['end_date'] ?? null,
+            'previous_channel_name' => $previousParams['channel_name'] ?? null,
+            'previous_brand_id' => $previousParams['brand_id'] ?? null,
+            'previous_category_name' => $previousParams['category_name'] ?? null,
+            'previous_search' => $previousParams['search'] ?? null,
+        ];
 
         $countSql = 'SELECT COUNT(*) FROM reporting_invoice_line_fact r WHERE ' . $whereSql;
         $totalRows = (int) $this->reportingConnection->fetchOne($countSql, $params);
@@ -353,7 +373,9 @@ final class KpiRepository
                 r.supplier_name,
                 r.supplier_reference,
                 r.quantity,
+                COALESCE(prev.previous_quantity, 0) AS previous_quantity,
                 r.total_ht,
+                COALESCE(prev.previous_total_ht, 0) AS previous_total_ht,
                 r.margin_ht,
                 r.customer_id,
                 CASE
@@ -365,13 +387,61 @@ final class KpiRepository
                     ELSE 0
                 END AS is_occasion
             FROM reporting_invoice_line_fact r
+            LEFT JOIN (
+                SELECT
+                    p.product_id AS idart,
+                    COALESCE(NULLIF(p.channel_name, ''), 'Autre') AS channel_name,
+                    COALESCE(p.brand_id, 0) AS brand_id,
+                    COALESCE(NULLIF(p.brand_name, ''), CASE
+                        WHEN COALESCE(p.brand_id, 0) = 0 THEN 'Sans marque'
+                        ELSE CONCAT('IDFAB ', COALESCE(p.brand_id, 0))
+                    END) AS brand_name,
+                    p.product_code,
+                    p.supplier_reference,
+                    __PREVIOUS_CATEGORY_EXPR__ AS category_name,
+                    CASE
+                        WHEN LOWER(COALESCE(p.product_code, '')) LIKE 'b-%%'
+                            OR LOWER(COALESCE(p.product_code, '')) LIKE '%%occas%%'
+                            OR UPPER(COALESCE(p.product_code, '')) LIKE 'DEPV%%'
+                            OR LOWER(COALESCE(p.product_name, '')) LIKE '%%occas%%'
+                        THEN 1
+                        ELSE 0
+                    END AS is_occasion,
+                    COALESCE(SUM(p.quantity), 0) AS previous_quantity,
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                FROM reporting_invoice_line_fact p
+                WHERE {$previousWhereSql}
+                GROUP BY
+                    p.product_id,
+                    channel_name,
+                    brand_id,
+                    brand_name,
+                    p.product_code,
+                    p.supplier_reference,
+                    category_name,
+                    is_occasion
+            ) prev ON prev.idart = r.product_id
+                AND prev.channel_name = COALESCE(NULLIF(r.channel_name, ''), 'Autre')
+                AND prev.brand_id = COALESCE(r.brand_id, 0)
+                AND prev.product_code = r.product_code
+                AND prev.supplier_reference = r.supplier_reference
+                AND prev.category_name = __CATEGORY_EXPR__
+                AND prev.is_occasion = CASE
+                    WHEN LOWER(COALESCE(r.product_code, '')) LIKE 'b-%%'
+                        OR LOWER(COALESCE(r.product_code, '')) LIKE '%%occas%%'
+                        OR UPPER(COALESCE(r.product_code, '')) LIKE 'DEPV%%'
+                        OR LOWER(COALESCE(r.product_name, '')) LIKE '%%occas%%'
+                    THEN 1
+                    ELSE 0
+                END
             WHERE {$whereSql}
             ORDER BY {$orderSql}
             LIMIT {$perPage} OFFSET {$offset}
         SQL;
         $rowsSql = str_replace('__CATEGORY_EXPR__', $this->buildCategoryExpression('r'), $rowsSql);
+        $rowsSql = str_replace('__PREVIOUS_CATEGORY_EXPR__', $this->buildCategoryExpression('p'), $rowsSql);
 
-        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, $params);
+        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams));
 
         return [
             'period' => $period,
@@ -399,6 +469,13 @@ final class KpiRepository
      */
     public function iterateDetailRows(array $filters, string $sort = 'invoice_date', string $direction = 'desc'): iterable
     {
+        $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
+        if ($groupBy !== 'idart') {
+            yield from $this->iterateGroupedDetailRows($filters, $groupBy, $sort, $direction);
+
+            return;
+        }
+
         $period = $this->resolvePeriod($filters);
         [$whereSql, $params] = $this->buildWhereClause($period['current_start'], $period['current_end'], $filters, 'r');
         [$previousWhereSql, $previousParams] = $this->buildWhereClause($period['previous_year_start'], $period['previous_year_end'], $filters, 'p');
@@ -502,6 +579,291 @@ final class KpiRepository
         $sql = str_replace('__PREVIOUS_CATEGORY_EXPR__', $this->buildCategoryExpression('p'), $sql);
 
         return $this->reportingConnection->iterateAssociative($sql, array_merge($params, $previousParams));
+    }
+
+    private function getGroupedDetailData(array $filters, string $groupBy, int $page, int $perPage, string $sort, string $direction): array
+    {
+        $period = $this->resolvePeriod($filters);
+        [$whereSql, $params] = $this->buildWhereClause($period['current_start'], $period['current_end'], $filters, 'r');
+        [$previousWhereSql, $previousParams] = $this->buildWhereClause($period['previous_year_start'], $period['previous_year_end'], $filters, 'p');
+        [$whereSql, $params, $previousWhereSql, $previousParams] = $this->prepareGroupedDetailFilters($whereSql, $params, $previousWhereSql, $previousParams);
+        $groupSql = $this->buildDetailGroupSql($groupBy, 'r');
+        $previousGroupSql = $this->buildDetailGroupSql($groupBy, 'p');
+        $orderSql = $this->buildGroupedDetailOrderByClause($sort, $direction);
+        $offset = max(0, ($page - 1) * $perPage);
+
+        $countSql = sprintf(
+            'SELECT COUNT(*) FROM (SELECT 1 FROM reporting_invoice_line_fact r WHERE %s GROUP BY %s) grouped_rows',
+            $whereSql,
+            $groupSql['group_key_expr']
+        );
+        $totalRows = (int) $this->reportingConnection->fetchOne($countSql, $params);
+
+        $rowsSql = <<<SQL
+            SELECT
+                MIN(r.invoice_date) AS invoice_date,
+                COUNT(DISTINCT r.invoice_number) AS invoice_number,
+                MAX({$groupSql['channel_name_expr']}) AS channel_name,
+                MAX({$groupSql['idart_expr']}) AS idart,
+                MAX({$groupSql['brand_id_expr']}) AS brand_id,
+                MAX({$groupSql['brand_name_expr']}) AS brand_name,
+                MAX({$groupSql['category_name_expr']}) AS category_name,
+                MAX({$groupSql['product_code_expr']}) AS product_code,
+                MAX({$groupSql['product_name_expr']}) AS product_name,
+                MAX({$groupSql['supplier_name_expr']}) AS supplier_name,
+                MAX({$groupSql['supplier_reference_expr']}) AS supplier_reference,
+                COALESCE(SUM(r.quantity), 0) AS quantity,
+                COALESCE(SUM(r.total_ht), 0) AS total_ht,
+                COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
+                COUNT(DISTINCT r.customer_id) AS customer_id,
+                CASE
+                    WHEN SUM(CASE WHEN {$groupSql['occasion_expr']} THEN 1 ELSE 0 END) > 0 THEN 1
+                    ELSE 0
+                END AS is_occasion,
+                {$groupSql['group_key_expr']} AS group_key
+            FROM reporting_invoice_line_fact r
+            WHERE {$whereSql}
+            GROUP BY {$groupSql['group_key_expr']}
+            ORDER BY {$orderSql}
+            LIMIT {$perPage} OFFSET {$offset}
+        SQL;
+        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, $params);
+
+        $previousRowsSql = <<<SQL
+            SELECT
+                {$previousGroupSql['group_key_expr']} AS group_key,
+                COALESCE(SUM(p.quantity), 0) AS previous_quantity,
+                COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+            FROM reporting_invoice_line_fact p
+            WHERE {$previousWhereSql}
+            GROUP BY {$previousGroupSql['group_key_expr']}
+        SQL;
+        $previousRows = $this->reportingConnection->fetchAllAssociative($previousRowsSql, $previousParams);
+
+        $previousIndexed = [];
+        foreach ($previousRows as $row) {
+            $previousIndexed[(string) ($row['group_key'] ?? '')] = $row;
+        }
+
+        $rows = array_map(static function (array $row) use ($previousIndexed): array {
+            $groupKey = (string) ($row['group_key'] ?? '');
+            $previous = $previousIndexed[$groupKey] ?? [];
+
+            $row['previous_quantity'] = (float) ($previous['previous_quantity'] ?? 0);
+            $row['previous_total_ht'] = (float) ($previous['previous_total_ht'] ?? 0);
+
+            return $row;
+        }, $rows);
+
+        return [
+            'period' => $period,
+            'summary' => $this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters),
+            'comparison_previous_year' => $this->fetchPeriodSummary($period['previous_year_start'], $period['previous_year_end'], $filters),
+            'comparison_previous_month' => $this->fetchPeriodSummary($period['previous_month_start'], $period['previous_month_end'], $filters),
+            'objective' => $this->buildObjectiveSummary($this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters)['total_ht']),
+            'rows' => $rows,
+            'pagination' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total_rows' => $totalRows,
+                'total_pages' => (int) max(1, ceil($totalRows / $perPage)),
+            ],
+            'alerts' => $this->fetchAlerts($period['current_start'], $period['current_end'], $period['previous_year_start'], $period['previous_year_end'], $period['previous_month_start'], $period['previous_month_end'], $filters),
+            'filters' => $this->getFilterOptions(),
+            'active_filters' => $filters,
+            'sort' => $sort,
+            'direction' => $direction,
+        ];
+    }
+
+    /**
+     * @return iterable<array<string, mixed>>
+     */
+    private function iterateGroupedDetailRows(array $filters, string $groupBy, string $sort, string $direction): iterable
+    {
+        $period = $this->resolvePeriod($filters);
+        [$whereSql, $params] = $this->buildWhereClause($period['current_start'], $period['current_end'], $filters, 'r');
+        [$previousWhereSql, $previousParams] = $this->buildWhereClause($period['previous_year_start'], $period['previous_year_end'], $filters, 'p');
+        [$whereSql, $params, $previousWhereSql, $previousParams] = $this->prepareGroupedDetailFilters($whereSql, $params, $previousWhereSql, $previousParams);
+        $groupSql = $this->buildDetailGroupSql($groupBy, 'r');
+        $previousGroupSql = $this->buildDetailGroupSql($groupBy, 'p');
+        $orderSql = $this->buildGroupedDetailOrderByClause($sort, $direction);
+
+        $rowsSql = <<<SQL
+            SELECT
+                MIN(r.invoice_date) AS invoice_date,
+                COUNT(DISTINCT r.invoice_number) AS invoice_number,
+                MAX({$groupSql['channel_name_expr']}) AS channel_name,
+                MAX({$groupSql['idart_expr']}) AS idart,
+                MAX({$groupSql['brand_id_expr']}) AS brand_id,
+                MAX({$groupSql['brand_name_expr']}) AS brand_name,
+                MAX({$groupSql['category_name_expr']}) AS category_name,
+                MAX({$groupSql['product_code_expr']}) AS product_code,
+                MAX({$groupSql['product_name_expr']}) AS product_name,
+                MAX({$groupSql['supplier_name_expr']}) AS supplier_name,
+                MAX({$groupSql['supplier_reference_expr']}) AS supplier_reference,
+                COALESCE(SUM(r.quantity), 0) AS quantity,
+                COALESCE(SUM(r.total_ht), 0) AS total_ht,
+                COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
+                COUNT(DISTINCT r.customer_id) AS customer_id,
+                CASE
+                    WHEN SUM(CASE WHEN {$groupSql['occasion_expr']} THEN 1 ELSE 0 END) > 0 THEN 1
+                    ELSE 0
+                END AS is_occasion,
+                {$groupSql['group_key_expr']} AS group_key
+            FROM reporting_invoice_line_fact r
+            WHERE {$whereSql}
+            GROUP BY {$groupSql['group_key_expr']}
+            ORDER BY {$orderSql}
+        SQL;
+        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, $params);
+
+        $previousRowsSql = <<<SQL
+            SELECT
+                {$previousGroupSql['group_key_expr']} AS group_key,
+                COALESCE(SUM(p.quantity), 0) AS previous_quantity,
+                COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+            FROM reporting_invoice_line_fact p
+            WHERE {$previousWhereSql}
+            GROUP BY {$previousGroupSql['group_key_expr']}
+        SQL;
+        $previousRows = $this->reportingConnection->fetchAllAssociative($previousRowsSql, $previousParams);
+
+        $previousIndexed = [];
+        foreach ($previousRows as $row) {
+            $previousIndexed[(string) ($row['group_key'] ?? '')] = $row;
+        }
+
+        foreach ($rows as $row) {
+            $groupKey = (string) ($row['group_key'] ?? '');
+            $previous = $previousIndexed[$groupKey] ?? [];
+
+            $row['previous_quantity'] = (float) ($previous['previous_quantity'] ?? 0);
+            $row['previous_total_ht'] = (float) ($previous['previous_total_ht'] ?? 0);
+
+            yield $row;
+        }
+    }
+
+    /**
+     * @return array{group_key_expr:string, channel_name_expr:string, idart_expr:string, brand_id_expr:string, brand_name_expr:string, category_name_expr:string, product_code_expr:string, product_name_expr:string, supplier_name_expr:string, supplier_reference_expr:string, occasion_expr:string}
+     */
+    private function buildDetailGroupSql(string $groupBy, string $alias): array
+    {
+        $channelExpr = sprintf("COALESCE(NULLIF(%s.channel_name, ''), 'Autre')", $alias);
+        $brandExpr = sprintf(
+            "COALESCE(NULLIF(%s.brand_name, ''), CASE WHEN COALESCE(%s.brand_id, 0) = 0 THEN 'Sans marque' ELSE CONCAT('IDFAB ', COALESCE(%s.brand_id, 0)) END)",
+            $alias,
+            $alias,
+            $alias
+        );
+        $categoryExpr = $this->buildCategoryExpression($alias);
+        $occasionExpr = sprintf(
+            "LOWER(COALESCE(%1\$s.product_code, '')) LIKE 'b-%%' OR LOWER(COALESCE(%1\$s.product_code, '')) LIKE '%%occas%%' OR UPPER(COALESCE(%1\$s.product_code, '')) LIKE 'DEPV%%' OR LOWER(COALESCE(%1\$s.product_name, '')) LIKE '%%occas%%'",
+            $alias
+        );
+
+        return match ($groupBy) {
+            'brand' => [
+                'group_key_expr' => sprintf('COALESCE(%s.brand_id, 0)', $alias),
+                'channel_name_expr' => "''",
+                'idart_expr' => sprintf('COALESCE(%s.brand_id, 0)', $alias),
+                'brand_id_expr' => sprintf('COALESCE(%s.brand_id, 0)', $alias),
+                'brand_name_expr' => $brandExpr,
+                'category_name_expr' => "''",
+                'product_code_expr' => $brandExpr,
+                'product_name_expr' => $brandExpr,
+                'supplier_name_expr' => "''",
+                'supplier_reference_expr' => "''",
+                'occasion_expr' => $occasionExpr,
+            ],
+            'channel' => [
+                'group_key_expr' => $channelExpr,
+                'channel_name_expr' => $channelExpr,
+                'idart_expr' => 'NULL',
+                'brand_id_expr' => 'NULL',
+                'brand_name_expr' => "''",
+                'category_name_expr' => "''",
+                'product_code_expr' => $channelExpr,
+                'product_name_expr' => $channelExpr,
+                'supplier_name_expr' => "''",
+                'supplier_reference_expr' => "''",
+                'occasion_expr' => $occasionExpr,
+            ],
+            'category' => [
+                'group_key_expr' => $categoryExpr,
+                'channel_name_expr' => "''",
+                'idart_expr' => 'NULL',
+                'brand_id_expr' => 'NULL',
+                'brand_name_expr' => "''",
+                'category_name_expr' => $categoryExpr,
+                'product_code_expr' => $categoryExpr,
+                'product_name_expr' => $categoryExpr,
+                'supplier_name_expr' => "''",
+                'supplier_reference_expr' => "''",
+                'occasion_expr' => $occasionExpr,
+            ],
+            default => [
+                'group_key_expr' => sprintf('COALESCE(%s.product_id, 0)', $alias),
+                'channel_name_expr' => $channelExpr,
+                'idart_expr' => sprintf('COALESCE(%s.product_id, 0)', $alias),
+                'brand_id_expr' => sprintf('COALESCE(%s.brand_id, 0)', $alias),
+                'brand_name_expr' => $brandExpr,
+                'category_name_expr' => $categoryExpr,
+                'product_code_expr' => sprintf('%s.product_code', $alias),
+                'product_name_expr' => sprintf('%s.product_name', $alias),
+                'supplier_name_expr' => sprintf('%s.supplier_name', $alias),
+                'supplier_reference_expr' => sprintf('%s.supplier_reference', $alias),
+                'occasion_expr' => $occasionExpr,
+            ],
+        };
+    }
+
+    /**
+     * @return array{0:string,1:array<string, mixed>,2:string,3:array<string, mixed>}
+     */
+    private function prepareGroupedDetailFilters(string $whereSql, array $params, string $previousWhereSql, array $previousParams): array
+    {
+        $previousWhereSql = str_replace(
+            [':start_date', ':end_date', ':channel_name', ':brand_id', ':category_name', ':search'],
+            [':previous_start_date', ':previous_end_date', ':previous_channel_name', ':previous_brand_id', ':previous_category_name', ':previous_search'],
+            $previousWhereSql
+        );
+        $previousParams = [
+            'previous_start_date' => $previousParams['start_date'] ?? null,
+            'previous_end_date' => $previousParams['end_date'] ?? null,
+            'previous_channel_name' => $previousParams['channel_name'] ?? null,
+            'previous_brand_id' => $previousParams['brand_id'] ?? null,
+            'previous_category_name' => $previousParams['category_name'] ?? null,
+            'previous_search' => $previousParams['search'] ?? null,
+        ];
+
+        return [$whereSql, $params, $previousWhereSql, $previousParams];
+    }
+
+    private function buildGroupedDetailOrderByClause(string $sort, string $direction): string
+    {
+        $allowed = [
+            'invoice_date' => 'invoice_date',
+            'invoice_number' => 'invoice_number',
+            'channel_name' => 'product_name',
+            'brand_name' => 'product_name',
+            'category_name' => 'product_name',
+            'product_name' => 'product_name',
+            'total_ht' => 'total_ht',
+            'margin_ht' => 'margin_ht',
+            'quantity' => 'quantity',
+        ];
+
+        $column = $allowed[$sort] ?? 'invoice_date';
+        $dir = strtolower($direction) === 'asc' ? 'ASC' : 'DESC';
+
+        return $column . ' ' . $dir;
+    }
+
+    private function normalizeDetailGroupBy(string $groupBy): string
+    {
+        return in_array($groupBy, ['idart', 'brand', 'channel', 'category'], true) ? $groupBy : 'idart';
     }
 
     /**
