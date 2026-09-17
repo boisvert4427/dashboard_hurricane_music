@@ -23,6 +23,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -94,14 +95,80 @@ final class CompetitiveIntelligenceController extends AbstractController
         $limit = max(10, min(150, (int) $request->query->get('limit', 60)));
         $selectedBucket = trim((string) $request->query->get('bucket', ''));
         $selectedCompetitor = $this->getScalarQueryValue($request, 'competitor');
-        $board = $this->buildCompetitivePriceBoard($entityManager, $batchProvider, $limit, $selectedBucket, $selectedCompetitor);
+        $selectedBrand = $this->getScalarQueryValue($request, 'brand');
+        $selectedStock = $this->getScalarQueryValue($request, 'stock');
+        if (!in_array($selectedStock, ['positive', 'non_positive'], true)) {
+            $selectedStock = '';
+        }
+        $export = $this->getScalarQueryValue($request, 'export') === 'csv';
+        $board = $this->buildCompetitivePriceBoard($entityManager, $batchProvider, $export ? PHP_INT_MAX : $limit, $selectedBucket, $selectedCompetitor, $selectedBrand, $selectedStock);
+        if ($export) {
+            return $this->exportCompetitivePriceBoard($board);
+        }
 
         return $this->render('competitive_intelligence/price_board.html.twig', [
             'board' => $board,
             'limit' => $limit,
             'selected_bucket' => $selectedBucket,
             'selected_competitor' => $board['selected_competitor'] ?? null,
+            'selected_brand' => $selectedBrand,
+            'selected_stock' => $selectedStock,
         ]);
+    }
+
+    private function exportCompetitivePriceBoard(array $board): StreamedResponse
+    {
+        $response = new StreamedResponse(static function () use ($board): void {
+            $output = fopen('php://output', 'wb');
+            if ($output === false) {
+                throw new \RuntimeException('Impossible de créer le fichier CSV.');
+            }
+
+            // Preserve accented headers when opening the CSV in Excel.
+            fwrite($output, "\xEF\xBB\xBF");
+            $writeRow = static function (array $cells) use ($output): void {
+                $cells = array_map(static function (mixed $value): string {
+                    $text = (string) ($value ?? '');
+                    // Keep product text from being interpreted as a spreadsheet formula.
+                    return preg_match('/^[\s]*[=+@-]/u', $text) === 1
+                        && preg_match('/^-?[0-9]+(?:,[0-9]+)?$/D', $text) !== 1
+                        ? "'" . $text : $text;
+                }, $cells);
+                fputcsv($output, $cells, ';', '"', '', "\r\n");
+            };
+            $formatNumber = static fn (float $value): string => number_format($value, 2, ',', '');
+            $headers = ['ID produit', 'Produit', 'Marque', 'Référence fournisseur', 'Prix source (€)', 'Prix moyen concurrent (€)', 'Indice prix', 'Écart (%)', 'Prix concurrent le plus bas (€)', 'Écart avec le concurrent le plus bas (%)'];
+            foreach ($board['competitors'] as $competitor) {
+                $headers[] = $competitor['name'] . ' (€)';
+            }
+            $writeRow($headers);
+
+            foreach ($board['rows'] as $row) {
+                $competitorPrices = array_column(array_filter(
+                    $row['competitors'],
+                    static fn (array $cell): bool => $cell['competitor']['key'] !== 'algam'
+                        && $cell['price'] !== null && $cell['price'] > 0,
+                ), 'price');
+                $lowestPrice = $competitorPrices === [] ? null : min($competitorPrices);
+                $lowestPriceGap = $lowestPrice === null ? null : (($row['source_price'] - $lowestPrice) / $lowestPrice) * 100;
+                $cells = [
+                    $row['product_id'], $row['name'], $row['brand'], $row['supplier_reference'],
+                    $formatNumber($row['source_price']), $formatNumber($row['avg_price']),
+                    $formatNumber($row['price_index']), $formatNumber($row['delta_percent']),
+                    $lowestPrice === null ? '' : $formatNumber($lowestPrice),
+                    $lowestPriceGap === null ? '' : $formatNumber($lowestPriceGap),
+                ];
+                foreach ($row['competitors'] as $cell) {
+                    $cells[] = $cell['price'] === null ? '' : $formatNumber($cell['price']);
+                }
+                $writeRow($cells);
+            }
+            fclose($output);
+        });
+        $response->headers->set('Content-Type', 'text/csv; charset=UTF-8');
+        $response->headers->set('Content-Disposition', 'attachment; filename="veille-prix-' . date('Y-m-d_His') . '.csv"');
+
+        return $response;
     }
 
     #[Route('/prix/ecarts-fiables', name: 'app_competitive_price_trusted_gaps', methods: ['GET'])]
@@ -1120,6 +1187,8 @@ final class CompetitiveIntelligenceController extends AbstractController
         int $limit,
         string $selectedBucket = '',
         string $selectedCompetitor = '',
+        string $selectedBrand = '',
+        string $selectedStock = '',
     ): array {
         $competitors = $this->getCompetitorRepository($entityManager)
             ->createQueryBuilder('c')
@@ -1207,6 +1276,19 @@ final class CompetitiveIntelligenceController extends AbstractController
             ];
         }
         $snapshots = $batchProvider->getProductSnapshotsByIds($productIds);
+        $brands = [];
+        foreach ($snapshots as $snapshot) {
+            $brand = trim((string) ($snapshot['brand'] ?? ''));
+            if ($brand !== '') {
+                $brands[] = $brand;
+            }
+        }
+        if ($selectedBrand !== '') {
+            $brands[] = $selectedBrand;
+        }
+        $brands = array_values(array_unique($brands));
+        natcasesort($brands);
+        $brands = array_values($brands);
 
         $allRows = [];
         $deltaValues = [];
@@ -1217,6 +1299,18 @@ final class CompetitiveIntelligenceController extends AbstractController
         foreach ($productIds as $productId) {
             $snapshot = $snapshots[$productId] ?? null;
             if (!is_array($snapshot)) {
+                continue;
+            }
+
+            if ($selectedBrand !== '' && trim((string) ($snapshot['brand'] ?? '')) !== $selectedBrand) {
+                continue;
+            }
+
+            $sourceStock = $snapshot['source_stock'] ?? null;
+            if ($selectedStock === 'positive' && ($sourceStock === null || $sourceStock <= 0)) {
+                continue;
+            }
+            if ($selectedStock === 'non_positive' && $sourceStock !== null && $sourceStock > 0) {
                 continue;
             }
 
@@ -1336,6 +1430,7 @@ final class CompetitiveIntelligenceController extends AbstractController
         $displayedRows = array_slice($filteredRows, 0, $limit);
 
         return [
+            'brands' => $brands,
             'competitors' => array_values($competitorMap),
             'totals' => [
                 'products' => count($allRows),

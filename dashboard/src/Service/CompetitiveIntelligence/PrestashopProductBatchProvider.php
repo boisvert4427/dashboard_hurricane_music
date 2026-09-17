@@ -147,12 +147,16 @@ final class PrestashopProductBatchProvider
                     NULLIF(TRIM(COALESCE(f.manufacturer_name, \'\')), \'\') AS brand,
                     p.id_category_default AS category_id,
                     f.price_tax_incl AS source_price,
+                    stock.quantity AS source_stock,
                     COALESCE(NULLIF(TRIM(COALESCE(f.product_name, \'\')), \'\'), CONCAT(\'Product \', f.id_product)) AS name
              FROM leo_netrivals_send_feed f
              LEFT JOIN product p ON p.id_product = f.id_product
+             LEFT JOIN stock_available stock ON stock.id_product = f.id_product
+                 AND stock.id_product_attribute = 0 AND stock.id_shop = :shop_id
              WHERE f.id_product IN (:ids)',
             [
                 'ids' => $productIds,
+                'shop_id' => $shopId,
             ],
             [
                 'ids' => ArrayParameterType::INTEGER,
@@ -185,6 +189,7 @@ final class PrestashopProductBatchProvider
                 'category_path' => $categoryPath,
                 'category' => $categoryPath,
                 'source_price' => isset($row['source_price']) ? (float) $row['source_price'] : null,
+                'source_stock' => isset($row['source_stock']) ? (int) $row['source_stock'] : null,
                 'supplier_reference' => $this->nullableString($row['supplier_reference'] ?? null),
                 'ean' => $this->nullableString($row['ean'] ?? null),
                 'source_image_url' => $this->getSourceImageUrl($productId, $shopId),

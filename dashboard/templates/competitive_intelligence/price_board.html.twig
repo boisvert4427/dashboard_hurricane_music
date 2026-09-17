@@ -53,6 +53,23 @@
                                     {% endfor %}
                                 </select>
                             </label>
+                            <label class="price-toolbar-select">
+                                <span>Marque</span>
+                                <select class="price-brand-select" name="brand" onchange="this.form.submit()">
+                                    <option value="">Toutes les marques</option>
+                                    {% for brand in board.brands %}
+                                        <option value="{{ brand }}" {% if selected_brand == brand %}selected{% endif %}>{{ brand }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label class="price-toolbar-select">
+                                <span>Stock</span>
+                                <select class="price-stock-select" name="stock" onchange="this.form.submit()">
+                                    <option value="">Tous</option>
+                                    <option value="positive" {% if selected_stock == 'positive' %}selected{% endif %}>Oui</option>
+                                    <option value="non_positive" {% if selected_stock == 'non_positive' %}selected{% endif %}>Non</option>
+                                </select>
+                            </label>
                         </form>
                     </div>
                     <div class="price-toolbar-group">
@@ -88,7 +105,7 @@
                         {% for bucket in board.histogram %}
                             <a
                                 class="price-histogram-bar price-histogram-bar-{{ bucket.tone }}{% if selected_bucket == bucket.key %} is-active{% endif %}"
-                                href="{{ path('app_competitive_price_board', { limit: limit, bucket: bucket.key, competitor: selected_competitor ? selected_competitor.key : null }) }}"
+                                href="{{ path('app_competitive_price_board', { limit: limit, bucket: bucket.key, competitor: selected_competitor ? selected_competitor.key : null, brand: selected_brand ?: null, stock: selected_stock ?: null }) }}"
                             >
                                 <span class="price-histogram-count">{{ bucket.count }}</span>
                                 <div class="price-histogram-track">
@@ -114,10 +131,13 @@
                 <p>
                     Lecture sur les produits ayant au moins un prix final concurrent et un prix source exploitable.
                     {% if board.selected_bucket_label %}
-                        <a href="{{ path('app_competitive_price_board', { limit: limit, competitor: selected_competitor ? selected_competitor.key : null }) }}">Retirer le filtre</a>
+                        <a href="{{ path('app_competitive_price_board', { limit: limit, competitor: selected_competitor ? selected_competitor.key : null, brand: selected_brand ?: null, stock: selected_stock ?: null }) }}">Retirer le filtre</a>
                     {% endif %}
                     {% if board.selected_competitor %}
                         <span>Concurrent: {{ board.selected_competitor.name }}</span>
+                    {% endif %}
+                    {% if selected_brand %}
+                        <span>Marque: {{ selected_brand }}</span>
                     {% endif %}
                 </p>
             </div>
@@ -126,7 +146,7 @@
                 <div class="price-grid-controls-spacer"></div>
                 <div class="price-grid-controls-actions">
                     <button class="price-chip" type="button">Pourcentage</button>
-                    <button class="price-chip" type="button">Exporter</button>
+                    <a class="price-chip" href="{{ path('app_competitive_price_board', { export: 'csv', bucket: selected_bucket ?: null, competitor: selected_competitor ? selected_competitor.key : null, brand: selected_brand ?: null, stock: selected_stock ?: null }) }}" title="Exporter tous les produits correspondant aux filtres actifs">Exporter</a>
                     <button class="price-chip" type="button">Ordre</button>
                 </div>
             </div>

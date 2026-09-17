@@ -3727,3 +3727,18 @@ body.dashboard-home .detail-table td {
         grid-column: 1 / -1;
     }
 }
+
+.price-toolbar-select select.price-brand-select,
+.price-toolbar-select select.price-brand-select option,
+.price-toolbar-select select.price-stock-select,
+.price-toolbar-select select.price-stock-select option {
+    color: #000;
+    background: #fff;
+}
+
+.price-board-shell a[href],
+.price-board-shell select:not(:disabled),
+.price-board-shell button[data-price-drawer-trigger],
+.price-board-shell button[data-price-drawer-close] {
+    cursor: pointer;
+}
