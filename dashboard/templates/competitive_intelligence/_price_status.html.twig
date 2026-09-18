@@ -1,0 +1,12 @@
+<div class="price-observation-status">
+    <div>Relevé : {{ price_status.last_observed_at ? price_status.last_observed_at|date('d/m/Y H:i') : 'date inconnue' }}</div>
+    {% if price_status.last_price_result and price_status.last_price_result != 'price_found' %}
+        {% set result_labels = {price_not_found: 'Prix introuvable', temporary_error: 'Erreur temporaire', http_gone: 'Page introuvable'} %}
+        <div>{{ result_labels[price_status.last_price_result] ?? price_status.last_price_result }}{% if price_status.last_price_attempt_at %} le {{ price_status.last_price_attempt_at|date('d/m/Y H:i') }}{% endif %}</div>
+    {% endif %}
+    {% if price_status.price_check_requested_at %}
+        <div>Vérification demandée, en attente du robot</div>
+    {% elseif price_status.next_price_check_at %}
+        <div>Nouvel essai : {{ price_status.next_price_check_at|date('d/m/Y H:i') }}</div>
+    {% endif %}
+</div>

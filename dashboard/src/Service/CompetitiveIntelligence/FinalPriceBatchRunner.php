@@ -20,6 +20,7 @@ final class FinalPriceBatchRunner
         int $afterId = 0,
         bool $debug = false,
         int $maxParallel = 0,
+        int $productId = 0,
     ): array {
         $projectRoot = dirname(rtrim($projectDir, '/'));
         $this->assertBatchNotRunning($projectRoot, $competitorId);
@@ -33,6 +34,7 @@ final class FinalPriceBatchRunner
             'CI_COMPETITOR_ID' => (string) $competitorId,
             'CI_BATCH_LIMIT' => (string) $limit,
             'CI_AFTER_ID' => (string) $afterId,
+            'CI_PRICE_PRODUCT_ID' => (string) $productId,
         ];
 
         if ($debug) {

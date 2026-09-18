@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import re
 from typing import Iterable
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from ..core.normalization import normalize_text, simplify_name
+from ..core.normalization import normalize_text
 from ..core.scoring import ProductFacts
+from ..core.woodbrass_price import extract_woodbrass_display_price, is_woodbrass_product_url
 from .base import Candidate, CompetitorScraper
 
 
@@ -26,101 +27,83 @@ class WoodbrassMatch:
 class WoodbrassScraper(CompetitorScraper):
     SEARCH_INPUT_TIMEOUT_MS = 12000
     SEARCH_RESULT_TIMEOUT_MS = 3000
-    ALGOLIA_APP_ID = "F94UOU1BDS"
-    ALGOLIA_API_KEY = "215f25fe764a4c9f287e726db062368f"
-    ALGOLIA_INDEX = "production_woodbrass_products_fr"
-
     def __init__(self, search_url_pattern: str, http, debug: bool = False, debug_dir: str = "debug"):
         super().__init__(search_url_pattern=search_url_pattern, http=http)
         self.debug = debug
         self.debug_dir = Path(debug_dir)
 
     def parse_results(self, html: str, query: str) -> Iterable[tuple[str, str]]:
-        # Woodbrass uses a browser-driven path, so this fallback is not used.
+        # Search uses the current storefront JSON endpoint, not HTML result cards.
         return []
 
     def search(self, product: dict[str, object]) -> list[Candidate]:
-        facts = ProductFacts(
-            supplier_reference=str(product.get("supplier_reference") or ""),
-            ean=str(product.get("ean") or ""),
-            brand=str(product.get("brand") or ""),
-            name=str(product.get("name") or ""),
-        )
-        product_id = int(product["id_product"])
-        queries = [
-            facts.ean,
-            facts.supplier_reference,
-            f"{facts.brand} {facts.supplier_reference}".strip(),
-            simplify_name(facts.name),
-            facts.name,
-        ]
+        ean = self._normalize_valid_ean(product.get("ean"))
+        if not ean:
+            return []
 
+        response = self.http.get(
+            "https://woodbrass.com/search/suggest.json",
+            params={"q": ean, "resources[type]": "product", "resources[limit]": 10},
+        )
+        response.raise_for_status()
+        hits = response.json().get("resources", {}).get("results", {}).get("products", [])
         candidates: list[Candidate] = []
         seen_urls: set[str] = set()
-
-        for query in [q for q in queries if q]:
-            for hit in self._search_algolia(query):
-                url = str(hit.get("url") or "").strip()
-                title = str(hit.get("name") or "").strip()
-                if not url or not title:
+        for hit in hits:
+            if not isinstance(hit, dict):
+                continue
+            url = urljoin("https://woodbrass.com", str(hit.get("url") or ""))
+            parsed = urlparse(url)
+            # Only the new product pages are usable; discard search tracking parameters.
+            if not is_woodbrass_product_url(url) or not parsed.path.startswith("/products/"):
+                continue
+            url = f"https://woodbrass.com{parsed.path.rstrip('/')}"
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            details_response = self.http.get(url + ".js")
+            if details_response.status_code in {404, 410}:
+                continue
+            details_response.raise_for_status()
+            details_url = urlparse(details_response.url)
+            if not details_url.path.endswith('.js'):
+                continue
+            final_url = f"{details_url.scheme}://{details_url.netloc}{details_url.path[:-3]}"
+            if not is_woodbrass_product_url(final_url):
+                continue
+            details = details_response.json()
+            title = str(details.get("title") or "").strip()
+            if not title or re.search(r"\b(?:b stock|bstock|occasion|reconditionne|used)\b", normalize_text(title)):
+                continue
+            variants = details.get("variants") or []
+            for variant in variants:
+                if not isinstance(variant, dict):
                     continue
-                if not self._is_woodbrass_url(url):
+                barcode = self._normalize_valid_ean(variant.get("barcode"))
+                # UPC and its zero-prefixed EAN identify the same GTIN.
+                if not barcode or barcode.zfill(14) != ean.zfill(14):
                     continue
-                if url in seen_urls:
+                variant_id = str(variant.get("id") or "")
+                if len(variants) > 1 and not variant_id.isdigit():
                     continue
-
-                score = self._score_hit(hit, query, facts)
-                if score < 90:
-                    continue
-
-                verified, page_title, candidate_price = self._verify_product_page(url, hit, facts)
-                if not verified:
-                    continue
-
-                seen_urls.add(url)
-                candidates.append(
-                    Candidate(
-                        id_product=product_id,
-                        url=url,
-                        title=page_title or title,
-                        source="woodbrass_algolia",
-                        score=score,
-                        matched_query=query,
-                        price=candidate_price,
-                    )
-                )
-
-        candidates.sort(key=lambda item: item.score, reverse=True)
+                candidate_url = final_url + (f"?variant={variant_id}" if len(variants) > 1 else "")
+                cents = self._coerce_price(variant.get("price"))
+                image = variant.get("featured_image") or details.get("featured_image")
+                if isinstance(image, dict):
+                    image = image.get("src")
+                candidates.append(Candidate(
+                    id_product=int(product["id_product"]),
+                    url=candidate_url,
+                    title=title,
+                    source="woodbrass_ean",
+                    score=100,
+                    matched_query=ean,
+                    competitor_brand=str(details.get("vendor") or "").strip() or None,
+                    image_url=urljoin("https://woodbrass.com", str(image)) if image else None,
+                    price=cents / 100 if cents is not None else None,
+                ))
+                break
         return candidates[:5]
-
-    def _search_algolia(self, query: str) -> list[dict[str, object]]:
-        payload = {
-            "params": f"query={quote_plus(query)}&hitsPerPage=5",
-        }
-        url = f"https://{self.ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{self.ALGOLIA_INDEX}/query"
-        try:
-            response = self.http.post(
-                url,
-                json=payload,
-                headers={
-                    "X-Algolia-API-Key": self.ALGOLIA_API_KEY,
-                    "X-Algolia-Application-Id": self.ALGOLIA_APP_ID,
-                    "Content-Type": "application/json",
-                },
-            )
-            response.raise_for_status()
-        except Exception:
-            return []
-
-        try:
-            data = response.json()
-        except Exception:
-            return []
-
-        hits = data.get("hits", [])
-        if isinstance(hits, list):
-            return [hit for hit in hits if isinstance(hit, dict)]
-        return []
 
     def _score_hit(self, hit: dict[str, object], query: str, facts: ProductFacts) -> int:
         title = str(hit.get("name") or "")
@@ -249,6 +232,9 @@ class WoodbrassScraper(CompetitorScraper):
         return False, page_title, candidate_price
 
     def _extract_candidate_price(self, hit: dict[str, object], html: str) -> float | None:
+        displayed_price = extract_woodbrass_display_price(html)
+        if displayed_price is not None:
+            return displayed_price
         for key in ("price", "prix", "sale_price", "price_value"):
             candidate = self._coerce_price(hit.get(key))
             if candidate is not None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import random
 import re
@@ -16,6 +17,7 @@ from bs4 import BeautifulSoup
 from competitive_intelligence.core.api_client import ApiClient
 from competitive_intelligence.core.config import Settings
 from competitive_intelligence.core.http_client import HttpClient
+from competitive_intelligence.core.woodbrass_price import extract_woodbrass_display_price, is_woodbrass_product_url
 
 
 @contextmanager
@@ -48,6 +50,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             competitor_id=settings.competitor_id,
             limit=settings.batch_limit,
             after_id=settings.after_id,
+            product_id=int(os.environ.get("CI_PRICE_PRODUCT_ID", "0")),
         )
         competitor = batch["competitor"]
         competitor_domain = str(competitor.get("domain") or "").lower()
@@ -78,6 +81,8 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     _human_pause()
                 response = http.get(url, headers=_page_headers(competitor_domain))
                 response.raise_for_status()
+                if response.headers.get("cf-mitigated") == "challenge" or "cf-chl-" in response.text:
+                    raise RuntimeError("Temporary anti-bot challenge")
                 price = _extract_price(competitor_domain, competitor_name, response.text, response.url)
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
@@ -91,15 +96,15 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     },
                     flush=True,
                 )
-                if status_code in {404, 410}:
-                    failures.append(
-                        {
-                            "id_product": product_id,
-                            "url": url,
-                            "http_status": status_code,
-                            "error": str(exc),
-                        }
-                    )
+                failures.append(
+                    {
+                        "id_product": product_id,
+                        "url": url,
+                        "http_status": status_code,
+                        "result": "http_gone" if status_code in {404, 410} else "temporary_error",
+                        "error": str(exc),
+                    }
+                )
                 continue
             except Exception as exc:
                 print(
@@ -111,9 +116,12 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     },
                     flush=True,
                 )
+                failures.append(
+                    {"id_product": product_id, "url": url, "result": "temporary_error", "error": str(exc)}
+                )
                 continue
 
-            if price is None:
+            if price is None or price <= 0:
                 print(
                     {
                         "event": "price_not_found",
@@ -122,7 +130,16 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     },
                     flush=True,
                 )
+                failures.append(
+                    {"id_product": product_id, "url": url, "result": "price_not_found"}
+                )
                 continue
+
+            resolved_url = response.url.split("#", 1)[0]
+            observation_url = {}
+            if "woodbrass" in competitor_domain and response.history and resolved_url != url:
+                if is_woodbrass_product_url(resolved_url):
+                    observation_url["resolved_url"] = resolved_url
 
             observations.append(
                 {
@@ -130,6 +147,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     "url": url,
                     "price": price,
                     "source": _price_source_label(competitor_domain, competitor_name),
+                    **observation_url,
                 }
             )
             print(
@@ -199,6 +217,8 @@ def _price_source_label(domain: str, name: str) -> str:
 
 def _extract_price(domain: str, name: str, html: str, final_url: str | None = None) -> float | None:
     if "woodbrass" in domain or "woodbrass" in name:
+        if final_url and not is_woodbrass_product_url(final_url):
+            return None
         return _extract_woodbrass_price(html)
 
     if "thomann" in domain or "thomann" in name:
@@ -218,6 +238,9 @@ def _extract_price(domain: str, name: str, html: str, final_url: str | None = No
 
 
 def _extract_woodbrass_price(html: str) -> float | None:
+    price = extract_woodbrass_display_price(html)
+    if price is not None:
+        return price
     soup = BeautifulSoup(html, "html.parser")
     selectors = [
         "div.fwb.fs40.fs30-md.fs28-sm.lh1",

@@ -511,7 +511,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
         }
 
         try {
-            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId);
+            $batch = $batchProvider->getNextBatch($competitorId, $limit, $afterId, max(0, (int) $request->query->get('product_id', 0)));
         } catch (\Throwable $e) {
             return $this->json([
                 'ok' => false,
@@ -546,7 +546,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
 
         try {
             $stats = ['inserted' => 0, 'updated' => 0, 'ignored' => 0];
-            if (array_key_exists('observations', $payload)) {
+            if (array_key_exists('observations', $payload) || array_key_exists('failures', $payload)) {
                 $stats = $finalPriceIngestionService->ingest($payload);
             }
         } catch (\Throwable $e) {

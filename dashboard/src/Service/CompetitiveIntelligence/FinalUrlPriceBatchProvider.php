@@ -18,15 +18,15 @@ final class FinalUrlPriceBatchProvider
     /**
      * @return array{items: array<int, array<string, mixed>>, after_id: int, limit: int, competitor_id: int, has_more: bool}
      */
-    public function getNextBatch(int $competitorId, int $limit = 50, int $afterId = 0): array
+    public function getNextBatch(int $competitorId, int $limit = 50, int $afterId = 0, int $productId = 0): array
     {
         $limit = max(1, min(200, $limit));
 
-        $rows = $this->fetchBatchSegment($competitorId, $afterId, $limit, false);
+        $rows = $this->fetchBatchSegment($competitorId, $afterId, $limit, false, $productId);
         if (count($rows) < $limit) {
             $rows = array_merge(
                 $rows,
-                $this->fetchBatchSegment($competitorId, $afterId, $limit - count($rows), true)
+                $this->fetchBatchSegment($competitorId, $afterId, $limit - count($rows), true, $productId)
             );
         }
 
@@ -62,7 +62,7 @@ final class FinalUrlPriceBatchProvider
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function fetchBatchSegment(int $competitorId, int $afterId, int $limit, bool $wrapAround): array
+    private function fetchBatchSegment(int $competitorId, int $afterId, int $limit, bool $wrapAround, int $productId = 0): array
     {
         if ($limit <= 0) {
             return [];
@@ -89,19 +89,25 @@ final class FinalUrlPriceBatchProvider
               AND last_price.id_product = f.id
               AND last_price.url = f.url
              WHERE f.competitor_id = :competitor_id
+               AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
+               AND (:product_id = 0 OR f.id = :product_id)
                AND f.id ' . $operator . ' :after_id
-             ORDER BY (last_price.last_scraped_at IS NOT NULL) ASC,
-                      last_price.last_scraped_at ASC,
+             ORDER BY (f.price_check_requested_at IS NULL) ASC,
+                      f.price_check_requested_at ASC,
+                      COALESCE(f.last_price_attempt_at, last_price.last_scraped_at) ASC,
                       f.id ASC
              LIMIT :limit',
             [
                 'competitor_id' => $competitorId,
                 'after_id' => $afterId,
+                'product_id' => $productId,
+                'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                 'limit' => $limit,
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
                 'after_id' => ParameterType::INTEGER,
+                'product_id' => ParameterType::INTEGER,
                 'limit' => ParameterType::INTEGER,
             ]
         );
@@ -114,9 +120,11 @@ final class FinalUrlPriceBatchProvider
                 SELECT 1
                 FROM competitor_url_final f
                 WHERE f.competitor_id = :competitor_id
+                  AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
             )',
             [
                 'competitor_id' => $competitorId,
+                'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,

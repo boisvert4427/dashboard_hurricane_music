@@ -18,7 +18,7 @@ Responsibilities:
 - `StarsMusicScraper`
 - `ThomannScraper`
 - `MichenaudScraper`
-- Woodbrass and Stars rely on a light HTTP search flow and validate the final page by reference / EAN when available.
+- Woodbrass searches the current storefront by EAN and validates the exact barcode in the product variant data. Stars uses a light HTTP search flow with reference / EAN validation.
 - Thomann uses the embedded `search.index` payload from the search page and participates in one OpenAI request per batch when available.
 - Michenaud uses its search page and participates in one OpenAI request per batch when available.
 - Thomann and Michenaud filter candidates by brand before OpenAI ranking.
@@ -87,7 +87,7 @@ It is intended to be called once per minute and then chooses one task to start.
 
 ```bash
 cd competitive_intelligence_python
-python3 run_woodbrass_test.py
+python3 run_woodbrass_test.py 0885978098606
 ```
 
 ### Shared worker compatibility entry point
@@ -209,3 +209,43 @@ The orchestrator admin can now:
 - launch one task manually
 - inspect recent logs
 - open full logs in the browser, including via the `last_log_file` fallback when the log is not in the recent index anymore
+
+## Price retry scheduling
+
+All four price workers report every outcome, including `price_not_found` and
+`temporary_error`, through the final-prices API. Symfony persists attempt state
+and skips URLs until their next check: missing prices retry after 1, 7, then 30
+days; temporary errors retry after 3 hours. A successful price resets the missing
+price counter. Existing 404/410 removal rules remain, with one day between retries.
+
+`CI_PRICE_PRODUCT_ID` optionally restricts a price batch to a single product for
+the product-page recheck action. The same competitor lock remains in force.
+Manual rechecks are queued with priority if that lock is already held.
+
+### Woodbrass storefront migration
+
+The price worker and URL validator prefer the current `[data-wb-bss-price]`
+price, scoped to the main product when available. Legacy price selectors remain
+as fallbacks. The price worker reports both the requested `url` and, after an
+HTTP redirect to a Woodbrass product page, `resolved_url`.
+
+Symfony checks that the requested URL still matches the final, verifies the
+Woodbrass destination and avoids URL collisions. After a successful price
+observation it updates the final URL and the matching validation URL. Previous
+history entries keep their original URLs; new observations use the new URL.
+Redirects to a homepage, category, or another domain are not accepted as product
+price observations.
+
+### Woodbrass URL discovery by EAN
+
+URL discovery uses `/search/suggest.json` with the source EAN, then checks the
+barcode returned by `/products/<handle>.js`. Only exact GTIN matches (including
+UPC with a leading zero) are accepted. Search tracking parameters are removed;
+when a product has multiple variants, the verified variant ID is retained.
+Prices from the product JSON are in cents and are converted to euros.
+
+The old Algolia index is no longer queried. Missing EANs and mismatched barcodes
+produce no automatic match; the scraper does not fall back to reference or title.
+The read-only `run_woodbrass_test.py <EAN>` command prints candidates without
+writing to Symfony. Search/network errors propagate to the worker rather than
+being silently treated as an empty result.

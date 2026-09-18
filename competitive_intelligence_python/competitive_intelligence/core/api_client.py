@@ -52,13 +52,14 @@ class ApiClient:
             response.raise_for_status()
         return response.json()
 
-    def fetch_next_final_price_batch(self, competitor_id: int, limit: int, after_id: int) -> dict[str, Any]:
+    def fetch_next_final_price_batch(self, competitor_id: int, limit: int, after_id: int, product_id: int = 0) -> dict[str, Any]:
         response = self.http.get(
             f"{self.base_url}/api/competitive/final-prices/next-batch",
             params={
                 "competitor_id": competitor_id,
                 "limit": limit,
                 "after_id": after_id,
+                "product_id": product_id,
             },
             headers=self._headers(),
         )

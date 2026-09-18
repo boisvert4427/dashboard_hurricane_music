@@ -189,8 +189,18 @@
                                             <td class="module-url-cell">
                                                 <a href="{{ final.url }}" target="_blank" rel="noopener noreferrer">{{ final.competitor_title ?? final.url }}</a>
                                             </td>
-                                            <td>{{ final.competitor_price ?? 'n/a' }}</td>
                                             <td>
+                                                {{ final.competitor_price ?? 'n/a' }}
+                                                {% include 'competitive_intelligence/_price_status.html.twig' with {price_status: final} only %}
+                                            </td>
+                                            <td>
+                                                <form method="post" action="{{ path('app_competitive_price_recheck', {productId: row.product.id_product, competitorId: final.competitor.id}) }}">
+                                                    <input type="hidden" name="_token" value="{{ csrf_token('price_recheck_' ~ row.product.id_product ~ '_' ~ final.competitor.id) }}">
+                                                    <input type="hidden" name="url" value="{{ final.url }}">
+                                                    <input type="hidden" name="q" value="{{ query }}">
+                                                    {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                    <button class="button button-secondary" type="submit">Revérifier maintenant</button>
+                                                </form>
                                                 <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: final.competitor.id}) }}" onsubmit="return confirm('Supprimer ce lien et rejeter le test result ?');">
                                                     <input type="hidden" name="q" value="{{ query }}">
                                                     {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}

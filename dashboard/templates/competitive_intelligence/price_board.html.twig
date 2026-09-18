@@ -210,6 +210,9 @@
                                                 {{ cell.delta_percent >= 0 ? '+' : '' }}{{ cell.delta_percent|number_format(1, ',', ' ') }}%
                                             </div>
                                             <div class="price-cell-value">{{ cell.price|number_format(2, ',', ' ') }} €</div>
+                                            {% if cell.competitor.key != 'algam' %}
+                                                {% include 'competitive_intelligence/_price_status.html.twig' with {price_status: cell} only %}
+                                            {% endif %}
                                         {% else %}
                                             <div class="price-cell-empty">-</div>
                                         {% endif %}

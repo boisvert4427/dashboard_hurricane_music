@@ -70,10 +70,32 @@ final class CompetitiveFinalPriceIngestionService
             }
 
             if ($final->getUrl() !== $url) {
-                $final->setUrl($url);
+                $ignored++;
+                continue;
+            }
+            $resolvedUrl = trim((string) ($observation['resolved_url'] ?? ''));
+            if ($resolvedUrl !== '' && $resolvedUrl !== $url) {
+                if (!$this->isWoodbrassProductUrl($url) || !$this->isWoodbrassProductUrl($resolvedUrl)
+                    || !in_array(strtolower($competitor->getDomain()), ['woodbrass.com', 'www.woodbrass.com'], true)) {
+                    $ignored++;
+                    continue;
+                }
+                $existingTarget = $finalRepository->findOneBy(['competitor' => $competitor, 'url' => $resolvedUrl]);
+                if ($existingTarget instanceof CompetitorUrlFinal && $existingTarget->getId() !== $productId) {
+                    $ignored++;
+                    continue;
+                }
+                $final->setUrl($resolvedUrl);
+                $testResult = $testResultRepository->findOneBy(['productId' => $productId, 'competitor' => $competitor]);
+                if ($testResult instanceof CompetitorUrlTestResult && $testResult->getUrl() === $url) {
+                    $testResult->setUrl($resolvedUrl);
+                    $testResult->touch();
+                }
+                $url = $resolvedUrl;
             }
             $final->setCompetitorPrice($price);
             $final->resetHttpFailureState();
+            $final->recordPriceAttempt('price_found');
 
             $this->entityManager->persist(new CompetitorUrlPriceHistory(
                 $productId,
@@ -98,7 +120,9 @@ final class CompetitiveFinalPriceIngestionService
                 $url = trim((string) ($failure['url'] ?? ''));
                 $httpStatus = isset($failure['http_status']) ? (int) $failure['http_status'] : null;
                 $message = trim((string) ($failure['error'] ?? ''));
-                if ($productId <= 0 || $url === '' || $httpStatus === null) {
+                $result = (string) ($failure['result'] ?? (in_array($httpStatus, [404, 410], true) ? 'http_gone' : 'temporary_error'));
+                if ($productId <= 0 || $url === '' || !in_array($result, ['price_not_found', 'temporary_error', 'http_gone'], true)
+                    || ($result === 'http_gone' && !in_array($httpStatus, [404, 410], true))) {
                     $ignored++;
                     continue;
                 }
@@ -114,6 +138,13 @@ final class CompetitiveFinalPriceIngestionService
 
                 if ($final->getUrl() !== $url) {
                     $ignored++;
+                    continue;
+                }
+
+                $final->recordPriceAttempt($result);
+                if ($result === 'price_not_found') {
+                    $final->resetHttpFailureState();
+                    $failures++;
                     continue;
                 }
 
@@ -161,6 +192,17 @@ final class CompetitiveFinalPriceIngestionService
         ];
     }
 
+    private function isWoodbrassProductUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        return is_array($parts)
+            && strlen($url) <= 2048
+            && in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
+            && in_array(strtolower($parts['host'] ?? ''), ['woodbrass.com', 'www.woodbrass.com'], true)
+            && !isset($parts['user']) && !isset($parts['pass'])
+            && preg_match('~^/(?:products/[^/]+/?|[^/]*-p[0-9]+\.html)$~', $parts['path'] ?? '') === 1;
+    }
+
     private function nullableDecimalString(mixed $value): ?string
     {
         $value = trim((string) $value);
@@ -169,7 +211,7 @@ final class CompetitiveFinalPriceIngestionService
         }
 
         $value = str_replace(',', '.', $value);
-        if (!is_numeric($value)) {
+        if (!is_numeric($value) || !is_finite((float) $value) || (float) $value <= 0) {
             return null;
         }
 

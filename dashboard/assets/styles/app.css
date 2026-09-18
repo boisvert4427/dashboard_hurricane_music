@@ -3742,3 +3742,12 @@ body.dashboard-home .detail-table td {
 .price-board-shell button[data-price-drawer-close] {
     cursor: pointer;
 }
+
+.price-observation-status {
+    margin-top: 5px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted);
+    font-weight: normal;
+    white-space: normal;
+}

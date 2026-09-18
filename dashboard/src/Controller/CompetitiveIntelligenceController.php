@@ -14,6 +14,7 @@ use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorStateStorage;
 use App\Service\CompetitiveIntelligence\CompetitivePriceHistoryService;
+use App\Service\CompetitiveIntelligence\FinalPriceBatchRunner;
 use App\Service\CompetitiveIntelligence\CompetitiveTaskLogService;
 use App\Service\CompetitiveIntelligence\CompetitiveImageReviewService;
 use App\Service\CompetitiveIntelligence\PrestashopProductBatchProvider;
@@ -403,6 +404,73 @@ final class CompetitiveIntelligenceController extends AbstractController
                 ->orderBy('c.name', 'ASC')
                 ->getQuery()
                 ->getResult(),
+        ]);
+    }
+
+    private function getLastPriceDates(EntityManagerInterface $entityManager, array $productIds): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+        $rows = $entityManager->getConnection()->fetchAllAssociative(
+            'SELECT f.id AS product_id, f.competitor_id, MAX(h.observed_at) AS last_observed_at
+             FROM competitor_url_final f
+             LEFT JOIN competitor_url_price_history h ON h.id_product = f.id
+                AND h.competitor_id = f.competitor_id AND h.url = f.url
+             WHERE f.id IN (:ids)
+             GROUP BY f.id, f.competitor_id',
+            ['ids' => $productIds],
+            ['ids' => ArrayParameterType::INTEGER],
+        );
+        $dates = [];
+        foreach ($rows as $row) {
+            $dates[(int) $row['product_id']][(int) $row['competitor_id']] = $row['last_observed_at'];
+        }
+
+        return $dates;
+    }
+
+    #[Route('/recherche/{productId}/prix/{competitorId}/reverifier', name: 'app_competitive_price_recheck', methods: ['POST'])]
+    public function recheckPrice(
+        int $productId,
+        int $competitorId,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        FinalPriceBatchRunner $runner,
+    ): Response {
+        if (!$this->isCsrfTokenValid('price_recheck_' . $productId . '_' . $competitorId, $request->request->getString('_token'))) {
+            throw $this->createAccessDeniedException('Jeton de formulaire invalide.');
+        }
+        $final = $entityManager->getRepository(CompetitorUrlFinal::class)->findOneBy([
+            'id' => $productId,
+            'competitor' => $competitorId,
+        ]);
+        if (!$final instanceof CompetitorUrlFinal) {
+            throw $this->createNotFoundException('URL finale introuvable.');
+        }
+        if ($final->getUrl() !== $request->request->getString('url')) {
+            $this->addFlash('error', 'Le lien a changé. Rechargez la fiche avant de relancer.');
+        } else {
+            $final->requestPriceCheck();
+            $entityManager->flush();
+            try {
+                $runner->start(
+                    (string) $this->getParameter('kernel.project_dir'),
+                    $request->getSchemeAndHttpHost(),
+                    (string) $this->getParameter('competitive_intelligence_api_token'),
+                    $competitorId,
+                    limit: 1,
+                    productId: $productId,
+                );
+                $this->addFlash('success', 'Vérification lancée. Rechargez la fiche dans quelques instants pour voir le résultat.');
+            } catch (\RuntimeException) {
+                $this->addFlash('success', 'Vérification mise en priorité pour le prochain passage du robot.');
+            }
+        }
+
+        return $this->redirectToRoute('app_competitive_search', [
+            'q' => $request->request->getString('q', (string) $productId),
+            'embed' => $request->request->getString('embed') === '1' ? 1 : null,
         ]);
     }
 
@@ -1259,10 +1327,15 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'price' => (float) $price,
                 'url' => $finalRow->getUrl(),
                 'competitor' => $competitorMap[$competitorId],
+                'last_price_attempt_at' => $finalRow->getLastPriceAttemptAt(),
+                'last_price_result' => $finalRow->getLastPriceResult(),
+                'next_price_check_at' => $finalRow->getNextPriceCheckAt(),
+                'price_check_requested_at' => $finalRow->getPriceCheckRequestedAt(),
             ];
         }
 
         $productIds = array_keys($groupedPrices);
+        $lastPriceDates = $this->getLastPriceDates($entityManager, $productIds);
         $algamPrices = $this->getAlgamPricesByProductIds($entityManager, $productIds);
         foreach ($algamPrices as $productId => $algamPrice) {
             if (!isset($groupedPrices[$productId])) {
@@ -1380,6 +1453,11 @@ final class CompetitiveIntelligenceController extends AbstractController
                     'delta_percent' => $competitorDelta,
                     'tone' => $competitorDelta < -1.0 ? 'cheaper' : ($competitorDelta > 1.0 ? 'pricier' : 'same'),
                     'url' => $entry['url'],
+                    'last_observed_at' => $lastPriceDates[$productId][$competitorId] ?? null,
+                    'last_price_attempt_at' => $entry['last_price_attempt_at'] ?? null,
+                    'last_price_result' => $entry['last_price_result'] ?? null,
+                    'next_price_check_at' => $entry['next_price_check_at'] ?? null,
+                    'price_check_requested_at' => $entry['price_check_requested_at'] ?? null,
                 ];
             }
 
@@ -1955,6 +2033,7 @@ final class CompetitiveIntelligenceController extends AbstractController
             $titlesByProductAndCompetitor[$productId][$competitorId] ??= $competitorTitle;
         }
 
+        $lastPriceDates = $this->getLastPriceDates($entityManager, $productIds);
         $grouped = [];
         foreach ($rows as $row) {
             if (!$row instanceof \App\Entity\CompetitorUrlFinal) {
@@ -1967,6 +2046,11 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'competitor' => $row->getCompetitor(),
                 'url' => $row->getUrl(),
                 'competitor_price' => $row->getCompetitorPrice(),
+                'last_observed_at' => $lastPriceDates[$row->getId()][$competitorId] ?? null,
+                'last_price_attempt_at' => $row->getLastPriceAttemptAt(),
+                'last_price_result' => $row->getLastPriceResult(),
+                'next_price_check_at' => $row->getNextPriceCheckAt(),
+                'price_check_requested_at' => $row->getPriceCheckRequestedAt(),
                 'competitor_title' => $titlesByProductAndCompetitor[$row->getId()][$competitorId] ?? null,
             ];
         }
