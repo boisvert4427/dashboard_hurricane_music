@@ -19,26 +19,37 @@ final class DashboardController extends AbstractController
         $filters = $this->parseFilters($request, false);
         $data = $kpiRepository->getHomeData($filters);
         $globalTotal = (float) ($data['current_summary']['total_ht'] ?? 0);
+        $excludeSchoolFromTotal = empty($filters['channel']);
+        $channelsTotal = array_reduce(
+            $data['channels'],
+            static fn (float $total, array $channel): float => $excludeSchoolFromTotal && self::isSchoolChannel($channel)
+                ? $total
+                : $total + (float) ($channel['current'] ?? 0),
+            0.0
+        );
         $channelTotalsByLabel = [];
         foreach ($data['channels'] as $channel) {
             $channelTotalsByLabel[(string) ($channel['value'] ?? $channel['label'] ?? '')] = (float) ($channel['current'] ?? 0);
         }
         $palette = ['#3b82f6', '#34d399', '#7dd3fc', '#94a3b8', '#a78bfa', '#f59e0b'];
-        $sortedChannels = $data['channels'];
+        $sortedChannels = array_values(array_filter(
+            $data['channels'],
+            static fn (array $channel): bool => !$excludeSchoolFromTotal || !self::isSchoolChannel($channel)
+        ));
         usort(
             $sortedChannels,
             static fn (array $a, array $b): int => (float) ($b['current'] ?? 0) <=> (float) ($a['current'] ?? 0)
         );
         $channelsSummary = array_map(
-            static function (array $channel, int $index) use ($globalTotal, $palette): array {
+            static function (array $channel, int $index) use ($channelsTotal, $palette): array {
                 $current = (float) $channel['current'];
 
                 return [
                     'label' => $channel['label'],
                     'current' => $current,
                     'value' => self::formatInteger($current),
-                    'share_global_value' => self::formatPercentValue($current, $globalTotal),
-                    'share_global_ratio' => $globalTotal > 0 ? ($current / $globalTotal) * 100.0 : 0.0,
+                    'share_global_value' => self::formatPercentValue($current, $channelsTotal),
+                    'share_global_ratio' => $channelsTotal > 0 ? ($current / $channelsTotal) * 100.0 : 0.0,
                     'dot_color' => $palette[$index % count($palette)],
                 ];
             },
@@ -60,7 +71,7 @@ final class DashboardController extends AbstractController
             'filter_options' => $data['filters'],
             'alerts' => $data['alerts'],
             'objective_summary' => $data['objective_summary'],
-            'channels_total_display' => self::formatInteger($globalTotal),
+            'channels_total_display' => self::formatInteger($channelsTotal),
             'neuf' => self::sortChannelCards(self::formatNeufSection($data['neuf'], $globalTotal, $channelTotalsByLabel)),
             'occasion' => self::sortChannelCards(self::formatOccasionSection($data['occasion'], $globalTotal, $channelTotalsByLabel)),
             'channels_summary' => $channelsSummary,
@@ -119,6 +130,13 @@ final class DashboardController extends AbstractController
                 ];
             }, $data['kpis']),
             'channels' => self::sortChannelCards((static function (array $channels) use ($globalTotal, $filters): array {
+                if (empty($filters['channel'])) {
+                    $channels = array_values(array_filter(
+                        $channels,
+                        static fn (array $channel): bool => !self::isSchoolChannel($channel)
+                    ));
+                }
+
                 $maxCurrent = 0.0;
                 foreach ($channels as $channel) {
                     $maxCurrent = max($maxCurrent, (float) $channel['current']);
@@ -323,25 +341,40 @@ final class DashboardController extends AbstractController
      */
     private static function formatNeufSection(array $neuf, float $globalTotal, array $channelTotalsByLabel = []): array
     {
-        $currentTotal = (float) ($neuf['current_total'] ?? 0);
+        $school = [];
+        foreach ($neuf['channels'] ?? [] as $channel) {
+            if (self::isSchoolChannel($channel)) {
+                $school = $channel;
+                break;
+            }
+        }
+
+        $currentTotal = (float) ($neuf['current_total'] ?? 0) - (float) ($school['current_total'] ?? 0);
+        $previousTotal = (float) ($neuf['previous_total'] ?? 0) - (float) ($school['previous_total'] ?? 0);
+        $delta = $previousTotal > 0 ? (($currentTotal - $previousTotal) / $previousTotal) * 100.0 : null;
+        $currentLines = max(0, (int) ($neuf['current_lines'] ?? 0) - (int) ($school['current_lines'] ?? 0));
+        $previousLines = max(0, (int) ($neuf['previous_lines'] ?? 0) - (int) ($school['previous_lines'] ?? 0));
+        $currentInvoices = max(0, (int) ($neuf['current_invoices'] ?? 0) - (int) ($school['current_invoices'] ?? 0));
+        $previousInvoices = max(0, (int) ($neuf['previous_invoices'] ?? 0) - (int) ($school['previous_invoices'] ?? 0));
+
         return [
             'current_total' => self::formatInteger($currentTotal),
-            'previous_total' => self::formatInteger($neuf['previous_total'] ?? 0),
+            'previous_total' => self::formatInteger($previousTotal),
             'share_global' => self::formatPercent($currentTotal, $globalTotal),
             'share_global_value' => self::formatPercentValue($currentTotal, $globalTotal),
             'share_section' => self::formatScopePercent($currentTotal, $currentTotal, 'du neuf'),
             'share_section_value' => self::formatPercentValue($currentTotal, $currentTotal),
-            'delta' => self::formatDelta($neuf['delta'] ?? null),
+            'delta' => self::formatDelta($delta),
             'delta_class' => match (true) {
-                ($neuf['delta'] ?? null) === null => 'delta-neutral',
-                (float) $neuf['delta'] > 0 => 'delta-up',
-                (float) $neuf['delta'] < 0 => 'delta-down',
+                $delta === null => 'delta-neutral',
+                $delta > 0 => 'delta-up',
+                $delta < 0 => 'delta-down',
                 default => 'delta-neutral',
             },
-            'current_lines' => number_format((int) ($neuf['current_lines'] ?? 0), 0, ',', ' '),
-            'previous_lines' => number_format((int) ($neuf['previous_lines'] ?? 0), 0, ',', ' '),
-            'current_invoices' => number_format((int) ($neuf['current_invoices'] ?? 0), 0, ',', ' '),
-            'previous_invoices' => number_format((int) ($neuf['previous_invoices'] ?? 0), 0, ',', ' '),
+            'current_lines' => number_format($currentLines, 0, ',', ' '),
+            'previous_lines' => number_format($previousLines, 0, ',', ' '),
+            'current_invoices' => number_format($currentInvoices, 0, ',', ' '),
+            'previous_invoices' => number_format($previousInvoices, 0, ',', ' '),
             'trend_1y_display' => self::formatDeltaShort(is_float($neuf['trend_1y'] ?? null) ? (float) $neuf['trend_1y'] : null),
             'trend_6m_display' => self::formatDeltaShort(is_float($neuf['trend_6m'] ?? null) ? (float) $neuf['trend_6m'] : null),
             'trend_3m_display' => self::formatDeltaShort(is_float($neuf['trend_3m'] ?? null) ? (float) $neuf['trend_3m'] : null),
@@ -577,6 +610,14 @@ final class DashboardController extends AbstractController
         };
     }
 
+    /** @param array<string, mixed> $channel */
+    private static function isSchoolChannel(array $channel): bool
+    {
+        $label = mb_strtolower(trim((string) ($channel['value'] ?? $channel['label'] ?? '')), 'UTF-8');
+
+        return in_array($label, ['ecole', 'école'], true);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $channels
      *
@@ -697,7 +738,7 @@ final class DashboardController extends AbstractController
         };
 
         $normalizeLabel = static function (string $label): string {
-            $normalized = strtolower(trim($label));
+            $normalized = mb_strtolower(trim($label), 'UTF-8');
             return match ($normalized) {
                 'bordeaux', 'bdx' => 'bordeaux',
                 'nantes', 'nts' => 'nantes',
@@ -723,13 +764,15 @@ final class DashboardController extends AbstractController
         $neufChannels = $mapChannels($neuf);
         $occasionChannels = $mapChannels($occasion);
         $cards = [];
-        $canonicalOrder = ['global', 'bordeaux', 'nantes', 'web', 'ecole'];
+        $canonicalOrder = ['global', 'bordeaux', 'nantes', 'web'];
         foreach ($canonicalOrder as $canonicalLabel) {
             if ($canonicalLabel === 'global') {
-                $currentNeuf = $extractNumber($neuf, 'current_total');
-                $currentOccasion = $extractNumber($occasion, 'current_total');
-                $previousNeuf = $extractNumber($neuf, 'previous_total');
-                $previousOccasion = $extractNumber($occasion, 'previous_total');
+                $schoolNeuf = $neufChannels['ecole'] ?? [];
+                $schoolOccasion = $occasionChannels['ecole'] ?? [];
+                $currentNeuf = $extractNumber($neuf, 'current_total') - $extractNumber($schoolNeuf, 'current_total');
+                $currentOccasion = $extractNumber($occasion, 'current_total') - $extractNumber($schoolOccasion, 'current_total');
+                $previousNeuf = $extractNumber($neuf, 'previous_total') - $extractNumber($schoolNeuf, 'previous_total');
+                $previousOccasion = $extractNumber($occasion, 'previous_total') - $extractNumber($schoolOccasion, 'previous_total');
             } else {
                 if (!isset($neufChannels[$canonicalLabel]) && !isset($occasionChannels[$canonicalLabel])) {
                     continue;

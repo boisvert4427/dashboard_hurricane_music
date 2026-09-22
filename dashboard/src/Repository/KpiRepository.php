@@ -37,9 +37,9 @@ final class KpiRepository
     public function getHomeData(array $filters = []): array
     {
         $period = $this->resolvePeriod($filters);
-        $current = $this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters);
-        $previousYear = $this->fetchPeriodSummary($period['previous_year_start'], $period['previous_year_end'], $filters);
-        $previousMonth = $this->fetchPeriodSummary($period['previous_month_start'], $period['previous_month_end'], $filters);
+        $current = $this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters, true);
+        $previousYear = $this->fetchPeriodSummary($period['previous_year_start'], $period['previous_year_end'], $filters, true);
+        $previousMonth = $this->fetchPeriodSummary($period['previous_month_start'], $period['previous_month_end'], $filters, true);
         $objective = $this->buildObjectiveSummary($current['total_ht']);
         $trendPeriods = [
             'trend_1y' => $this->buildRollingComparisonPeriod($period['current_end'], 12),
@@ -49,8 +49,8 @@ final class KpiRepository
         $rollingSummaries = [];
         foreach ($trendPeriods as $key => $trendPeriod) {
             $rollingSummaries[$key] = [
-                'current' => $this->fetchPeriodSummary($trendPeriod['current_start'], $trendPeriod['current_end'], $filters),
-                'previous' => $this->fetchPeriodSummary($trendPeriod['previous_start'], $trendPeriod['previous_end'], $filters),
+                'current' => $this->fetchPeriodSummary($trendPeriod['current_start'], $trendPeriod['current_end'], $filters, true),
+                'previous' => $this->fetchPeriodSummary($trendPeriod['previous_start'], $trendPeriod['previous_end'], $filters, true),
             ];
         }
 
@@ -126,9 +126,12 @@ final class KpiRepository
     /**
      * @return array{total_ht: float, margin_ht: float, invoice_count: int, line_count: int, quantity: float}
      */
-    private function fetchPeriodSummary(DateTimeImmutable $start, DateTimeImmutable $end, array $filters = []): array
+    private function fetchPeriodSummary(DateTimeImmutable $start, DateTimeImmutable $end, array $filters = [], bool $excludeSchool = false): array
     {
         [$whereSql, $params] = $this->buildWhereClause($start, $end, $filters, 'r');
+        if ($excludeSchool && empty($filters['channel'])) {
+            $whereSql .= " AND UPPER(COALESCE(NULLIF(r.channel_name, ''), 'Autre')) NOT IN ('ECOLE', 'ÉCOLE')";
+        }
         $sql = sprintf(
             <<<'SQL'
                 SELECT
