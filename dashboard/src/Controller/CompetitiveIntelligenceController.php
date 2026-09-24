@@ -379,6 +379,7 @@ final class CompetitiveIntelligenceController extends AbstractController
 
         $sourceSnapshots = $batchProvider->getProductSnapshotsByIds($productIds);
         $finalsByProduct = $this->getFinalsByProductIds($entityManager, $productIds);
+        $pendingByProduct = $this->getPendingByProductIds($entityManager, $productIds);
         $rejectedByProduct = $this->getRejectedByProductIds($entityManager, $productIds);
         $postponedByProduct = $this->getPostponedByProductIds($entityManager, $productIds);
         $algamPricesByProduct = $this->getAlgamPricesByProductIds($entityManager, $productIds);
@@ -391,6 +392,7 @@ final class CompetitiveIntelligenceController extends AbstractController
                 'source' => $sourceSnapshots[$productId] ?? null,
                 'algam' => $algamPricesByProduct[$productId] ?? null,
                 'finals' => $finalsByProduct[$productId] ?? [],
+                'pending' => $pendingByProduct[$productId] ?? [],
                 'rejected' => $rejectedByProduct[$productId] ?? [],
                 'postponed' => $postponedByProduct[$productId] ?? [],
             ];
@@ -2087,6 +2089,61 @@ final class CompetitiveIntelligenceController extends AbstractController
             ->andWhere('t.validationStatus = :status')
             ->setParameter('ids', $productIds)
             ->setParameter('status', CompetitorUrlTestResult::REVIEW_REJECTED)
+            ->orderBy('t.lastTestedAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            if (!$row instanceof CompetitorUrlTestResult) {
+                continue;
+            }
+
+            $grouped[$row->getProductId()][] = [
+                'product_id' => $row->getProductId(),
+                'competitor' => $row->getCompetitor(),
+                'url' => $row->getUrl(),
+                'competitor_title' => $row->getCompetitorTitle(),
+                'competitor_brand' => $row->getCompetitorBrand(),
+                'competitor_price' => $row->getCompetitorPrice(),
+                'score' => $row->getScore(),
+                'last_tested_at' => $row->getLastTestedAt(),
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     *
+     * @return array<int, array<int, array{
+     *     product_id:int,
+     *     competitor:Competitor,
+     *     url:?string,
+     *     competitor_title:?string,
+     *     competitor_brand:?string,
+     *     competitor_price:?string,
+     *     score:?int,
+     *     last_tested_at:\DateTimeImmutable
+     * }>>
+     */
+    private function getPendingByProductIds(EntityManagerInterface $entityManager, array $productIds): array
+    {
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static fn (int $value): bool => $value > 0)));
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = $entityManager->getRepository(CompetitorUrlTestResult::class)
+            ->createQueryBuilder('t')
+            ->leftJoin('t.competitor', 'competitor')
+            ->addSelect('competitor')
+            ->andWhere('t.productId IN (:ids)')
+            ->andWhere('t.validationStatus = :status')
+            ->andWhere('t.url IS NOT NULL')
+            ->setParameter('ids', $productIds)
+            ->setParameter('status', CompetitorUrlTestResult::REVIEW_PENDING)
             ->orderBy('t.lastTestedAt', 'DESC')
             ->getQuery()
             ->getResult();

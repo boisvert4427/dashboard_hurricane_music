@@ -202,6 +202,8 @@ final class DashboardController extends AbstractController
         $data = $kpiRepository->getDetailData($filters, $page, $perPage, $sort, $direction);
 
         return $this->render('dashboard/detail.html.twig', [
+            'period_label' => $data['period']['current_start']->format('d/m/Y') . ' au ' . $data['period']['current_end']->format('d/m/Y'),
+            'previous_period_label' => $data['period']['previous_year_start']->format('d/m/Y') . ' au ' . $data['period']['previous_year_end']->format('d/m/Y'),
             'active_filters' => $filters,
             'filter_options' => $data['filters'],
             'summary' => $data['summary'],

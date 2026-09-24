@@ -616,7 +616,9 @@ final class KpiRepository
                 MAX({$groupSql['supplier_name_expr']}) AS supplier_name,
                 MAX({$groupSql['supplier_reference_expr']}) AS supplier_reference,
                 COALESCE(SUM(r.quantity), 0) AS quantity,
+                COALESCE(MAX(prev.previous_quantity), 0) AS previous_quantity,
                 COALESCE(SUM(r.total_ht), 0) AS total_ht,
+                COALESCE(MAX(prev.previous_total_ht), 0) AS previous_total_ht,
                 COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
                 COUNT(DISTINCT r.customer_id) AS customer_id,
                 CASE
@@ -625,38 +627,21 @@ final class KpiRepository
                 END AS is_occasion,
                 {$groupSql['group_key_expr']} AS group_key
             FROM reporting_invoice_line_fact r
+            LEFT JOIN (
+                SELECT
+                    {$previousGroupSql['group_key_expr']} AS group_key,
+                    COALESCE(SUM(p.quantity), 0) AS previous_quantity,
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                FROM reporting_invoice_line_fact p
+                WHERE {$previousWhereSql}
+                GROUP BY {$previousGroupSql['group_key_expr']}
+            ) prev ON prev.group_key = {$groupSql['group_key_expr']}
             WHERE {$whereSql}
             GROUP BY {$groupSql['group_key_expr']}
             ORDER BY {$orderSql}
             LIMIT {$perPage} OFFSET {$offset}
         SQL;
-        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, $params);
-
-        $previousRowsSql = <<<SQL
-            SELECT
-                {$previousGroupSql['group_key_expr']} AS group_key,
-                COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
-            FROM reporting_invoice_line_fact p
-            WHERE {$previousWhereSql}
-            GROUP BY {$previousGroupSql['group_key_expr']}
-        SQL;
-        $previousRows = $this->reportingConnection->fetchAllAssociative($previousRowsSql, $previousParams);
-
-        $previousIndexed = [];
-        foreach ($previousRows as $row) {
-            $previousIndexed[(string) ($row['group_key'] ?? '')] = $row;
-        }
-
-        $rows = array_map(static function (array $row) use ($previousIndexed): array {
-            $groupKey = (string) ($row['group_key'] ?? '');
-            $previous = $previousIndexed[$groupKey] ?? [];
-
-            $row['previous_quantity'] = (float) ($previous['previous_quantity'] ?? 0);
-            $row['previous_total_ht'] = (float) ($previous['previous_total_ht'] ?? 0);
-
-            return $row;
-        }, $rows);
+        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams));
 
         return [
             'period' => $period,
@@ -706,7 +691,9 @@ final class KpiRepository
                 MAX({$groupSql['supplier_name_expr']}) AS supplier_name,
                 MAX({$groupSql['supplier_reference_expr']}) AS supplier_reference,
                 COALESCE(SUM(r.quantity), 0) AS quantity,
+                COALESCE(MAX(prev.previous_quantity), 0) AS previous_quantity,
                 COALESCE(SUM(r.total_ht), 0) AS total_ht,
+                COALESCE(MAX(prev.previous_total_ht), 0) AS previous_total_ht,
                 COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
                 COUNT(DISTINCT r.customer_id) AS customer_id,
                 CASE
@@ -715,35 +702,22 @@ final class KpiRepository
                 END AS is_occasion,
                 {$groupSql['group_key_expr']} AS group_key
             FROM reporting_invoice_line_fact r
+            LEFT JOIN (
+                SELECT
+                    {$previousGroupSql['group_key_expr']} AS group_key,
+                    COALESCE(SUM(p.quantity), 0) AS previous_quantity,
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                FROM reporting_invoice_line_fact p
+                WHERE {$previousWhereSql}
+                GROUP BY {$previousGroupSql['group_key_expr']}
+            ) prev ON prev.group_key = {$groupSql['group_key_expr']}
             WHERE {$whereSql}
             GROUP BY {$groupSql['group_key_expr']}
             ORDER BY {$orderSql}
         SQL;
-        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, $params);
-
-        $previousRowsSql = <<<SQL
-            SELECT
-                {$previousGroupSql['group_key_expr']} AS group_key,
-                COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
-            FROM reporting_invoice_line_fact p
-            WHERE {$previousWhereSql}
-            GROUP BY {$previousGroupSql['group_key_expr']}
-        SQL;
-        $previousRows = $this->reportingConnection->fetchAllAssociative($previousRowsSql, $previousParams);
-
-        $previousIndexed = [];
-        foreach ($previousRows as $row) {
-            $previousIndexed[(string) ($row['group_key'] ?? '')] = $row;
-        }
+        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams));
 
         foreach ($rows as $row) {
-            $groupKey = (string) ($row['group_key'] ?? '');
-            $previous = $previousIndexed[$groupKey] ?? [];
-
-            $row['previous_quantity'] = (float) ($previous['previous_quantity'] ?? 0);
-            $row['previous_total_ht'] = (float) ($previous['previous_total_ht'] ?? 0);
-
             yield $row;
         }
     }
@@ -849,13 +823,17 @@ final class KpiRepository
         $allowed = [
             'invoice_date' => 'invoice_date',
             'invoice_number' => 'invoice_number',
-            'channel_name' => 'product_name',
-            'brand_name' => 'product_name',
-            'category_name' => 'product_name',
+            'channel_name' => 'channel_name',
+            'brand_name' => 'brand_name',
+            'category_name' => 'category_name',
             'product_name' => 'product_name',
+            'idart' => 'idart',
             'total_ht' => 'total_ht',
+            'previous_total_ht' => 'previous_total_ht',
             'margin_ht' => 'margin_ht',
             'quantity' => 'quantity',
+            'previous_quantity' => 'previous_quantity',
+            'is_occasion' => 'is_occasion',
         ];
 
         $column = $allowed[$sort] ?? 'invoice_date';
@@ -936,9 +914,13 @@ final class KpiRepository
             'brand_name' => 'brand_name',
             'category_name' => 'category_name',
             'product_name' => 'r.product_name',
+            'idart' => 'r.product_id',
             'total_ht' => 'r.total_ht',
+            'previous_total_ht' => 'previous_total_ht',
             'margin_ht' => 'r.margin_ht',
             'quantity' => 'r.quantity',
+            'previous_quantity' => 'previous_quantity',
+            'is_occasion' => 'is_occasion',
         ];
 
         $column = $allowed[$sort] ?? 'r.invoice_date';

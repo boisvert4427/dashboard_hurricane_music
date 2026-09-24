@@ -171,6 +171,55 @@
 
                         <div class="detail-table-wrap" style="margin-bottom:20px;">
                             <div class="section-head" style="margin-bottom:12px;">
+                                <h3 style="margin-bottom:0;">URLs proposées en attente</h3>
+                            </div>
+                            <table class="detail-table module-table">
+                                <thead>
+                                    <tr>
+                                        <th>Concurrent</th>
+                                        <th>URL proposée</th>
+                                        <th>Score</th>
+                                        <th>Vu le</th>
+                                        <th>Prix</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pending in row.pending %}
+                                        <tr>
+                                            <td><strong>{{ pending.competitor.name }}</strong><div class="module-competitor-domain">{{ pending.competitor.domain }}</div></td>
+                                            <td class="module-url-cell">
+                                                <a href="{{ pending.url }}" target="_blank" rel="noopener noreferrer">{{ pending.competitor_title ?? pending.url }}</a>
+                                            </td>
+                                            <td>{{ pending.score ?? 'n/a' }}</td>
+                                            <td>{{ pending.last_tested_at ? pending.last_tested_at|date('Y-m-d H:i') : 'n/a' }}</td>
+                                            <td>{{ pending.competitor_price ?? 'n/a' }}</td>
+                                            <td>
+                                                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                                    <form method="post" action="{{ path('app_competitive_search_validate_postponed', {productId: row.product.id_product, competitorId: pending.competitor.id}) }}" onsubmit="return confirm('Valider ce lien ?');">
+                                                        <input type="hidden" name="q" value="{{ query }}">
+                                                        {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                        <button class="button button-primary" type="submit">Valider</button>
+                                                    </form>
+                                                    <form method="post" action="{{ path('app_competitive_search_remove_final', {productId: row.product.id_product, competitorId: pending.competitor.id}) }}" onsubmit="return confirm('Rejeter ce lien ?');">
+                                                        <input type="hidden" name="q" value="{{ query }}">
+                                                        {% if embedded %}<input type="hidden" name="embed" value="1">{% endif %}
+                                                        <button class="button button-secondary" type="submit">Rejeter</button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td class="detail-empty" colspan="6">Aucune URL proposée en attente pour ce produit.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="detail-table-wrap" style="margin-bottom:20px;">
+                            <div class="section-head" style="margin-bottom:12px;">
                                 <h3 style="margin-bottom:0;">URLs finales</h3>
                             </div>
                             <table class="detail-table module-table">

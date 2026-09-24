@@ -160,6 +160,18 @@ final class CompetitiveOrchestratorService
         int $shopId = 1,
         bool $debug = false,
     ): array {
+        $heavyProcessingLock = dirname(__DIR__, 3) . '/var/lock/heavy-processing.lock';
+        if ($this->isLockTaken($heavyProcessingLock)) {
+            return [
+                'ok' => true,
+                'started' => false,
+                'decision' => 'idle',
+                'reason' => 'heavy_processing_lock_taken',
+                'active_tasks' => 0,
+                'tasks' => [],
+            ];
+        }
+
         $state = $this->stateStorage->load();
         $taskDescriptions = $this->describeTasks($config, $state, $langId, $shopId);
         $global = is_array($config['global'] ?? null) ? $config['global'] : [];

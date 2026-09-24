@@ -12,17 +12,18 @@
     }[detail_group_by]|default('Produit') %}
     {% set detail_invoice_label = detail_group_by == 'idart' ? 'Facture' : 'Nb factures' %}
     <main class="app-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="brand-mark">HM</div>
-                <div>
-                    <div class="brand-name">Détail des lignes</div>
-                    <div class="brand-subtitle">Recherche, filtres, tri et export CSV</div>
-                </div>
-            </div>
-        </header>
-
         <section class="toolbar-panel">
+            <div class="toolbar-head">
+                <div>
+                    <div class="toolbar-eyebrow">Filtres de lecture</div>
+                    <h1 class="toolbar-title">Choisir la période et le périmètre</h1>
+                </div>
+                <p>Période sélectionnée : {{ period_label }}. Comparaison : {{ previous_period_label }}. Tu peux saisir les dates à la main ou ouvrir le calendrier.</p>
+            </div>
+            <div class="view-switch" aria-label="Mode d'affichage">
+                <a class="button button-secondary" href="{{ path('app_home', active_filters|merge({'view': 'cards', 'group_by': active_filters.group_by|default('idart')})) }}">Cartes</a>
+                <a class="button button-primary" href="{{ path('app_detail', active_filters|merge({'view': 'table', 'group_by': active_filters.group_by|default('idart'), 'page': 1, 'sort': sort, 'direction': direction, 'per_page': pagination.per_page})) }}">Tableau</a>
+            </div>
             <form class="filter-form" method="get" action="{{ path('app_detail') }}">
                 <input type="hidden" name="view" value="{{ active_filters.view|default('table') }}">
                 <input type="hidden" name="group_by" value="{{ active_filters.group_by|default('idart') }}">
@@ -98,9 +99,12 @@
                         <option value="channel_name" {% if sort == 'channel_name' %}selected{% endif %}>Canal</option>
                         <option value="brand_name" {% if sort == 'brand_name' %}selected{% endif %}>Marque</option>
                         <option value="product_name" {% if sort == 'product_name' %}selected{% endif %}>Produit</option>
+                        <option value="previous_quantity" {% if sort == 'previous_quantity' %}selected{% endif %}>Quantité N-1</option>
                         <option value="total_ht" {% if sort == 'total_ht' %}selected{% endif %}>CA HT</option>
+                        <option value="previous_total_ht" {% if sort == 'previous_total_ht' %}selected{% endif %}>CA HT N-1</option>
                         <option value="margin_ht" {% if sort == 'margin_ht' %}selected{% endif %}>Marge HT</option>
                         <option value="quantity" {% if sort == 'quantity' %}selected{% endif %}>Quantité</option>
+                        <option value="is_occasion" {% if sort == 'is_occasion' %}selected{% endif %}>Occasion</option>
                     </select>
                 </div>
                 <div class="filter-field">
@@ -137,17 +141,17 @@
                 <table class="detail-table">
                     <thead>
                         <tr>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_date', 'direction': sort == 'invoice_date' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Date</a></th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_number', 'direction': sort == 'invoice_number' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">{{ detail_invoice_label }}</a></th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'channel_name', 'direction': sort == 'channel_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Canal</a></th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Marque</a></th>
-                            <th>{{ detail_group_label }}</th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'quantity', 'direction': sort == 'quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Qté</a></th>
-                            <th>Qté -1</th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'total_ht', 'direction': sort == 'total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">CA HT</a></th>
-                            <th>CA HT -1</th>
-                            <th><a href="{{ path('app_detail', active_filters|merge({'sort': 'margin_ht', 'direction': sort == 'margin_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1})) }}">Marge</a></th>
-                            <th>Occasion</th>
+                            <th><a class="table-sort-link{% if sort == 'invoice_date' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_date', 'direction': sort == 'invoice_date' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Date <span>{{ sort == 'invoice_date' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'invoice_number' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_number', 'direction': sort == 'invoice_number' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">{{ detail_invoice_label }} <span>{{ sort == 'invoice_number' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'channel_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'channel_name', 'direction': sort == 'channel_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Canal <span>{{ sort == 'channel_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'brand_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Marque <span>{{ sort == 'brand_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'product_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'product_name', 'direction': sort == 'product_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">{{ detail_group_label }} <span>{{ sort == 'product_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'quantity' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'quantity', 'direction': sort == 'quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Qté <span>{{ sort == 'quantity' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'previous_quantity' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'previous_quantity', 'direction': sort == 'previous_quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Qté -1 <span>{{ sort == 'previous_quantity' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'total_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'total_ht', 'direction': sort == 'total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">CA HT <span>{{ sort == 'total_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'previous_total_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'previous_total_ht', 'direction': sort == 'previous_total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">CA HT -1 <span>{{ sort == 'previous_total_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'margin_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'margin_ht', 'direction': sort == 'margin_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Marge <span>{{ sort == 'margin_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th><a class="table-sort-link{% if sort == 'is_occasion' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'is_occasion', 'direction': sort == 'is_occasion' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Occasion <span>{{ sort == 'is_occasion' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
                         </tr>
                     </thead>
                     <tbody>

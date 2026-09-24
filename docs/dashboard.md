@@ -61,6 +61,53 @@ Mode de rattrapage:
 php bin/console app:etl:import-invoice-lines --since=2026-07-01
 ```
 
+## Coûts de stock FIFO et PAMP
+
+Le calcul des coûts est indépendant du `PMAP` présent dans `K_HISTO_STOCK`.
+Il lit les mouvements métier et écrit uniquement dans la base de reporting.
+
+Commande incrémentale:
+
+```bash
+cd dashboard
+php bin/console app:etl:calculate-stock-costs --pair-limit=100 --discovery-limit=5000
+```
+
+Planification active, décalée de deux minutes par rapport aux autres tâches lancées
+sur les multiples de cinq minutes:
+
+```cron
+2-59/5 * * * * cd dashboard && php bin/console app:etl:calculate-stock-costs --pair-limit=100 --discovery-limit=5000
+```
+
+La sortie est conservée dans `dashboard/var/log/stock-cost-etl.log`.
+
+### Sources
+
+- `K_HISTO_STOCK`: chronologie, quantité, stock après mouvement, site et pièce source
+- `K_LI_RECEPT`: prix d'achat et remises des réceptions
+- `IDPIECE = IDFAC` pour une vente
+- `IDPIECE = IDRECEPTION` pour une réception
+
+### Tables de reporting
+
+- `reporting_stock_movement_cost`: résultat FIFO et PAMP pour chaque `IDHISTO_STOCK`
+- `reporting_stock_current_cost`: dernier état calculé par article et site
+- `reporting_stock_recalc_queue`: références/sites à rejouer
+- `reporting_etl_checkpoint`: points de reprise séparés par site
+
+Chaque référence/site modifiée est rejouée chronologiquement depuis son premier
+mouvement. Les coûts d'ouverture absents et les incohérences de stock sont conservés
+dans `calculation_status`; ils ne sont pas masqués par le PMAP source.
+
+Pour une entrée de stock sans ligne de réception correspondante, le coût utilisé est
+`K_HISTO_STOCK.DER_PA`. Le PAMP courant ne sert de dernier recours que si `DER_PA`
+est également nul.
+
+La commande prend le verrou exclusif `var/lock/heavy-processing.lock`. L'orchestrateur
+de veille ne démarre pas de nouveau worker pendant ce calcul, et la commande s'abstient
+si un worker de veille est encore actif.
+
 Route web sécurisée:
 
 ```text

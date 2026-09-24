@@ -2996,6 +2996,23 @@ body.dashboard-home .detail-table-wrap {
     text-decoration: none;
 }
 
+.detail-table .table-sort-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+.detail-table .table-sort-link span {
+    color: var(--muted);
+    font-size: 0.68rem;
+}
+
+.detail-table .table-sort-link.is-active,
+.detail-table .table-sort-link.is-active span {
+    color: #3b82f6;
+}
+
 .detail-table th {
     position: sticky;
     top: 0;
