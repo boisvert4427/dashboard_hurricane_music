@@ -65,6 +65,21 @@ competitor_url_price_history
 
 ## Fichiers utiles
 
+### Correctif du crawl d'URLs Michenaud — 1er octobre 2026
+
+Le scraper convertit les tuples issus de `parse_results` en objets
+`MichenaudResult`. La boucle d'enrichissement doit parcourir `results` (ces objets)
+et non `parsed_results` (les tuples). Sinon, l'accès à `result.url` provoque
+`'tuple' object has no attribute 'url'` et les recherches échouent.
+
+Le correctif porte uniquement sur cette boucle. Le test de régression
+`tests/test_michenaud_search.py` simule une recherche et une fiche produit,
+puis vérifie l'URL, la marque, le prix, l'image et le fil d'Ariane du candidat.
+Depuis `competitive_intelligence_python`, lancer
+`python3 -m unittest discover -s tests` pour vérifier l'ensemble des tests.
+
+### Code
+
 - `dashboard/src/Controller/CompetitiveIntelligenceController.php`
 - `dashboard/src/Controller/Api/CompetitiveIntelligenceApiController.php`
 - `dashboard/src/Service/CompetitiveIntelligence/CompetitiveOrchestratorService.php`

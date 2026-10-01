@@ -122,7 +122,7 @@ class MichenaudScraper(CompetitorScraper):
             return []
 
         enriched_results: list[MichenaudResult] = []
-        for result in parsed_results:
+        for result in results:
             _, page_title, breadcrumb, page_image_url, final_url = self._verify_product_page(result.url, product, source_price)
             if not self._urls_match(result.url, final_url):
                 continue
