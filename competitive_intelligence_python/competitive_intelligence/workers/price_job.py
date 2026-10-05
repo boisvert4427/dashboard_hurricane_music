@@ -18,6 +18,7 @@ from competitive_intelligence.core.api_client import ApiClient
 from competitive_intelligence.core.config import Settings
 from competitive_intelligence.core.http_client import HttpClient
 from competitive_intelligence.core.woodbrass_price import extract_woodbrass_display_price, is_woodbrass_product_url
+from competitive_intelligence.core.woodbrass_proxy import WoodbrassProxyCircuit
 
 
 @contextmanager
@@ -42,8 +43,8 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
         settings = replace(settings, competitor_id=competitor_id)
 
     debug_enabled = os.environ.get("CI_DEBUG", "").lower() in {"1", "true", "yes", "on"}
-    http = HttpClient(timeout=30)
-    api = ApiClient(settings.api_base_url, settings.api_token, http)
+    direct_http = HttpClient(timeout=30)
+    api = ApiClient(settings.api_base_url, settings.api_token, direct_http)
 
     with competitor_run_lock(settings.competitor_id):
         batch = api.fetch_next_final_price_batch(
@@ -55,6 +56,19 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
         competitor = batch["competitor"]
         competitor_domain = str(competitor.get("domain") or "").lower()
         competitor_name = str(competitor.get("name") or "").lower()
+        is_woodbrass = "woodbrass" in competitor_domain or "woodbrass" in competitor_name
+        proxy_circuit = None
+        if is_woodbrass:
+            configured_circuit = WoodbrassProxyCircuit(Path(__file__).resolve().parents[2])
+            if configured_circuit.configured:
+                proxy_circuit = configured_circuit
+        using_proxy = bool(proxy_circuit and proxy_circuit.should_use_proxy)
+        if using_proxy and proxy_circuit is not None:
+            proxy_circuit.ensure_tunnel()
+        scrape_http = HttpClient(
+            timeout=30,
+            proxy_url=proxy_circuit.proxy_url if using_proxy and proxy_circuit is not None else None,
+        )
 
         observations: list[dict[str, object]] = []
         failures: list[dict[str, object]] = []
@@ -66,6 +80,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                 "after_id": batch["after_id"],
                 "has_more": batch["has_more"],
                 "debug": debug_enabled,
+                "proxy": using_proxy,
             },
             flush=True,
         )
@@ -79,13 +94,17 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             try:
                 if "thomann" in competitor_domain or "thomann" in competitor_name:
                     _human_pause()
-                response = http.get(url, headers=_page_headers(competitor_domain))
+                response = scrape_http.get(url, headers=_page_headers(competitor_domain))
                 response.raise_for_status()
+                if proxy_circuit is not None:
+                    proxy_circuit.record_http_status(response.status_code, used_proxy=using_proxy)
                 if response.headers.get("cf-mitigated") == "challenge" or "cf-chl-" in response.text:
                     raise RuntimeError("Temporary anti-bot challenge")
                 price = _extract_price(competitor_domain, competitor_name, response.text, response.url)
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
+                if proxy_circuit is not None:
+                    proxy_circuit.record_http_status(status_code, used_proxy=using_proxy)
                 print(
                     {
                         "event": "price_error",
@@ -107,6 +126,8 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                 )
                 continue
             except Exception as exc:
+                if proxy_circuit is not None and not using_proxy and proxy_circuit.enabled:
+                    proxy_circuit.record_http_status(None, used_proxy=False)
                 print(
                     {
                         "event": "price_error",

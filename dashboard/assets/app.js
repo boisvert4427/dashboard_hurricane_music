@@ -121,6 +121,56 @@ function initCardLinks() {
     });
 }
 
+function initCompetitiveValidation() {
+    const form = document.getElementById('validation-bulk-form');
+    if (!form || form.dataset.validationBound === '1') {
+        return;
+    }
+
+    const statusInputs = Array.from(form.querySelectorAll('[data-validation-status-value]'));
+
+    const syncStatusButtons = (container, value) => {
+        container.querySelectorAll('[data-validation-status-button]').forEach((button) => {
+            const isActive = button.getAttribute('data-validation-status-button') === value;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    };
+
+    const setAllStatuses = (value) => {
+        statusInputs.forEach((input) => {
+            input.value = value;
+            const container = input.nextElementSibling;
+            if (container && container.classList.contains('validation-status-group')) {
+                syncStatusButtons(container, value);
+            }
+        });
+    };
+
+    form.querySelectorAll('[data-validation-bulk]').forEach((button) => {
+        button.addEventListener('click', () => {
+            setAllStatuses(button.getAttribute('data-validation-bulk'));
+        });
+    });
+
+    form.querySelectorAll('[data-validation-status-button]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const value = button.getAttribute('data-validation-status-button');
+            const group = button.closest('.validation-status-group');
+            const input = group ? group.previousElementSibling : null;
+
+            if (!input || !input.matches('[data-validation-status-value]')) {
+                return;
+            }
+
+            input.value = value;
+            syncStatusButtons(group, value);
+        });
+    });
+
+    form.dataset.validationBound = '1';
+}
+
 function initChannelSummaryCharts() {
     if (typeof window.Chart === 'undefined') {
         return;
@@ -252,9 +302,11 @@ function initChannelSummaryCharts() {
 
 document.addEventListener('DOMContentLoaded', initDateFields);
 document.addEventListener('DOMContentLoaded', initCardLinks);
+document.addEventListener('DOMContentLoaded', initCompetitiveValidation);
 document.addEventListener('DOMContentLoaded', initChannelSummaryCharts);
 document.addEventListener('turbo:load', initDateFields);
 document.addEventListener('turbo:load', initCardLinks);
+document.addEventListener('turbo:load', initCompetitiveValidation);
 document.addEventListener('turbo:load', initChannelSummaryCharts);
 document.addEventListener('turbo:before-fetch-request', incrementLoader);
 document.addEventListener('turbo:submit-start', incrementLoader);

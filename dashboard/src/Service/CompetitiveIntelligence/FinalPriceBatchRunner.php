@@ -43,6 +43,21 @@ final class FinalPriceBatchRunner
         if ($maxParallel > 0) {
             $env['CI_MAX_PARALLEL'] = (string) $maxParallel;
         }
+        if ($competitorId === 1) {
+            foreach ([
+                'CI_WOODBRASS_PROXY_SSH_HOST',
+                'CI_WOODBRASS_PROXY_SSH_USER',
+                'CI_WOODBRASS_PROXY_SSH_KEY',
+                'CI_WOODBRASS_PROXY_LOCAL_PORT',
+                'CI_WOODBRASS_PROXY_AFTER_429',
+                'CI_WOODBRASS_PROXY_RETRY_AFTER_SECONDS',
+            ] as $key) {
+                $value = trim((string) ($_ENV[$key] ?? $_SERVER[$key] ?? getenv($key) ?: ''));
+                if ($value !== '') {
+                    $env[$key] = $value;
+                }
+            }
+        }
 
         $logDir = $projectRoot . '/var/log/competitive-intelligence';
         if (!is_dir($logDir) && !mkdir($logDir, 0775, true) && !is_dir($logDir)) {

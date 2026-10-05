@@ -130,6 +130,23 @@ autre produit final. Les anciens relevés conservent leur URL d'origine ; le nou
 relevé est enregistré avec la nouvelle URL. Les redirections vers un accueil,
 une catégorie ou un domaine externe ne remplacent pas les URLs finales.
 
+### Basculement d'IP pour les prix Woodbrass
+
+Après trois réponses HTTP 429 consécutives reçues directement pendant les relevés
+de prix Woodbrass, le worker active un tunnel SOCKS SSH vers le VPS secondaire.
+Le basculement ne concerne que les requêtes de scraping des prix Woodbrass : les
+appels à l'API Symfony et les autres concurrents restent en accès direct. Si le
+tunnel n'est plus actif, le worker le recrée automatiquement. Après sept jours,
+le prochain relevé teste de nouveau l'accès direct. Une réponse HTTP réussie
+désactive le proxy ; un nouvel échec conserve le proxy et reporte le test direct
+de sept jours.
+
+La configuration repose sur `CI_WOODBRASS_PROXY_SSH_HOST`,
+`CI_WOODBRASS_PROXY_SSH_USER`, `CI_WOODBRASS_PROXY_SSH_KEY`,
+`CI_WOODBRASS_PROXY_LOCAL_PORT`, `CI_WOODBRASS_PROXY_AFTER_429` et
+`CI_WOODBRASS_PROXY_RETRY_AFTER_SECONDS`. L'état du circuit est conservé dans
+`competitive_intelligence_python/var/state/`.
+
 ### Recherche d'URLs Woodbrass par EAN
 
 La recherche utilise désormais le moteur de la boutique actuelle

@@ -39,6 +39,7 @@ class CatalogCandidateSelection:
     best_index: int
     confidence: int
     same_product: bool
+    color_mismatch: bool = False
     notes: tuple[str, ...] = ()
 
 
@@ -48,6 +49,7 @@ class CatalogBatchCandidateSelection:
     best_index: int
     confidence: int
     same_product: bool
+    color_mismatch: bool = False
     notes: tuple[str, ...] = ()
 
 
@@ -248,11 +250,12 @@ class OpenAICatalogComparator:
                             "schema": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["best_index", "confidence", "same_product", "notes"],
+                                "required": ["best_index", "confidence", "same_product", "color_mismatch", "notes"],
                                 "properties": {
                                     "best_index": {"type": "integer", "minimum": 0},
                                     "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
                                     "same_product": {"type": "boolean"},
+                                    "color_mismatch": {"type": "boolean"},
                                     "notes": {
                                         "type": "array",
                                         "items": {"type": "string"},
@@ -319,12 +322,13 @@ class OpenAICatalogComparator:
                                         "items": {
                                             "type": "object",
                                             "additionalProperties": False,
-                                            "required": ["product_id", "best_index", "confidence", "same_product", "notes"],
+                                            "required": ["product_id", "best_index", "confidence", "same_product", "color_mismatch", "notes"],
                                             "properties": {
                                                 "product_id": {"type": "integer", "minimum": 1},
                                                 "best_index": {"type": "integer", "minimum": 0},
                                                 "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
                                                 "same_product": {"type": "boolean"},
+                                                "color_mismatch": {"type": "boolean"},
                                                 "notes": {
                                                     "type": "array",
                                                     "items": {"type": "string"},
@@ -396,9 +400,10 @@ class OpenAICatalogComparator:
                     "Compare the source product against all candidate products and select the single best match.",
                     "Focus on brand, model, year, color, and instrument type.",
                     "If the source category_path and competitor breadcrumb are available, compare them as a strong contextual signal.",
-                    "Treat color differences as a strong negative signal even when titles are nearly identical.",
-                    "Treat color abbreviations as meaningful: BK/BLK=black, WH=white, SB=sunburst, TB=transparent blue, NAT=natural, CH=cherry, etc.",
-                    "If color differs, do not choose that candidate unless the color difference is clearly irrelevant or the source has no color signal.",
+                    "Thomann frequently shortens finish and color names into initials or compact suffixes. Infer those abbreviations from the brand, model, known manufacturer finish names, candidate URL, and surrounding title; examples include SB=Sunburst and VC=Vintage Cherry, but do not rely on a closed abbreviation list.",
+                    "Set color_mismatch=true when both listings identify a color or finish and they are different variants, including distinctions such as Vintage Cherry versus Sunburst, 2-Tone versus 3-Tone Sunburst, or Black versus Vintage White.",
+                    "When color_mismatch=true, same_product must be false regardless of model similarity, price, image, or confidence.",
+                    "Set color_mismatch=false when a finish abbreviation is equivalent to the source finish, or when at least one listing has no reliable color/finish signal.",
                     "Treat price as a strong sanity check. If both prices are present and the ratio differs by more than 25%, that is a strong negative signal.",
                     "If both prices are present and the ratio differs by more than 40%, avoid selecting that candidate unless it is clearly a bundle, pack, multi-unit listing, or accessory that explains the gap.",
                     "A 129 vs 649 price gap is usually not the same product.",
@@ -477,9 +482,10 @@ class OpenAICatalogComparator:
                     "If no candidate is a strong match, still choose the least bad candidate and set confidence low.",
                     "Focus on brand, model, year, color, and instrument type.",
                     "If the source category_path and competitor breadcrumb are available, compare them as a strong contextual signal.",
-                    "Treat color differences as a strong negative signal even when titles are nearly identical.",
-                    "Treat color abbreviations as meaningful: BK/BLK=black, WH=white, SB=sunburst, TB=transparent blue, NAT=natural, CH=cherry, etc.",
-                    "If color differs, do not choose that candidate unless the color difference is clearly irrelevant or the source has no color signal.",
+                    "Thomann frequently shortens finish and color names into initials or compact suffixes. Infer those abbreviations from the brand, model, known manufacturer finish names, candidate URL, and surrounding title; examples include SB=Sunburst and VC=Vintage Cherry, but do not rely on a closed abbreviation list.",
+                    "Set color_mismatch=true when both listings identify a color or finish and they are different variants, including distinctions such as Vintage Cherry versus Sunburst, 2-Tone versus 3-Tone Sunburst, or Black versus Vintage White.",
+                    "When color_mismatch=true, same_product must be false regardless of model similarity, price, image, or confidence.",
+                    "Set color_mismatch=false when a finish abbreviation is equivalent to the source finish, or when at least one listing has no reliable color/finish signal.",
                     "Treat price as a strong sanity check. If both prices are present and the ratio differs by more than 25%, that is a strong negative signal.",
                     "If both prices are present and the ratio differs by more than 40%, avoid selecting that candidate unless it is clearly a bundle, pack, multi-unit listing, or accessory that explains the gap.",
                     "A 129 vs 649 price gap is usually not the same product.",
@@ -542,6 +548,7 @@ class OpenAICatalogComparator:
             best_index=best_index,
             confidence=max(0, min(100, int(data.get("confidence", 0)))),
             same_product=bool(data.get("same_product", False)),
+            color_mismatch=bool(data.get("color_mismatch", False)),
             notes=tuple(str(item) for item in (data.get("notes") or []) if str(item).strip()),
         )
 
@@ -567,6 +574,7 @@ class OpenAICatalogComparator:
                     best_index=max(0, int(raw.get("best_index", 0))),
                     confidence=max(0, min(100, int(raw.get("confidence", 0)))),
                     same_product=bool(raw.get("same_product", False)),
+                    color_mismatch=bool(raw.get("color_mismatch", False)),
                     notes=tuple(str(item) for item in (raw.get("notes") or []) if str(item).strip()),
                 )
             )

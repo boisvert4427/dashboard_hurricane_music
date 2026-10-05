@@ -349,6 +349,28 @@ def run_url_job(
                             continue
 
                         selection = selection_map.get(product_id)
+                        if (
+                            selection is not None
+                            and selection.color_mismatch
+                            and _is_thomann_competitor(competitor)
+                        ):
+                            tests_to_submit.append(
+                                {
+                                    "id_product": product_id,
+                                    "result": "not_found",
+                                    "message": "Rejected by catalog AI: color or finish mismatch.",
+                                }
+                            )
+                            print(
+                                {
+                                    "event": "product_color_mismatch",
+                                    "id_product": product_id,
+                                    "notes": selection.notes,
+                                },
+                                flush=True,
+                            )
+                            continue
+
                         if selection is not None:
                             index = max(0, min(len(candidate_pool) - 1, selection.best_index))
                             best_candidate = replace(candidate_pool[index], score=selection.confidence)
