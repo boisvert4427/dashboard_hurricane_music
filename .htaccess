@@ -15,6 +15,10 @@ RedirectMatch 404 /\.git
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # The domain document root is one level above Symfony's public directory.
+    # Serve compiled AssetMapper files from their real public location.
+    RewriteRule ^assets/(.*)$ dashboard/public/assets/$1 [L]
+
     # Let existing files and directories be served normally.
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d

@@ -12,6 +12,7 @@ final class FinalUrlPriceBatchProvider
 {
     public function __construct(
         private readonly Connection $databaseConnection,
+        private readonly ?Connection $prestashopConnection = null,
     ) {
     }
 
@@ -22,11 +23,11 @@ final class FinalUrlPriceBatchProvider
     {
         $limit = max(1, min(200, $limit));
 
-        $rows = $this->fetchBatchSegment($competitorId, $afterId, $limit, false, $productId);
+        $rows = $this->fetchEligibleBatchSegment($competitorId, $afterId, $limit, false, $productId);
         if (count($rows) < $limit) {
             $rows = array_merge(
                 $rows,
-                $this->fetchBatchSegment($competitorId, $afterId, $limit - count($rows), true, $productId)
+                $this->fetchEligibleBatchSegment($competitorId, $afterId, $limit - count($rows), true, $productId)
             );
         }
 
@@ -64,11 +65,72 @@ final class FinalUrlPriceBatchProvider
      */
     private function fetchBatchSegment(int $competitorId, int $afterId, int $limit, bool $wrapAround, int $productId = 0): array
     {
+        return $this->fetchBatchSegmentExcluding($competitorId, $afterId, $limit, $wrapAround, $productId, []);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchEligibleBatchSegment(int $competitorId, int $afterId, int $limit, bool $wrapAround, int $productId = 0): array
+    {
+        if ($this->prestashopConnection === null) {
+            return $this->fetchBatchSegment($competitorId, $afterId, $limit, $wrapAround, $productId);
+        }
+
+        $eligibleRows = [];
+        $excludedIds = [];
+
+        while (count($eligibleRows) < $limit) {
+            $candidates = $this->fetchBatchSegmentExcluding(
+                $competitorId,
+                $afterId,
+                max(50, $limit - count($eligibleRows)),
+                $wrapAround,
+                $productId,
+                $excludedIds,
+            );
+            if ($candidates === []) {
+                break;
+            }
+
+            $candidateIds = array_map(static fn (array $row): int => (int) $row['id_product'], $candidates);
+            $eligibleIds = $this->getEligibleProductIds($candidateIds);
+            foreach ($candidates as $candidate) {
+                $id = (int) $candidate['id_product'];
+                $excludedIds[] = $id;
+                if (isset($eligibleIds[$id])) {
+                    $eligibleRows[] = $candidate;
+                }
+            }
+
+            if (count($eligibleRows) >= $limit) {
+                break;
+            }
+        }
+
+        return $eligibleRows;
+    }
+
+    /**
+     * @param list<int> $excludedIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchBatchSegmentExcluding(
+        int $competitorId,
+        int $afterId,
+        int $limit,
+        bool $wrapAround,
+        int $productId,
+        array $excludedIds,
+    ): array
+    {
         if ($limit <= 0) {
             return [];
         }
 
         $operator = $wrapAround ? '<=' : '>';
+
+        $exclusionSql = $excludedIds === [] ? '' : ' AND f.id NOT IN (:excluded_ids)';
 
         return $this->databaseConnection->fetchAllAssociative(
             'SELECT f.id AS id_product,
@@ -92,6 +154,7 @@ final class FinalUrlPriceBatchProvider
                AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
                AND (:product_id = 0 OR f.id = :product_id)
                AND f.id ' . $operator . ' :after_id
+               ' . $exclusionSql . '
              ORDER BY (f.price_check_requested_at IS NULL) ASC,
                       f.price_check_requested_at ASC,
                       COALESCE(f.last_price_attempt_at, last_price.last_scraped_at) ASC,
@@ -103,32 +166,75 @@ final class FinalUrlPriceBatchProvider
                 'product_id' => $productId,
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                 'limit' => $limit,
+                ...($excludedIds === [] ? [] : ['excluded_ids' => $excludedIds]),
             ],
             [
                 'competitor_id' => ParameterType::INTEGER,
                 'after_id' => ParameterType::INTEGER,
                 'product_id' => ParameterType::INTEGER,
                 'limit' => ParameterType::INTEGER,
+                ...($excludedIds === [] ? [] : ['excluded_ids' => ArrayParameterType::INTEGER]),
             ]
         );
     }
 
     public function hasPendingWork(int $competitorId, int $afterId = 0): bool
     {
-        return (bool) $this->databaseConnection->fetchOne(
-            'SELECT EXISTS(
-                SELECT 1
-                FROM competitor_url_final f
-                WHERE f.competitor_id = :competitor_id
-                  AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
-            )',
+        if ($this->prestashopConnection === null) {
+            return (bool) $this->databaseConnection->fetchOne(
+                'SELECT EXISTS(
+                    SELECT 1
+                    FROM competitor_url_final f
+                    WHERE f.competitor_id = :competitor_id
+                      AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
+                )',
+                [
+                    'competitor_id' => $competitorId,
+                    'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+                ],
+                [
+                    'competitor_id' => ParameterType::INTEGER,
+                ]
+            );
+        }
+
+        $ids = $this->databaseConnection->fetchFirstColumn(
+            'SELECT f.id
+             FROM competitor_url_final f
+             WHERE f.competitor_id = :competitor_id
+               AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)',
             [
                 'competitor_id' => $competitorId,
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             ],
-            [
-                'competitor_id' => ParameterType::INTEGER,
-            ]
+            ['competitor_id' => ParameterType::INTEGER]
         );
+
+        foreach (array_chunk(array_map('intval', $ids), 500) as $chunk) {
+            if ($this->getEligibleProductIds($chunk) !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<int> $productIds
+     * @return array<int, true>
+     */
+    private function getEligibleProductIds(array $productIds): array
+    {
+        if ($productIds === [] || $this->prestashopConnection === null) {
+            return [];
+        }
+
+        $ids = $this->prestashopConnection->fetchFirstColumn(
+            'SELECT id_product FROM leo_netrivals_send_feed WHERE id_product IN (:ids)',
+            ['ids' => $productIds],
+            ['ids' => ArrayParameterType::INTEGER],
+        );
+
+        return array_fill_keys(array_map('intval', $ids), true);
     }
 }

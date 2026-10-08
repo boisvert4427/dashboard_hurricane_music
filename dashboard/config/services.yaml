@@ -35,5 +35,14 @@ services:
             $prestashopConnection: '@doctrine.dbal.prestashop_connection'
             $prestashopBaseUrl: '%prestashop_base_url%'
 
+    App\Service\CompetitiveIntelligence\FinalUrlPriceBatchProvider:
+        arguments:
+            $databaseConnection: '@doctrine.dbal.reporting_connection'
+            $prestashopConnection: '@doctrine.dbal.prestashop_connection'
+
+    App\Service\CompetitiveIntelligence\CompetitiveFinalPriceIngestionService:
+        arguments:
+            $prestashopConnection: '@doctrine.dbal.prestashop_connection'
+
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

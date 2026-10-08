@@ -118,6 +118,23 @@ final class PriceRetryTest extends TestCase
         self::assertContains(1, array_column($this->provider->getNextBatch($id, 10, 999)['items'], 'id_product'));
     }
 
+    public function testProductsMissingFromPrestashopFeedAreNotScheduled(): void
+    {
+        $this->final(1);
+        $this->final(2);
+        $feedConnection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $feedConnection->executeStatement('CREATE TABLE leo_netrivals_send_feed (id_product INTEGER PRIMARY KEY)');
+        $feedConnection->insert('leo_netrivals_send_feed', ['id_product' => 2]);
+        $provider = new FinalUrlPriceBatchProvider($this->em->getConnection(), $feedConnection);
+
+        self::assertSame([2], array_column($provider->getNextBatch($this->competitor->getId(), 10)['items'], 'id_product'));
+        self::assertTrue($provider->hasPendingWork($this->competitor->getId()));
+
+        $feedConnection->executeStatement('DELETE FROM leo_netrivals_send_feed');
+        self::assertSame([], $provider->getNextBatch($this->competitor->getId(), 10)['items']);
+        self::assertFalse($provider->hasPendingWork($this->competitor->getId()));
+    }
+
     public function testGoneThresholdAndStaleResponses(): void
     {
         $final = $this->final(1);
@@ -178,6 +195,35 @@ final class PriceRetryTest extends TestCase
             self::assertSame(1, $stats['ignored']);
             self::assertSame('100.00', $final->getCompetitorPrice());
         }
+    }
+
+    public function testWoodbrassRedirectReplacesAssociationMissingFromFeed(): void
+    {
+        $this->competitor->setDomain('woodbrass.com');
+        $active = $this->final(1);
+        $active->setUrl('https://www.woodbrass.com/guitare-p395764.html');
+        $orphan = $this->final(2);
+        $orphan->setUrl('https://woodbrass.com/products/fender-395764');
+        $this->em->flush();
+
+        $feedConnection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $feedConnection->executeStatement('CREATE TABLE leo_netrivals_send_feed (id_product INTEGER PRIMARY KEY)');
+        $feedConnection->insert('leo_netrivals_send_feed', ['id_product' => 1]);
+        $ingestion = new CompetitiveFinalPriceIngestionService($this->em, $feedConnection);
+        $stats = $ingestion->ingest(['competitor_id' => $this->competitor->getId(), 'observations' => [[
+            'id_product' => 1,
+            'url' => $active->getUrl(),
+            'resolved_url' => $orphan->getUrl(),
+            'price' => 819,
+        ]]]);
+
+        self::assertSame(1, $stats['updated']);
+        self::assertSame(1, $stats['removed']);
+        self::assertSame('https://woodbrass.com/products/fender-395764', $active->getUrl());
+        self::assertNull($this->em->getRepository(CompetitorUrlFinal::class)->findOneBy([
+            'id' => 2,
+            'competitor' => $this->competitor,
+        ]));
     }
 
 }

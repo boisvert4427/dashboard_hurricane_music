@@ -8,6 +8,8 @@ use App\Entity\Competitor;
 use App\Entity\CompetitorUrlFinal;
 use App\Entity\CompetitorUrlPriceHistory;
 use App\Entity\CompetitorUrlTestResult;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class CompetitiveFinalPriceIngestionService
@@ -16,6 +18,7 @@ final class CompetitiveFinalPriceIngestionService
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
+        private readonly ?Connection $prestashopConnection = null,
     ) {
     }
 
@@ -82,8 +85,16 @@ final class CompetitiveFinalPriceIngestionService
                 }
                 $existingTarget = $finalRepository->findOneBy(['competitor' => $competitor, 'url' => $resolvedUrl]);
                 if ($existingTarget instanceof CompetitorUrlFinal && $existingTarget->getId() !== $productId) {
-                    $ignored++;
-                    continue;
+                    if (!$this->isProductInFeed($productId) || $this->isProductInFeed($existingTarget->getId())) {
+                        $ignored++;
+                        continue;
+                    }
+
+                    // The redirected URL belongs to an obsolete association. Remove it first so
+                    // the unique (competitor, URL) constraint can safely be reassigned.
+                    $this->entityManager->remove($existingTarget);
+                    $this->entityManager->flush();
+                    $removed++;
                 }
                 $final->setUrl($resolvedUrl);
                 $testResult = $testResultRepository->findOneBy(['productId' => $productId, 'competitor' => $competitor]);
@@ -216,5 +227,18 @@ final class CompetitiveFinalPriceIngestionService
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    private function isProductInFeed(int $productId): bool
+    {
+        if ($this->prestashopConnection === null) {
+            return false;
+        }
+
+        return (bool) $this->prestashopConnection->fetchOne(
+            'SELECT EXISTS(SELECT 1 FROM leo_netrivals_send_feed WHERE id_product = :id_product)',
+            ['id_product' => $productId],
+            ['id_product' => ParameterType::INTEGER],
+        );
     }
 }

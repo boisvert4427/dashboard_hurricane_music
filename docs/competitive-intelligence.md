@@ -1,5 +1,47 @@
 # Veille Concurrentielle
 
+## Fonctionnement complet : de l'URL au scraping du prix
+
+```text
+leo_netrivals_send_feed (produits actuellement suivis)
+                         │
+                         ▼
+             tâche new_urls / retry_urls
+                         │
+                         ▼
+       worker Python : recherche chez le concurrent
+                         │
+                         ▼
+ competitor_url_test_result (résultat et validation)
+                         │
+              validation automatique ou humaine
+                         │
+                         ▼
+       competitor_url_final (URL retenue par produit)
+                         │
+         filtre obligatoire : produit encore dans le feed
+                         │
+                         ▼
+               tâche prices / lot planifié
+                         │
+                         ▼
+       worker Python : ouverture de l'URL et extraction
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼
+       prix trouvé                 échec
+             │           (HTTP, anti-bot, prix absent)
+             ▼                       │
+ mise à jour du prix                 ▼
+ + ajout dans l'historique    délai avant nouvelle tentative
+ competitor_url_price_history  sans effacer le dernier prix
+```
+
+Le feed détermine en permanence les produits éligibles. Une URL peut rester
+archivée dans les tables de veille après la sortie d'un produit du feed, mais
+elle n'est plus envoyée au worker de prix et ne maintient pas artificiellement
+une tâche active.
+
 ## Objectif
 
 Suivre les concurrents sur trois axes:
@@ -105,9 +147,12 @@ remplace pas le dernier prix connu.
   trois réponses 404/410 consécutives reste active.
 
 Le fournisseur de lots et `hasPendingWork` excluent les URLs dont la prochaine
-vérification est dans le futur. Les demandes manuelles sont prioritaires, puis
-la rotation utilise la dernière tentative (ou le dernier relevé pour les URLs
-encore sans tentative enregistrée). Le curseur `after_id` reste compatible.
+vérification est dans le futur ainsi que les produits absents de
+`leo_netrivals_send_feed`. Les demandes manuelles sont prioritaires, puis la
+rotation utilise la dernière tentative (ou le dernier relevé pour les URLs encore
+sans tentative enregistrée). Le curseur `after_id` reste compatible. Le filtre
+du feed est non destructif : les anciennes associations restent consultables,
+mais ne sont plus scrapées.
 
 La page Prix affiche la date du dernier relevé, le dernier échec et la prochaine
 vérification. Dans la fiche produit, « Revérifier maintenant » déclenche un relevé
@@ -125,10 +170,20 @@ depuis `competitive_intelligence_python`, `python3 -m unittest discover -s tests
 Après un relevé réussi sur une redirection HTTP vers une fiche Woodbrass,
 `resolved_url` permet de mettre à jour `competitor_url_final.url` et l'URL de
 validation correspondante. L'URL demandée doit encore correspondre à l'URL finale
-courante, la destination doit être une fiche Woodbrass et ne pas appartenir à un
-autre produit final. Les anciens relevés conservent leur URL d'origine ; le nouveau
-relevé est enregistré avec la nouvelle URL. Les redirections vers un accueil,
-une catégorie ou un domaine externe ne remplacent pas les URLs finales.
+courante et la destination doit être une fiche Woodbrass. Les anciens relevés
+conservent leur URL d'origine ; le nouveau relevé est enregistré avec la nouvelle
+URL. Les redirections vers un accueil, une catégorie ou un domaine externe ne
+remplacent pas les URLs finales.
+
+Si la destination appartient déjà à un autre produit final, les deux IDs sont
+comparés au feed :
+
+- le produit en cours doit être présent dans `leo_netrivals_send_feed` ;
+- si le détenteur de la destination est également dans le feed, le conflit est
+  refusé et doit être contrôlé manuellement ;
+- si le détenteur de la destination est absent du feed, son association finale
+  obsolète est supprimée et l'URL est réattribuée au produit actif ;
+- l'historique des prix existant reste intact.
 
 ### Basculement d'IP pour les prix Woodbrass
 
