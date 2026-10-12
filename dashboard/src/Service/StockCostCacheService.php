@@ -63,6 +63,71 @@ final class StockCostCacheService
         ];
     }
 
+    /**
+     * Queue a complete replay for every site on which the product has moved.
+     *
+     * @return list<int> queued site IDs
+     */
+    public function queueProductRecalculation(int $productId): array
+    {
+        if ($productId <= 0) {
+            return [];
+        }
+
+        $rows = $this->prestashopConnection->fetchAllAssociative(
+            <<<'SQL'
+                SELECT SITE AS site_id, MIN(IDHISTO_STOCK) AS first_source_id
+                FROM K_HISTO_STOCK
+                WHERE IDART = :product_id
+                GROUP BY SITE
+                ORDER BY SITE
+            SQL,
+            ['product_id' => $productId]
+        );
+        if ($rows === []) {
+            return [];
+        }
+
+        $now = (new DateTimeImmutable())->format('Y-m-d H:i:s');
+        $this->reportingConnection->transactional(function (Connection $connection) use ($rows, $productId, $now): void {
+            foreach ($rows as $row) {
+                $siteId = (int) $row['site_id'];
+                $sourceId = (int) $row['first_source_id'];
+                $updated = $connection->executeStatement(
+                    <<<'SQL'
+                        UPDATE reporting_stock_recalc_queue
+                        SET first_changed_source_id = CASE
+                                WHEN first_changed_source_id > :source_id THEN :source_id
+                                ELSE first_changed_source_id
+                            END,
+                            queued_at = :queued_at,
+                            attempts = 0,
+                            last_error = NULL
+                        WHERE product_id = :product_id AND site_id = :site_id
+                    SQL,
+                    [
+                        'product_id' => $productId,
+                        'site_id' => $siteId,
+                        'source_id' => $sourceId,
+                        'queued_at' => $now,
+                    ]
+                );
+                if ($updated === 0) {
+                    $connection->insert('reporting_stock_recalc_queue', [
+                        'product_id' => $productId,
+                        'site_id' => $siteId,
+                        'first_changed_source_id' => $sourceId,
+                        'queued_at' => $now,
+                        'attempts' => 0,
+                        'last_error' => null,
+                    ]);
+                }
+            }
+        });
+
+        return array_map(static fn (array $row): int => (int) $row['site_id'], $rows);
+    }
+
     /** @return array{movements:int, pairs:int} */
     private function discoverChanges(int $limit): array
     {

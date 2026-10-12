@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Repository\KpiRepository;
+use App\Service\StockCostCacheService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Request;
@@ -13,6 +14,39 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class DashboardController extends AbstractController
 {
+    #[Route('/stock-costs/recalculate', name: 'app_stock_cost_recalculate', methods: ['POST'])]
+    public function recalculateStockCosts(Request $request, StockCostCacheService $stockCostCache): Response
+    {
+        if (!$this->isCsrfTokenValid('stock-cost-recalculate', (string) $request->request->get('_token'))) {
+            $this->addFlash('error', 'La demande de recalcul a expiré. Recharge la page et réessaie.');
+
+            return $this->redirectToRoute('app_home');
+        }
+
+        $productId = (int) $request->request->get('product_id', 0);
+        if ($productId <= 0) {
+            $this->addFlash('error', 'Saisis un IDART valide.');
+
+            return $this->redirectToRoute('app_home');
+        }
+
+        $siteIds = $stockCostCache->queueProductRecalculation($productId);
+        if ($siteIds === []) {
+            $this->addFlash('error', sprintf('Aucun mouvement de stock trouvé pour l’IDART %d.', $productId));
+
+            return $this->redirectToRoute('app_home');
+        }
+
+        $this->addFlash('success', sprintf(
+            'Recalcul complet demandé pour l’IDART %d (%d site%s). Le prochain cron reconstruira son historique.',
+            $productId,
+            count($siteIds),
+            count($siteIds) > 1 ? 's' : '',
+        ));
+
+        return $this->redirectToRoute('app_home');
+    }
+
     #[Route('/', name: 'app_home')]
     public function index(Request $request, KpiRepository $kpiRepository): Response
     {

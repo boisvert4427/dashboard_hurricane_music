@@ -42,7 +42,7 @@ final class PriceRetryTest extends TestCase
 
     private function final(int $id): CompetitorUrlFinal
     {
-        $final = new CompetitorUrlFinal($id, $this->competitor, 'https://example.test/' . $id, '100.00');
+        $final = new CompetitorUrlFinal($id, $this->competitor, 'https://example.test/products/' . $id, '100.00');
         $this->em->persist($final);
         $this->em->flush();
         return $final;
@@ -133,6 +133,21 @@ final class PriceRetryTest extends TestCase
         $feedConnection->executeStatement('DELETE FROM leo_netrivals_send_feed');
         self::assertSame([], $provider->getNextBatch($this->competitor->getId(), 10)['items']);
         self::assertFalse($provider->hasPendingWork($this->competitor->getId()));
+    }
+
+    public function testPrestashopEligibilityDoesNotExceedRequestedLimit(): void
+    {
+        foreach (range(1, 12) as $id) {
+            $this->final($id);
+        }
+        $feedConnection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $feedConnection->executeStatement('CREATE TABLE leo_netrivals_send_feed (id_product INTEGER PRIMARY KEY)');
+        foreach (range(1, 12) as $id) {
+            $feedConnection->insert('leo_netrivals_send_feed', ['id_product' => $id]);
+        }
+        $provider = new FinalUrlPriceBatchProvider($this->em->getConnection(), $feedConnection);
+
+        self::assertCount(3, $provider->getNextBatch($this->competitor->getId(), 3)['items']);
     }
 
     public function testGoneThresholdAndStaleResponses(): void

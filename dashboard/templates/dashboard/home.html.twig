@@ -119,6 +119,27 @@
             </form>
         </section>
 
+        <section class="stock-maintenance" aria-labelledby="stock-maintenance-title">
+            <div>
+                <div class="toolbar-eyebrow">Maintenance des coûts de stock</div>
+                <h2 id="stock-maintenance-title">Recalculer un article</h2>
+                <p>À utiliser après la correction ou la suppression d’une réception. Tous les sites et tout l’historique de l’IDART seront rejoués par le prochain cron.</p>
+            </div>
+            <form
+                class="stock-maintenance__form"
+                method="post"
+                action="{{ path('app_stock_cost_recalculate') }}"
+                data-turbo-confirm="Confirmer le recalcul complet de cet IDART sur tous ses sites ?"
+            >
+                <input type="hidden" name="_token" value="{{ csrf_token('stock-cost-recalculate') }}">
+                <label for="stock-recalculate-product">IDART</label>
+                <div class="stock-maintenance__controls">
+                    <input id="stock-recalculate-product" type="number" name="product_id" min="1" step="1" required inputmode="numeric" placeholder="Ex. 33496">
+                    <button class="button button-primary" type="submit" data-turbo-submits-with="Mise en file…">Demander le recalcul</button>
+                </div>
+            </form>
+        </section>
+
         <nav class="home-sections-nav" aria-label="Accès rapide aux sections">
             <a href="#section-kpis">Global</a>
             {% if not hide_channel_section %}

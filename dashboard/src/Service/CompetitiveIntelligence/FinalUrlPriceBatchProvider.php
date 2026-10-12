@@ -100,6 +100,9 @@ final class FinalUrlPriceBatchProvider
                 $excludedIds[] = $id;
                 if (isset($eligibleIds[$id])) {
                     $eligibleRows[] = $candidate;
+                    if (count($eligibleRows) >= $limit) {
+                        break;
+                    }
                 }
             }
 
@@ -139,29 +142,23 @@ final class FinalUrlPriceBatchProvider
                     c.domain AS competitor_domain,
                     f.url,
                     f.competitor_price AS source_price,
-                    last_price.last_scraped_at AS last_scraped_at
+                    f.last_price_attempt_at AS last_scraped_at
              FROM competitor_url_final f
              INNER JOIN competitor c ON c.id = f.competitor_id
-             LEFT JOIN (
-                 SELECT competitor_id, id_product, url, MAX(observed_at) AS last_scraped_at
-                 FROM competitor_url_price_history
-                 GROUP BY competitor_id, id_product, url
-             ) last_price
-               ON last_price.competitor_id = f.competitor_id
-              AND last_price.id_product = f.id
-              AND last_price.url = f.url
              WHERE f.competitor_id = :competitor_id
+               AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
                AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
                AND (:product_id = 0 OR f.id = :product_id)
                AND f.id ' . $operator . ' :after_id
                ' . $exclusionSql . '
              ORDER BY (f.price_check_requested_at IS NULL) ASC,
                       f.price_check_requested_at ASC,
-                      COALESCE(f.last_price_attempt_at, last_price.last_scraped_at) ASC,
+                      f.last_price_attempt_at ASC,
                       f.id ASC
              LIMIT :limit',
             [
                 'competitor_id' => $competitorId,
+                'woodbrass_product_pattern' => '%/products/%',
                 'after_id' => $afterId,
                 'product_id' => $productId,
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
@@ -186,10 +183,12 @@ final class FinalUrlPriceBatchProvider
                     SELECT 1
                     FROM competitor_url_final f
                     WHERE f.competitor_id = :competitor_id
+                      AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
                       AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
                 )',
                 [
                     'competitor_id' => $competitorId,
+                    'woodbrass_product_pattern' => '%/products/%',
                     'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                 ],
                 [
@@ -202,9 +201,11 @@ final class FinalUrlPriceBatchProvider
             'SELECT f.id
              FROM competitor_url_final f
              WHERE f.competitor_id = :competitor_id
+               AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
                AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)',
             [
                 'competitor_id' => $competitorId,
+                'woodbrass_product_pattern' => '%/products/%',
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             ],
             ['competitor_id' => ParameterType::INTEGER]

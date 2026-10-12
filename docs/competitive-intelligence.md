@@ -196,11 +196,39 @@ le prochain relevé teste de nouveau l'accès direct. Une réponse HTTP réussie
 désactive le proxy ; un nouvel échec conserve le proxy et reporte le test direct
 de sept jours.
 
+La protection contre les limitations reste pilotée par l'orchestrateur. Un HTTP
+429 signalé par le worker place `woodbrass.prices` en pause pendant 24 heures et
+arrête immédiatement le lot courant. L'état, le motif et l'heure de reprise sont
+affichés sur la page Orchestrateur ; les lancements automatiques et manuels sont
+refusés pendant cette pause. Si la tâche est décochée manuellement, l'interface
+indique explicitement qu'aucun lancement automatique n'aura lieu. Le réglage
+prudent par défaut est un produit toutes les quatre heures.
+
 La configuration repose sur `CI_WOODBRASS_PROXY_SSH_HOST`,
 `CI_WOODBRASS_PROXY_SSH_USER`, `CI_WOODBRASS_PROXY_SSH_KEY`,
 `CI_WOODBRASS_PROXY_LOCAL_PORT`, `CI_WOODBRASS_PROXY_AFTER_429` et
 `CI_WOODBRASS_PROXY_RETRY_AFTER_SECONDS`. L'état du circuit est conservé dans
 `competitive_intelligence_python/var/state/`.
+
+### Stratégie prudente des relevés Woodbrass
+
+La tâche `woodbrass.prices` est configurée dans l'orchestrateur avec un lot d'un
+seul produit et un intervalle de quatre heures. Elle reste désactivée tant qu'un
+opérateur ne la réactive pas depuis la page Orchestrateur. Une désactivation
+manuelle n'est jamais annulée automatiquement.
+
+Une fois réactivée, le worker ne télécharge plus la page HTML complète. Pour les
+URLs Shopify canoniques `/products/<handle>`, il appelle exclusivement la
+ressource légère `/products/<handle>.js`, sélectionne la variante indiquée dans
+le paramètre `variant` lorsqu'il existe, puis convertit le prix Shopify exprimé
+en centimes. Les anciennes URLs Woodbrass ne sont pas placées dans les lots de
+prix afin d'éviter un accès HTML ou une redirection supplémentaire.
+
+L'orchestrateur conserve la décision opérationnelle et son état visible : tâche
+active ou désactivée, taille du lot, intervalle, route réseau utilisée, dernier
+statut HTTP, motif de pause et heure de reprise. Au premier HTTP 429, le worker
+arrête immédiatement le lot et le signale à l'API ; l'orchestrateur impose alors
+une pause de 24 heures aux lancements automatiques comme aux lancements manuels.
 
 ### Recherche d'URLs Woodbrass par EAN
 

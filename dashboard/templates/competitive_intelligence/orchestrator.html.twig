@@ -173,7 +173,27 @@
                                     <input type="number" min="1" max="1000" name="tasks[{{ row.key }}][priority]" value="{{ row.priority }}">
                                 </td>
                                 <td>{{ row.pending_work ? 'Oui' : 'Non' }}</td>
-                                <td>{{ row.running ? 'En cours' : 'Libre' }}</td>
+                                <td>
+                                    {% if row.running %}
+                                        En cours
+                                    {% elseif row.cooldown_active %}
+                                        Pause jusqu’au {{ row.cooldown_until|date('d/m/Y H:i:s') }}
+                                    {% else %}
+                                        Libre
+                                    {% endif %}
+                                    {% if row.status_message %}
+                                        <br><span class="muted-inline">{{ row.status_message }}</span>
+                                    {% endif %}
+                                    {% if row.competitor_key == 'woodbrass' and row.task_type == 'prices' %}
+                                        <br><span class="muted-inline">
+                                            Route : {{ row.last_transport == 'vps_proxy' ? 'VPS secondaire' : (row.last_transport == 'direct' ? 'IP principale' : 'pas encore renseignée') }}
+                                            {% if row.last_http_status %} · HTTP {{ row.last_http_status }}{% endif %}
+                                        </span>
+                                        {% if row.cooldown_reason %}
+                                            <br><span class="muted-inline">{{ row.cooldown_reason }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
                                 <td>{{ row.last_started_at ? row.last_started_at|date('d/m/Y H:i:s') : 'Jamais' }}</td>
                                 <td>
                                     {% if row.latest_log %}

@@ -74,6 +74,33 @@ final class CompetitiveOrchestratorStateStorage
         return $this->kernel->getProjectDir() . '/var/competitive-intelligence/orchestrator.state.json';
     }
 
+    public function putTaskCooldown(string $taskKey, \DateTimeImmutable $until, string $reason): array
+    {
+        $state = $this->load();
+        $current = is_array($state['tasks'][$taskKey] ?? null) ? $state['tasks'][$taskKey] : [];
+        $state['tasks'][$taskKey] = array_merge($current, [
+            'last_result' => 'cooldown',
+            'last_reason' => $reason,
+            'cooldown_until' => $until->format(\DateTimeInterface::ATOM),
+            'cooldown_reason' => $reason,
+        ]);
+
+        return $this->save($state);
+    }
+
+    public function recordTaskTelemetry(string $taskKey, string $transport, ?int $httpStatus): array
+    {
+        $state = $this->load();
+        $current = is_array($state['tasks'][$taskKey] ?? null) ? $state['tasks'][$taskKey] : [];
+        $state['tasks'][$taskKey] = array_merge($current, [
+            'last_transport' => $transport,
+            'last_http_status' => $httpStatus,
+            'last_feedback_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
+        ]);
+
+        return $this->save($state);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -104,6 +131,11 @@ final class CompetitiveOrchestratorStateStorage
                 'last_pid' => isset($taskState['last_pid']) ? (int) $taskState['last_pid'] : null,
                 'last_reason' => isset($taskState['last_reason']) && is_string($taskState['last_reason']) ? trim($taskState['last_reason']) : null,
                 'last_log_file' => isset($taskState['last_log_file']) && is_string($taskState['last_log_file']) ? trim($taskState['last_log_file']) : null,
+                'cooldown_until' => isset($taskState['cooldown_until']) && is_string($taskState['cooldown_until']) ? trim($taskState['cooldown_until']) : null,
+                'cooldown_reason' => isset($taskState['cooldown_reason']) && is_string($taskState['cooldown_reason']) ? trim($taskState['cooldown_reason']) : null,
+                'last_transport' => isset($taskState['last_transport']) && is_string($taskState['last_transport']) ? trim($taskState['last_transport']) : null,
+                'last_http_status' => isset($taskState['last_http_status']) ? (int) $taskState['last_http_status'] : null,
+                'last_feedback_at' => isset($taskState['last_feedback_at']) && is_string($taskState['last_feedback_at']) ? trim($taskState['last_feedback_at']) : null,
             ];
         }
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -16,6 +16,37 @@ def is_woodbrass_product_url(url: str) -> bool:
         and not parsed.password
         and bool(re.fullmatch(r"/products/[^/]+/?|/[^/]*-p\d+\.html", parsed.path))
     )
+
+
+def woodbrass_product_json_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.hostname not in {"woodbrass.com", "www.woodbrass.com"}:
+        return None
+    if not re.fullmatch(r"/products/[^/]+/?", parsed.path):
+        return None
+    return f"https://woodbrass.com{parsed.path.rstrip('/')}.js"
+
+
+def extract_woodbrass_json_price(payload: object, product_url: str) -> float | None:
+    if not isinstance(payload, dict) or not isinstance(payload.get("variants"), list):
+        return None
+    variants = payload["variants"]
+    requested_variant = parse_qs(urlparse(product_url).query).get("variant", [None])[0]
+    selected = None
+    if requested_variant:
+        selected = next(
+            (row for row in variants if isinstance(row, dict) and str(row.get("id")) == requested_variant),
+            None,
+        )
+    if selected is None:
+        selected = next((row for row in variants if isinstance(row, dict)), None)
+    if not isinstance(selected, dict):
+        return None
+    try:
+        cents = float(selected.get("price"))
+    except (TypeError, ValueError):
+        return None
+    return cents / 100 if cents > 0 else None
 
 
 def extract_woodbrass_display_price(html: str) -> float | None:

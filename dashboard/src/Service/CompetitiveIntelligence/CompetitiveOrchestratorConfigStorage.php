@@ -12,7 +12,7 @@ final class CompetitiveOrchestratorConfigStorage
     private const DEFAULT_TASKS = [
         'woodbrass.new_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 100],
         'woodbrass.retry_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 30],
-        'woodbrass.prices' => ['enabled' => true, 'limit' => 5, 'interval_minutes' => 1, 'priority' => 80],
+        'woodbrass.prices' => ['enabled' => true, 'limit' => 1, 'interval_minutes' => 240, 'priority' => 80],
         'starsmusic.new_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 100],
         'starsmusic.retry_urls' => ['enabled' => true, 'limit' => 10, 'interval_minutes' => 720, 'priority' => 30],
         'starsmusic.prices' => ['enabled' => true, 'limit' => 5, 'interval_minutes' => 1, 'priority' => 80],

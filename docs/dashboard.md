@@ -108,6 +108,15 @@ La commande prend le verrou exclusif `var/lock/heavy-processing.lock`. L'orchest
 de veille ne démarre pas de nouveau worker pendant ce calcul, et la commande s'abstient
 si un worker de veille est encore actif.
 
+### Recalcul manuel d'un article
+
+Le bloc « Maintenance des coûts de stock » en bas de l'accueil permet de saisir un
+`IDART` après la correction ou la suppression d'une réception. L'action POST protégée
+par CSRF place tous les couples `IDART + SITE` trouvés dans `K_HISTO_STOCK` dans
+`reporting_stock_recalc_queue`. Elle ne calcule rien dans la requête web : le prochain
+cron rejoue l'historique complet de chaque site, en relisant l'état courant de
+`K_LI_RECEPT`, puis remplace le cache FIFO/PAMP de l'article.
+
 Route web sécurisée:
 
 ```text

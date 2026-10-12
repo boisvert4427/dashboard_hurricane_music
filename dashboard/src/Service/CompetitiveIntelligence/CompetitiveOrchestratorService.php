@@ -56,8 +56,8 @@ final class CompetitiveOrchestratorService
             ];
             $tasks[$this->taskKey($competitorKey, 'prices')] = [
                 'enabled' => true,
-                'limit' => 5,
-                'interval_minutes' => 1,
+                'limit' => $competitorKey === 'woodbrass' ? 1 : 5,
+                'interval_minutes' => $competitorKey === 'woodbrass' ? 240 : 1,
                 'priority' => 80,
             ];
         }
@@ -90,6 +90,8 @@ final class CompetitiveOrchestratorService
                 $taskState = is_array($stateTasks[$key] ?? null) ? $stateTasks[$key] : [];
                 $running = $this->isTaskRunning((int) $competitor['id'], $taskType, $langId, $shopId);
                 $pending = $this->hasPendingWork((int) $competitor['id'], $taskType, $langId, $shopId);
+                $cooldownUntil = $taskState['cooldown_until'] ?? null;
+                $cooldownActive = $this->isCooldownActive($cooldownUntil);
 
                 $descriptions[] = [
                     'key' => $key,
@@ -107,6 +109,15 @@ final class CompetitiveOrchestratorService
                     'last_started_at' => $taskState['last_started_at'] ?? null,
                     'last_result' => $taskState['last_result'] ?? null,
                     'last_reason' => $taskState['last_reason'] ?? null,
+                    'cooldown_until' => $cooldownUntil,
+                    'cooldown_reason' => $taskState['cooldown_reason'] ?? null,
+                    'cooldown_active' => $cooldownActive,
+                    'status_message' => !(bool) ($taskConfig['enabled'] ?? false)
+                        ? 'Désactivée : aucun lancement automatique'
+                        : ($cooldownActive ? 'Pause automatique après HTTP 429' : null),
+                    'last_transport' => $taskState['last_transport'] ?? null,
+                    'last_http_status' => $taskState['last_http_status'] ?? null,
+                    'last_feedback_at' => $taskState['last_feedback_at'] ?? null,
                 ];
             }
         }
@@ -261,6 +272,13 @@ final class CompetitiveOrchestratorService
         if (!is_array($task)) {
             throw new \RuntimeException(sprintf('Unknown orchestrator task "%s".', $taskKey));
         }
+        if ((bool) ($task['cooldown_active'] ?? false)) {
+            throw new \RuntimeException(sprintf(
+                'Tâche en pause automatique jusqu’au %s (%s).',
+                (string) ($task['cooldown_until'] ?? '?'),
+                (string) ($task['cooldown_reason'] ?? 'protection'),
+            ));
+        }
 
         $run = $this->startTask(
             $task,
@@ -318,6 +336,9 @@ final class CompetitiveOrchestratorService
                 return false;
             }
             if (!(bool) ($task['pending_work'] ?? false)) {
+                return false;
+            }
+            if ((bool) ($task['cooldown_active'] ?? false)) {
                 return false;
             }
 
@@ -382,6 +403,19 @@ final class CompetitiveOrchestratorService
         }
 
         return max(0, (int) floor((time() - $last->getTimestamp()) / 60));
+    }
+
+    private function isCooldownActive(mixed $until): bool
+    {
+        if (!is_string($until) || trim($until) === '') {
+            return false;
+        }
+
+        try {
+            return new \DateTimeImmutable($until) > new \DateTimeImmutable();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

@@ -16,14 +16,20 @@ class PriceJobTest(unittest.TestCase):
                 api = MagicMock()
                 api.fetch_next_final_price_batch.return_value = {
                     'competitor': {'id': competitor_id, 'domain': domain, 'name': domain},
-                    'items': [{'id_product': i, 'url': f'https://{domain}/{i}'} for i in range(1, 7)],
+                    'items': [
+                        {
+                            'id_product': i,
+                            'url': f'https://{domain}/products/product-{i}' if competitor_id == 1 else f'https://{domain}/{i}',
+                        }
+                        for i in range(1, 7)
+                    ],
                     'after_id': 6, 'has_more': False,
                 }
                 def response(status=200):
                     r = requests.Response()
                     r.status_code = status
                     r.url = f'https://{domain}/product'
-                    r._content = b'<html></html>'
+                    r._content = b'{"variants":[{"id":1,"price":0}]}' if competitor_id == 1 else b'<html></html>'
                     return r
                 http = MagicMock()
                 challenge = response()
@@ -39,8 +45,10 @@ class PriceJobTest(unittest.TestCase):
                     price_job.run_price_job(settings=settings)
                 payload = api.submit_final_prices.call_args.args[0]
                 self.assertEqual([], payload['observations'])
-                self.assertEqual(['price_not_found', 'temporary_error', 'temporary_error', 'http_gone', 'price_not_found', 'temporary_error'],
-                                 [row['result'] for row in payload['failures']])
+                expected = ['price_not_found', 'temporary_error', 'temporary_error']
+                if competitor_id != 1:
+                    expected.extend(['http_gone', 'price_not_found', 'temporary_error'])
+                self.assertEqual(expected, [row['result'] for row in payload['failures']])
                 self.assertEqual(competitor_id, payload['competitor_id'])
 
     def test_stars_structured_price_fallback(self):
@@ -56,43 +64,50 @@ class PriceJobTest(unittest.TestCase):
         self.assertIsNone(price_job._extract_woodbrass_price('<span data-wb-bss-price>%%PRICE%%</span>'))
         self.assertEqual(819.0, price_job._extract_woodbrass_price('<meta itemprop="price" content="819.00">'))
 
-    def test_woodbrass_redirect_sends_original_and_resolved_urls_only_for_product_pages(self):
-        old_url = 'https://www.woodbrass.com/guitare-p395764.html'
-        for target, valid in [
-            ('https://woodbrass.com/products/fender-395764', True),
-            ('https://woodbrass.com/', False),
-            ('https://woodbrass.com/collections/guitares', False),
-            ('https://example.test/products/fender-395764', False),
-        ]:
-            with self.subTest(target=target):
-                api = MagicMock()
-                api.fetch_next_final_price_batch.return_value = {
-                    'competitor': {'id': 1, 'domain': 'woodbrass.com', 'name': 'Woodbrass'},
-                    'items': [{'id_product': 396663, 'url': old_url}],
-                    'after_id': 396663, 'has_more': False,
-                }
-                response = requests.Response()
-                response.status_code = 200
-                response.url = target
-                response.history = [requests.Response()]
-                response._content = '<span data-wb-bss-price="">819,00 €</span>'.encode()
-                response.encoding = 'utf-8'
-                http = MagicMock()
-                http.get.return_value = response
-                with patch.object(price_job, 'ApiClient', return_value=api), \
-                     patch.object(price_job, 'HttpClient', return_value=http), \
-                     patch.object(price_job, 'competitor_run_lock', return_value=contextlib.nullcontext()), \
-                     contextlib.redirect_stdout(io.StringIO()):
-                    price_job.run_price_job(settings=Settings('https://example.test', 'test-token', 1))
-                payload = api.submit_final_prices.call_args.args[0]
-                if valid:
-                    observation = payload['observations'][0]
-                    self.assertEqual(old_url, observation['url'])
-                    self.assertEqual(target, observation['resolved_url'])
-                    self.assertEqual(819.0, observation['price'])
-                else:
-                    self.assertEqual([], payload['observations'])
-                    self.assertEqual('price_not_found', payload['failures'][0]['result'])
+    def test_woodbrass_price_job_uses_shopify_json_endpoint(self):
+        api = MagicMock()
+        api.fetch_next_final_price_batch.return_value = {
+            'competitor': {'id': 1, 'domain': 'woodbrass.com', 'name': 'Woodbrass'},
+            'items': [{'id_product': 1, 'url': 'https://woodbrass.com/products/test?variant=22'}],
+            'after_id': 1,
+            'has_more': False,
+        }
+        response = requests.Response()
+        response.status_code = 200
+        response.url = 'https://woodbrass.com/products/test.js'
+        response._content = b'{"variants":[{"id":11,"price":9900},{"id":22,"price":12345}]}'
+        http = MagicMock()
+        http.get.return_value = response
+        with patch.object(price_job, 'ApiClient', return_value=api), \
+             patch.object(price_job, 'HttpClient', return_value=http), \
+             patch.object(price_job, 'competitor_run_lock', return_value=contextlib.nullcontext()), \
+             contextlib.redirect_stdout(io.StringIO()):
+            price_job.run_price_job(settings=Settings('https://example.test', 'test-token', 1))
+
+        self.assertEqual('https://woodbrass.com/products/test.js', http.get.call_args.args[0])
+        payload = api.submit_final_prices.call_args.args[0]
+        self.assertEqual(123.45, payload['observations'][0]['price'])
+        self.assertEqual('woodbrass_shopify_json', payload['observations'][0]['source'])
+
+    def test_woodbrass_legacy_url_is_rejected_without_network_request(self):
+        api = MagicMock()
+        api.fetch_next_final_price_batch.return_value = {
+            'competitor': {'id': 1, 'domain': 'woodbrass.com', 'name': 'Woodbrass'},
+            'items': [{'id_product': 396663, 'url': 'https://www.woodbrass.com/guitare-p395764.html'}],
+            'after_id': 396663,
+            'has_more': False,
+        }
+        http = MagicMock()
+        with patch.object(price_job, 'ApiClient', return_value=api), \
+             patch.object(price_job, 'HttpClient', return_value=http), \
+             patch.object(price_job, 'competitor_run_lock', return_value=contextlib.nullcontext()), \
+             contextlib.redirect_stdout(io.StringIO()):
+            price_job.run_price_job(settings=Settings('https://example.test', 'test-token', 1))
+
+        http.get.assert_not_called()
+        payload = api.submit_final_prices.call_args.args[0]
+        self.assertEqual([], payload['observations'])
+        self.assertEqual('temporary_error', payload['failures'][0]['result'])
 
 
 if __name__ == '__main__':

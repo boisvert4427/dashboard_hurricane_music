@@ -9,6 +9,7 @@ use App\Service\CompetitiveIntelligence\CompetitiveFinalPriceIngestionService;
 use App\Service\CompetitiveIntelligence\CompetitiveBatchRunner;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorConfigStorage;
 use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorService;
+use App\Service\CompetitiveIntelligence\CompetitiveOrchestratorStateStorage;
 use App\Service\CompetitiveIntelligence\CompetitiveTestResultIngestionService;
 use App\Service\CompetitiveIntelligence\FinalPriceBatchRunner;
 use App\Service\CompetitiveIntelligence\FinalUrlPriceBatchProvider;
@@ -534,6 +535,7 @@ final class CompetitiveIntelligenceApiController extends AbstractController
     public function ingestFinalPrices(
         Request $request,
         CompetitiveFinalPriceIngestionService $finalPriceIngestionService,
+        CompetitiveOrchestratorStateStorage $orchestratorStateStorage,
     ): JsonResponse {
         if (!$this->isAuthorized($request)) {
             return $this->json(['ok' => false, 'error' => 'Forbidden'], 403);
@@ -548,6 +550,29 @@ final class CompetitiveIntelligenceApiController extends AbstractController
             $stats = ['inserted' => 0, 'updated' => 0, 'ignored' => 0];
             if (array_key_exists('observations', $payload) || array_key_exists('failures', $payload)) {
                 $stats = $finalPriceIngestionService->ingest($payload);
+            }
+            $competitorId = (int) ($payload['competitor_id'] ?? 0);
+            $hasRateLimit = false;
+            foreach (is_array($payload['failures'] ?? null) ? $payload['failures'] : [] as $failure) {
+                if (is_array($failure) && (int) ($failure['http_status'] ?? 0) === 429) {
+                    $hasRateLimit = true;
+                    break;
+                }
+            }
+            if ($competitorId === 1) {
+                $lastHttpStatus = $hasRateLimit ? 429 : ((is_array($payload['observations'] ?? null) && $payload['observations'] !== []) ? 200 : null);
+                $orchestratorStateStorage->recordTaskTelemetry(
+                    'woodbrass.prices',
+                    (string) ($payload['transport'] ?? 'unknown'),
+                    $lastHttpStatus,
+                );
+            }
+            if ($competitorId === 1 && $hasRateLimit) {
+                $orchestratorStateStorage->putTaskCooldown(
+                    'woodbrass.prices',
+                    new \DateTimeImmutable('+24 hours'),
+                    'HTTP 429 Woodbrass : protection automatique de l’IP pendant 24 h',
+                );
             }
         } catch (\Throwable $e) {
             return $this->json([

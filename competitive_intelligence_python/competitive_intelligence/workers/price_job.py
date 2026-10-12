@@ -17,7 +17,12 @@ from bs4 import BeautifulSoup
 from competitive_intelligence.core.api_client import ApiClient
 from competitive_intelligence.core.config import Settings
 from competitive_intelligence.core.http_client import HttpClient
-from competitive_intelligence.core.woodbrass_price import extract_woodbrass_display_price, is_woodbrass_product_url
+from competitive_intelligence.core.woodbrass_price import (
+    extract_woodbrass_display_price,
+    extract_woodbrass_json_price,
+    is_woodbrass_product_url,
+    woodbrass_product_json_url,
+)
 from competitive_intelligence.core.woodbrass_proxy import WoodbrassProxyCircuit
 
 
@@ -94,13 +99,20 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             try:
                 if "thomann" in competitor_domain or "thomann" in competitor_name:
                     _human_pause()
-                response = scrape_http.get(url, headers=_page_headers(competitor_domain))
+                request_url = woodbrass_product_json_url(url) if is_woodbrass else url
+                if is_woodbrass and request_url is None:
+                    raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
+                response = scrape_http.get(request_url, headers=_page_headers(competitor_domain))
                 response.raise_for_status()
                 if proxy_circuit is not None:
                     proxy_circuit.record_http_status(response.status_code, used_proxy=using_proxy)
                 if response.headers.get("cf-mitigated") == "challenge" or "cf-chl-" in response.text:
                     raise RuntimeError("Temporary anti-bot challenge")
-                price = _extract_price(competitor_domain, competitor_name, response.text, response.url)
+                price = (
+                    extract_woodbrass_json_price(response.json(), url)
+                    if is_woodbrass
+                    else _extract_price(competitor_domain, competitor_name, response.text, response.url)
+                )
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else None
                 if proxy_circuit is not None:
@@ -124,6 +136,9 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                         "error": str(exc),
                     }
                 )
+                if is_woodbrass and status_code == 429:
+                    print({"event": "woodbrass_batch_stopped", "reason": "http_429"}, flush=True)
+                    break
                 continue
             except Exception as exc:
                 if proxy_circuit is not None and not using_proxy and proxy_circuit.enabled:
@@ -158,7 +173,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
 
             resolved_url = response.url.split("#", 1)[0]
             observation_url = {}
-            if "woodbrass" in competitor_domain and response.history and resolved_url != url:
+            if "woodbrass" in competitor_domain and response.history and resolved_url != url and not resolved_url.endswith(".js"):
                 if is_woodbrass_product_url(resolved_url):
                     observation_url["resolved_url"] = resolved_url
 
@@ -167,7 +182,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     "id_product": product_id,
                     "url": url,
                     "price": price,
-                    "source": _price_source_label(competitor_domain, competitor_name),
+                    "source": "woodbrass_shopify_json" if is_woodbrass else _price_source_label(competitor_domain, competitor_name),
                     **observation_url,
                 }
             )
@@ -185,6 +200,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             api.submit_final_prices(
                 {
                     "competitor_id": competitor.get("id"),
+                    "transport": "vps_proxy" if using_proxy else "direct",
                     "observations": observations,
                     "failures": failures,
                 }
