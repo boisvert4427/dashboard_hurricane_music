@@ -8,3 +8,4 @@
 # Python bytecode
 **/*.pyc
 **/__pycache__/
+.env.local

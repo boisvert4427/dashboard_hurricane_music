@@ -45,6 +45,12 @@ final class FinalPriceBatchRunner
         }
         if ($competitorId === 1) {
             foreach ([
+                'WOODBRASS_BROWSER_ENABLED',
+                'WOODBRASS_PROXY_HOST',
+                'WOODBRASS_PROXY_PORT',
+                'WOODBRASS_PROXY_USERNAME',
+                'WOODBRASS_PROXY_PASSWORD',
+                'WOODBRASS_CHROMIUM_PATH',
                 'CI_WOODBRASS_PROXY_SSH_HOST',
                 'CI_WOODBRASS_PROXY_SSH_USER',
                 'CI_WOODBRASS_PROXY_SSH_KEY',

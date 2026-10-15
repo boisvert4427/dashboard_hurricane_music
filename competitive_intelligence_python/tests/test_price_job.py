@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 import requests
 
 from competitive_intelligence.core.config import Settings
+from competitive_intelligence.core.woodbrass_browser import BrowserResponse
 from competitive_intelligence.workers import price_job
 
 
@@ -88,6 +89,38 @@ class PriceJobTest(unittest.TestCase):
         payload = api.submit_final_prices.call_args.args[0]
         self.assertEqual(123.45, payload['observations'][0]['price'])
         self.assertEqual('woodbrass_shopify_json', payload['observations'][0]['source'])
+
+    def test_woodbrass_price_job_uses_chromium_json_when_residential_proxy_is_configured(self):
+        api = MagicMock()
+        api.fetch_next_final_price_batch.return_value = {
+            'competitor': {'id': 1, 'domain': 'woodbrass.com', 'name': 'Woodbrass'},
+            'items': [{'id_product': 1, 'url': 'https://woodbrass.com/products/test'}],
+            'after_id': 1,
+            'has_more': False,
+        }
+        browser = MagicMock()
+        browser.configured = True
+        browser.uses_proxy = True
+        browser.get.return_value = BrowserResponse(
+            200,
+            'https://woodbrass.com/products/test.js',
+            '{"variants":[{"id":11,"price":11400}]}',
+            {'content-type': 'application/json'},
+        )
+        http = MagicMock()
+        with patch.object(price_job, 'ApiClient', return_value=api), \
+             patch.object(price_job, 'HttpClient', return_value=http), \
+             patch.object(price_job, 'WoodbrassBrowser', return_value=browser), \
+             patch.object(price_job, 'competitor_run_lock', return_value=contextlib.nullcontext()), \
+             contextlib.redirect_stdout(io.StringIO()):
+            price_job.run_price_job(settings=Settings('https://example.test', 'test-token', 1))
+
+        browser.get.assert_called_once_with('https://woodbrass.com/products/test.js')
+        browser.close.assert_called_once()
+        payload = api.submit_final_prices.call_args.args[0]
+        self.assertEqual(114.0, payload['observations'][0]['price'])
+        self.assertEqual('woodbrass_browser_json', payload['observations'][0]['source'])
+        self.assertEqual('chromium_proxy', payload['transport'])
 
     def test_woodbrass_legacy_url_is_rejected_without_network_request(self):
         api = MagicMock()

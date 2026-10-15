@@ -23,6 +23,7 @@ from competitive_intelligence.core.woodbrass_price import (
     is_woodbrass_product_url,
     woodbrass_product_json_url,
 )
+from competitive_intelligence.core.woodbrass_browser import WoodbrassBrowser
 from competitive_intelligence.core.woodbrass_proxy import WoodbrassProxyCircuit
 
 
@@ -62,12 +63,15 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
         competitor_domain = str(competitor.get("domain") or "").lower()
         competitor_name = str(competitor.get("name") or "").lower()
         is_woodbrass = "woodbrass" in competitor_domain or "woodbrass" in competitor_name
+        woodbrass_browser = WoodbrassBrowser() if is_woodbrass else None
+        using_browser = bool(woodbrass_browser and woodbrass_browser.configured)
         proxy_circuit = None
-        if is_woodbrass:
+        if is_woodbrass and not using_browser:
             configured_circuit = WoodbrassProxyCircuit(Path(__file__).resolve().parents[2])
             if configured_circuit.configured:
                 proxy_circuit = configured_circuit
-        using_proxy = bool(proxy_circuit and proxy_circuit.should_use_proxy)
+        using_browser_proxy = bool(using_browser and woodbrass_browser and woodbrass_browser.uses_proxy)
+        using_proxy = using_browser_proxy or bool(proxy_circuit and proxy_circuit.should_use_proxy)
         if using_proxy and proxy_circuit is not None:
             proxy_circuit.ensure_tunnel()
         scrape_http = HttpClient(
@@ -90,7 +94,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             flush=True,
         )
 
-        for item in batch["items"]:
+        for item_index, item in enumerate(batch["items"]):
             url = str(item.get("url") or "").strip()
             product_id = int(item.get("id_product") or 0)
             if product_id <= 0 or not url:
@@ -99,10 +103,18 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
             try:
                 if "thomann" in competitor_domain or "thomann" in competitor_name:
                     _human_pause()
-                request_url = woodbrass_product_json_url(url) if is_woodbrass else url
-                if is_woodbrass and request_url is None:
-                    raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
-                response = scrape_http.get(request_url, headers=_page_headers(competitor_domain))
+                if using_browser and woodbrass_browser is not None:
+                    if item_index > 0:
+                        time.sleep(random.uniform(15.0, 30.0))
+                    request_url = woodbrass_product_json_url(url)
+                    if request_url is None:
+                        raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
+                    response = woodbrass_browser.get(request_url)
+                else:
+                    request_url = woodbrass_product_json_url(url) if is_woodbrass else url
+                    if is_woodbrass and request_url is None:
+                        raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
+                    response = scrape_http.get(request_url, headers=_page_headers(competitor_domain))
                 response.raise_for_status()
                 if proxy_circuit is not None:
                     proxy_circuit.record_http_status(response.status_code, used_proxy=using_proxy)
@@ -110,6 +122,8 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     raise RuntimeError("Temporary anti-bot challenge")
                 price = (
                     extract_woodbrass_json_price(response.json(), url)
+                    if using_browser
+                    else extract_woodbrass_json_price(response.json(), url)
                     if is_woodbrass
                     else _extract_price(competitor_domain, competitor_name, response.text, response.url)
                 )
@@ -173,6 +187,8 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
 
             resolved_url = response.url.split("#", 1)[0]
             observation_url = {}
+            if using_browser and resolved_url != url and is_woodbrass_product_url(resolved_url):
+                observation_url["resolved_url"] = resolved_url
             if "woodbrass" in competitor_domain and response.history and resolved_url != url and not resolved_url.endswith(".js"):
                 if is_woodbrass_product_url(resolved_url):
                     observation_url["resolved_url"] = resolved_url
@@ -182,7 +198,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                     "id_product": product_id,
                     "url": url,
                     "price": price,
-                    "source": "woodbrass_shopify_json" if is_woodbrass else _price_source_label(competitor_domain, competitor_name),
+                    "source": "woodbrass_browser_json" if using_browser else "woodbrass_shopify_json" if is_woodbrass else _price_source_label(competitor_domain, competitor_name),
                     **observation_url,
                 }
             )
@@ -196,11 +212,14 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
                 flush=True,
             )
 
+        if woodbrass_browser is not None:
+            woodbrass_browser.close()
+
         if observations or failures:
             api.submit_final_prices(
                 {
                     "competitor_id": competitor.get("id"),
-                    "transport": "vps_proxy" if using_proxy else "direct",
+                    "transport": "chromium_proxy" if using_browser_proxy else "chromium_direct" if using_browser else "vps_proxy" if using_proxy else "direct",
                     "observations": observations,
                     "failures": failures,
                 }
