@@ -10,7 +10,7 @@
         'channel': 'Canal',
         'category': 'Catégorie'
     }[detail_group_by]|default('Produit') %}
-    {% set detail_invoice_label = detail_group_by == 'idart' ? 'Facture' : 'Nb factures' %}
+    {% set detail_group_secondary = active_filters.group_by_secondary|default('') %}
     <main class="app-shell">
         <section class="toolbar-panel">
             <div class="toolbar-head">
@@ -26,7 +26,9 @@
             </div>
             <form class="filter-form" method="get" action="{{ path('app_detail') }}">
                 <input type="hidden" name="view" value="{{ active_filters.view|default('table') }}">
-                <input type="hidden" name="group_by" value="{{ active_filters.group_by|default('idart') }}">
+                <div class="filter-form__section">
+                    <div class="filter-form__section-title">Périmètre analysé</div>
+                    <div class="filter-form__grid filter-form__grid--scope">
                 <div class="filter-field">
                     <label for="detail-search">Recherche</label>
                     <input id="detail-search" type="search" name="q" value="{{ active_filters.q|default('') }}" placeholder="Facture, produit, marque, canal...">
@@ -75,6 +77,20 @@
                     </select>
                 </div>
                 <div class="filter-field">
+                    <label for="detail-supplier">Fournisseur</label>
+                    <select id="detail-supplier" name="supplier_id">
+                        <option value="">Tous</option>
+                        {% for option in filter_options.suppliers %}
+                            <option value="{{ option.value }}" {% if active_filters.supplier_id|default('') == option.value %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                    </div>
+                </div>
+                <div class="filter-form__section">
+                    <div class="filter-form__section-title">Organisation du tableau</div>
+                    <div class="filter-form__grid filter-form__grid--display">
+                <div class="filter-field">
                     <label for="detail-occasion">Occasion</label>
                     <select id="detail-occasion" name="occasion">
                         <option value="">Toutes</option>
@@ -83,12 +99,22 @@
                     </select>
                 </div>
                 <div class="filter-field">
-                    <label for="detail-group-by">Grouper par</label>
-                    <select id="detail-group-by" name="group_by">
+                    <label for="detail-group-by">Regroupement principal</label>
+                    <select id="detail-group-by" name="group_by" data-primary-group-select>
                         <option value="idart" {% if active_filters.group_by|default('idart') == 'idart' %}selected{% endif %}>IDART</option>
                         <option value="brand" {% if active_filters.group_by|default('idart') == 'brand' %}selected{% endif %}>Fabricant</option>
                         <option value="channel" {% if active_filters.group_by|default('idart') == 'channel' %}selected{% endif %}>Canal</option>
                         <option value="category" {% if active_filters.group_by|default('idart') == 'category' %}selected{% endif %}>Catégorie</option>
+                    </select>
+                </div>
+                <div class="filter-field">
+                    <label for="detail-group-by-secondary">Deuxième niveau (au clic)</label>
+                    <select id="detail-group-by-secondary" name="group_by_secondary" data-secondary-group-select>
+                        <option value="">Aucun sous-groupe</option>
+                        <option value="product" {% if detail_group_secondary == 'product' %}selected{% endif %}>Produit</option>
+                        <option value="brand" {% if detail_group_secondary == 'brand' %}selected{% endif %}>Fabricant</option>
+                        <option value="channel" {% if detail_group_secondary == 'channel' %}selected{% endif %}>Canal</option>
+                        <option value="category" {% if detail_group_secondary == 'category' %}selected{% endif %}>Catégorie</option>
                     </select>
                 </div>
                 <div class="filter-field">
@@ -99,9 +125,7 @@
                         <option value="channel_name" {% if sort == 'channel_name' %}selected{% endif %}>Canal</option>
                         <option value="brand_name" {% if sort == 'brand_name' %}selected{% endif %}>Marque</option>
                         <option value="product_name" {% if sort == 'product_name' %}selected{% endif %}>Produit</option>
-                        <option value="previous_quantity" {% if sort == 'previous_quantity' %}selected{% endif %}>Quantité N-1</option>
                         <option value="total_ht" {% if sort == 'total_ht' %}selected{% endif %}>CA HT</option>
-                        <option value="previous_total_ht" {% if sort == 'previous_total_ht' %}selected{% endif %}>CA HT N-1</option>
                         <option value="margin_ht" {% if sort == 'margin_ht' %}selected{% endif %}>Marge HT</option>
                         <option value="quantity" {% if sort == 'quantity' %}selected{% endif %}>Quantité</option>
                         <option value="is_occasion" {% if sort == 'is_occasion' %}selected{% endif %}>Occasion</option>
@@ -122,6 +146,8 @@
                         <option value="100" {% if pagination.per_page == 100 %}selected{% endif %}>100</option>
                     </select>
                 </div>
+                    </div>
+                </div>
                 <div class="filter-actions">
                     <input type="hidden" name="page" value="1">
                     <button class="button button-primary" type="submit">Appliquer</button>
@@ -141,44 +167,68 @@
                 <table class="detail-table">
                     <thead>
                         <tr>
-                            <th><a class="table-sort-link{% if sort == 'invoice_date' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_date', 'direction': sort == 'invoice_date' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Date <span>{{ sort == 'invoice_date' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'invoice_number' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_number', 'direction': sort == 'invoice_number' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">{{ detail_invoice_label }} <span>{{ sort == 'invoice_number' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'channel_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'channel_name', 'direction': sort == 'channel_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Canal <span>{{ sort == 'channel_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'brand_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Marque <span>{{ sort == 'brand_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            {% if detail_group_by not in ['brand', 'channel'] %}
+                                <th><a class="table-sort-link{% if sort == 'invoice_date' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'invoice_date', 'direction': sort == 'invoice_date' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Date <span>{{ sort == 'invoice_date' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                                <th><a class="table-sort-link{% if sort == 'channel_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'channel_name', 'direction': sort == 'channel_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Canal <span>{{ sort == 'channel_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            {% endif %}
+                            {% if detail_group_by not in ['brand', 'channel'] %}
+                                <th><a class="table-sort-link{% if sort == 'brand_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'brand_name', 'direction': sort == 'brand_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Marque <span>{{ sort == 'brand_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            {% endif %}
                             <th><a class="table-sort-link{% if sort == 'product_name' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'product_name', 'direction': sort == 'product_name' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">{{ detail_group_label }} <span>{{ sort == 'product_name' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
                             <th><a class="table-sort-link{% if sort == 'quantity' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'quantity', 'direction': sort == 'quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Qté <span>{{ sort == 'quantity' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'previous_quantity' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'previous_quantity', 'direction': sort == 'previous_quantity' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Qté -1 <span>{{ sort == 'previous_quantity' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
                             <th><a class="table-sort-link{% if sort == 'total_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'total_ht', 'direction': sort == 'total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">CA HT <span>{{ sort == 'total_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'previous_total_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'previous_total_ht', 'direction': sort == 'previous_total_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">CA HT -1 <span>{{ sort == 'previous_total_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
                             <th><a class="table-sort-link{% if sort == 'margin_ht' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'margin_ht', 'direction': sort == 'margin_ht' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Marge <span>{{ sort == 'margin_ht' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
-                            <th><a class="table-sort-link{% if sort == 'is_occasion' %} is-active{% endif %}" href="{{ path('app_detail', active_filters|merge({'sort': 'is_occasion', 'direction': sort == 'is_occasion' and direction == 'asc' ? 'desc' : 'asc', 'page': 1, 'per_page': pagination.per_page})) }}">Occasion <span>{{ sort == 'is_occasion' ? (direction == 'asc' ? '▲' : '▼') : '↕' }}</span></a></th>
+                            <th>Valeur stock</th>
                         </tr>
                     </thead>
                     <tbody>
+                        {% set total_quantity_progression = comparison_previous_year.quantity != 0 ? ((summary.quantity - comparison_previous_year.quantity) / (comparison_previous_year.quantity|abs) * 100) : null %}
+                        {% set total_ca_progression = comparison_previous_year.total_ht != 0 ? ((summary.total_ht - comparison_previous_year.total_ht) / (comparison_previous_year.total_ht|abs) * 100) : null %}
+                        {% set total_margin_progression = comparison_previous_year.margin_ht != 0 ? ((summary.margin_ht - comparison_previous_year.margin_ht) / (comparison_previous_year.margin_ht|abs) * 100) : null %}
+                        {% set total_stock_progression = stock_totals.previous|default(0) != 0 ? ((stock_totals.current|default(0) - stock_totals.previous) / (stock_totals.previous|abs) * 100) : null %}
+                        <tr class="detail-table-total">
+                            <td colspan="{{ detail_group_by in ['brand', 'channel'] ? 1 : 4 }}"><strong>Total filtré</strong></td>
+                            <td><div class="comparison-cell"><strong>{{ summary.quantity|number_format(0, ',', ' ') }}</strong><small>N-1 : {{ comparison_previous_year.quantity|number_format(0, ',', ' ') }} · <span class="metric-progression {{ total_quantity_progression is null ? 'delta-neutral' : (total_quantity_progression > 0 ? 'delta-up' : (total_quantity_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ total_quantity_progression is null ? '--' : ((total_quantity_progression > 0 ? '+' : '') ~ total_quantity_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                            <td><div class="comparison-cell"><strong>{{ summary.total_ht|number_format(0, ',', ' ') }} €</strong><small>N-1 : {{ comparison_previous_year.total_ht|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ total_ca_progression is null ? 'delta-neutral' : (total_ca_progression > 0 ? 'delta-up' : (total_ca_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ total_ca_progression is null ? '--' : ((total_ca_progression > 0 ? '+' : '') ~ total_ca_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                            <td><div class="comparison-cell"><strong>{{ summary.margin_ht|number_format(0, ',', ' ') }} €{% if summary.total_ht > 0 %} · {{ (summary.margin_ht / summary.total_ht * 100)|number_format(1, ',', ' ') }} %{% endif %}</strong><small>N-1 : {{ comparison_previous_year.margin_ht|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ total_margin_progression is null ? 'delta-neutral' : (total_margin_progression > 0 ? 'delta-up' : (total_margin_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ total_margin_progression is null ? '--' : ((total_margin_progression > 0 ? '+' : '') ~ total_margin_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                            <td><div class="comparison-cell"><strong>{{ stock_totals.current|default(0)|number_format(0, ',', ' ') }} €</strong><small>N-1 : {{ stock_totals.previous|default(0)|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ total_stock_progression is null ? 'delta-neutral' : (total_stock_progression > 0 ? 'delta-up' : (total_stock_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ total_stock_progression is null ? '--' : ((total_stock_progression > 0 ? '+' : '') ~ total_stock_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                        </tr>
                         {% for row in rows %}
-                            <tr>
-                                <td>{{ row.invoice_date }}</td>
-                                <td>{{ row.invoice_number }}</td>
-                                <td>{{ row.channel_name }}</td>
-                                <td>{{ row.brand_name }}</td>
+                            {% set quantity_progression = row.previous_quantity != 0 ? ((row.quantity - row.previous_quantity) / (row.previous_quantity|abs) * 100) : null %}
+                            {% set ca_progression = row.previous_total_ht != 0 ? ((row.total_ht - row.previous_total_ht) / (row.previous_total_ht|abs) * 100) : null %}
+                            {% set margin_progression = row.previous_margin_ht != 0 ? ((row.margin_ht - row.previous_margin_ht) / (row.previous_margin_ht|abs) * 100) : null %}
+                            {% set stock_progression = row.previous_stock_pamp_value|default(0) != 0 ? ((row.stock_pamp_value|default(0) - row.previous_stock_pamp_value) / (row.previous_stock_pamp_value|abs) * 100) : null %}
+                            {% set row_group_key = row.group_key|default(row.idart|default('')) %}
+                            {% set is_expandable = detail_group_secondary != '' and detail_group_secondary != detail_group_by and not (detail_group_by == 'idart' and detail_group_secondary == 'product') %}
+                            <tr{% if is_expandable %} class="detail-primary-row" tabindex="0" role="button" aria-expanded="false" data-detail-drilldown-url="{{ path('app_detail_subgroup', active_filters|merge({'primary_group': detail_group_by, 'primary_key': row_group_key, 'secondary_group': detail_group_secondary})) }}"{% endif %}>
+                                {% if detail_group_by not in ['brand', 'channel'] %}
+                                    <td>{{ row.invoice_date }}</td>
+                                    <td>{{ row.channel_name }}</td>
+                                {% endif %}
+                                {% if detail_group_by not in ['brand', 'channel'] %}
+                                    <td>{{ row.brand_name }}</td>
+                                {% endif %}
                                 <td>
                                     <div class="detail-product">
-                                        <strong>{{ row.product_name }}</strong>
-                                        <span>{{ row.product_code }}</span>
+                                        <strong>{% if is_expandable %}<span class="detail-row-chevron" aria-hidden="true">›</span>{% endif %}{{ row.product_name }}</strong>
+                                        {% if row.product_code and row.product_code != row.product_name %}<span>{{ row.product_code }}</span>{% endif %}
                                     </div>
                                 </td>
-                                <td>{{ row.quantity|number_format(3, ',', ' ') }}</td>
-                                <td>{{ row.previous_quantity|number_format(3, ',', ' ') }}</td>
-                                <td>{{ row.total_ht|number_format(0, ',', ' ') }} €</td>
-                                <td>{{ row.previous_total_ht|number_format(0, ',', ' ') }} €</td>
-                                <td>{{ row.margin_ht|number_format(0, ',', ' ') }} €{% if row.total_ht > 0 %} · {{ (row.margin_ht / row.total_ht * 100)|number_format(1, ',', ' ') }} %{% endif %}</td>
-                                <td>
-                                    <span class="pill {% if row.is_occasion %}pill-accent{% endif %}">{{ row.is_occasion ? 'oui' : 'non' }}</span>
-                                </td>
+                                <td><div class="comparison-cell"><strong>{{ row.quantity|number_format(0, ',', ' ') }}</strong><small>N-1 : {{ row.previous_quantity|number_format(0, ',', ' ') }} · <span class="metric-progression {{ quantity_progression is null ? 'delta-neutral' : (quantity_progression > 0 ? 'delta-up' : (quantity_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ quantity_progression is null ? '--' : ((quantity_progression > 0 ? '+' : '') ~ quantity_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                                <td><div class="comparison-cell"><strong>{{ row.total_ht|number_format(0, ',', ' ') }} €</strong><small>N-1 : {{ row.previous_total_ht|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ ca_progression is null ? 'delta-neutral' : (ca_progression > 0 ? 'delta-up' : (ca_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ ca_progression is null ? '--' : ((ca_progression > 0 ? '+' : '') ~ ca_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                                <td><div class="comparison-cell"><strong>{{ row.margin_ht|number_format(0, ',', ' ') }} €{% if row.total_ht > 0 %} · {{ (row.margin_ht / row.total_ht * 100)|number_format(1, ',', ' ') }} %{% endif %}</strong><small>N-1 : {{ row.previous_margin_ht|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ margin_progression is null ? 'delta-neutral' : (margin_progression > 0 ? 'delta-up' : (margin_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ margin_progression is null ? '--' : ((margin_progression > 0 ? '+' : '') ~ margin_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
+                                <td><div class="comparison-cell"><strong>{{ row.stock_pamp_value|default(0)|number_format(0, ',', ' ') }} €</strong><small>N-1 : {{ row.previous_stock_pamp_value|default(0)|number_format(0, ',', ' ') }} € · <span class="metric-progression {{ stock_progression is null ? 'delta-neutral' : (stock_progression > 0 ? 'delta-up' : (stock_progression < 0 ? 'delta-down' : 'delta-neutral')) }}">{{ stock_progression is null ? '--' : ((stock_progression > 0 ? '+' : '') ~ stock_progression|number_format(1, ',', ' ') ~ ' %') }}</span></small></div></td>
                             </tr>
+                            {% if is_expandable %}
+                                <tr class="detail-drilldown-row" hidden data-detail-drilldown-row>
+                                    <td colspan="{{ detail_group_by in ['brand', 'channel'] ? 5 : 8 }}">
+                                        <div class="detail-drilldown" data-detail-drilldown-content></div>
+                                    </td>
+                                </tr>
+                            {% endif %}
                         {% else %}
                             <tr>
-                                <td colspan="11" class="detail-empty">Aucune ligne trouvée.</td>
+                                <td colspan="{{ detail_group_by in ['brand', 'channel'] ? 5 : 8 }}" class="detail-empty">Aucune ligne trouvée.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

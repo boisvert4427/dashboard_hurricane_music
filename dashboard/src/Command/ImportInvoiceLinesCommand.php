@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Command;
 
 use App\Service\InvoiceLineImportService;
+use App\Service\ProductDimensionSyncService;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -24,6 +25,7 @@ final class ImportInvoiceLinesCommand extends Command
         private readonly Connection $reportingConnection,
         #[Autowire(service: 'doctrine.dbal.prestashop_connection')]
         private readonly Connection $prestashopConnection,
+        private readonly ProductDimensionSyncService $productDimensionSyncService,
     ) {
         parent::__construct();
     }
@@ -41,6 +43,12 @@ final class ImportInvoiceLinesCommand extends Command
 
         try {
             $output->writeln('Starting import from K_LI_FAC...');
+            $productStats = $this->productDimensionSyncService->sync();
+            $output->writeln(sprintf(
+                'Product dimension synchronized: %d products, %d historical lines updated.',
+                $productStats['products'],
+                $productStats['historical_lines_updated']
+            ));
             $importService = new InvoiceLineImportService($this->reportingConnection, $this->prestashopConnection);
             $stats = $importService->run(500, $limit, $since);
         } catch (\Throwable $e) {

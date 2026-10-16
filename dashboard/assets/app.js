@@ -300,14 +300,168 @@ function initChannelSummaryCharts() {
     });
 }
 
+function initDetailDrilldowns() {
+    const primarySelect = document.querySelector('[data-primary-group-select]');
+    const secondarySelect = document.querySelector('[data-secondary-group-select]');
+
+    if (primarySelect && secondarySelect && !primarySelect.dataset.secondarySyncBound) {
+        const equivalentSecondary = {
+            idart: 'product',
+            brand: 'brand',
+            channel: 'channel',
+            category: 'category',
+        };
+        const synchronizeGroupOptions = () => {
+            const forbiddenValue = equivalentSecondary[primarySelect.value] || '';
+            Array.from(secondarySelect.options).forEach((option) => {
+                option.disabled = option.value !== '' && option.value === forbiddenValue;
+            });
+            if (secondarySelect.value === forbiddenValue) {
+                secondarySelect.value = '';
+            }
+        };
+
+        primarySelect.dataset.secondarySyncBound = 'true';
+        primarySelect.addEventListener('change', synchronizeGroupOptions);
+        synchronizeGroupOptions();
+    }
+
+    const numberFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+    const percentFormatter = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+    const createComparisonCell = (current, previous, suffix = '') => {
+        const cell = document.createElement('div');
+        cell.className = 'comparison-cell';
+
+        const currentLine = document.createElement('strong');
+        currentLine.textContent = `${numberFormatter.format(Number(current) || 0)}${suffix}`;
+        cell.appendChild(currentLine);
+
+        const previousLine = document.createElement('small');
+        previousLine.append(`N-1 ${numberFormatter.format(Number(previous) || 0)}${suffix}`);
+        const progression = document.createElement('span');
+        progression.className = 'metric-progression delta-neutral';
+        if (Number(previous)) {
+            const delta = ((Number(current) - Number(previous)) / Math.abs(Number(previous))) * 100;
+            progression.textContent = `${delta > 0 ? '+' : ''}${percentFormatter.format(delta)} %`;
+            progression.className = `metric-progression ${delta > 0 ? 'delta-up' : (delta < 0 ? 'delta-down' : 'delta-neutral')}`;
+        } else {
+            progression.textContent = '--';
+        }
+        previousLine.appendChild(progression);
+        cell.appendChild(previousLine);
+
+        return cell;
+    };
+
+    const renderDrilldown = (container, rows) => {
+        container.replaceChildren();
+        if (!rows.length) {
+            const empty = document.createElement('p');
+            empty.className = 'detail-drilldown__message';
+            empty.textContent = 'Aucun détail pour cette ligne.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const head = document.createElement('div');
+        head.className = 'detail-drilldown__head';
+        ['Deuxième niveau', 'Qté', 'CA HT', 'Marge', 'Valeur stock'].forEach((label) => {
+            const span = document.createElement('span');
+            span.textContent = label;
+            head.appendChild(span);
+        });
+        container.appendChild(head);
+
+        rows.forEach((row) => {
+            const item = document.createElement('div');
+            item.className = 'detail-drilldown__item';
+            const identity = document.createElement('div');
+            identity.className = 'detail-drilldown__identity';
+            const label = document.createElement('strong');
+            label.textContent = row.label || row.key || 'Sans libellé';
+            identity.appendChild(label);
+            if (row.code && row.code !== row.label) {
+                const code = document.createElement('small');
+                code.textContent = row.code;
+                identity.appendChild(code);
+            }
+            item.appendChild(identity);
+            item.appendChild(createComparisonCell(row.quantity, row.previous_quantity));
+            item.appendChild(createComparisonCell(row.total_ht, row.previous_total_ht, ' €'));
+            item.appendChild(createComparisonCell(row.margin_ht, row.previous_margin_ht, ' €'));
+            item.appendChild(createComparisonCell(row.stock_pamp_value, row.previous_stock_pamp_value, ' €'));
+            container.appendChild(item);
+        });
+    };
+
+    document.querySelectorAll('[data-detail-drilldown-url]').forEach((row) => {
+        if (row.dataset.drilldownBound) {
+            return;
+        }
+        row.dataset.drilldownBound = 'true';
+
+        const toggle = async () => {
+            const detailRow = row.nextElementSibling;
+            const container = detailRow?.querySelector('[data-detail-drilldown-content]');
+            if (!detailRow || !container) {
+                return;
+            }
+
+            const opening = detailRow.hidden;
+            detailRow.hidden = !opening;
+            row.classList.toggle('is-expanded', opening);
+            row.setAttribute('aria-expanded', opening ? 'true' : 'false');
+            if (!opening || container.dataset.loaded || container.dataset.loading) {
+                return;
+            }
+
+            container.dataset.loading = 'true';
+            container.textContent = 'Chargement du détail…';
+            incrementLoader();
+            try {
+                const response = await fetch(row.dataset.detailDrilldownUrl, {
+                    headers: { Accept: 'application/json' },
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.error || 'Réponse invalide');
+                }
+                renderDrilldown(container, payload.rows || []);
+                container.dataset.loaded = 'true';
+            } catch (error) {
+                container.textContent = 'Impossible de charger ce deuxième niveau.';
+                container.classList.add('detail-drilldown--error');
+            } finally {
+                delete container.dataset.loading;
+                decrementLoader();
+            }
+        };
+
+        row.addEventListener('click', (event) => {
+            if (!event.target.closest('a, button, input, select')) {
+                toggle();
+            }
+        });
+        row.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggle();
+            }
+        });
+    });
+}
+
 document.addEventListener('DOMContentLoaded', initDateFields);
 document.addEventListener('DOMContentLoaded', initCardLinks);
 document.addEventListener('DOMContentLoaded', initCompetitiveValidation);
 document.addEventListener('DOMContentLoaded', initChannelSummaryCharts);
+document.addEventListener('DOMContentLoaded', initDetailDrilldowns);
 document.addEventListener('turbo:load', initDateFields);
 document.addEventListener('turbo:load', initCardLinks);
 document.addEventListener('turbo:load', initCompetitiveValidation);
 document.addEventListener('turbo:load', initChannelSummaryCharts);
+document.addEventListener('turbo:load', initDetailDrilldowns);
 document.addEventListener('turbo:before-fetch-request', incrementLoader);
 document.addEventListener('turbo:submit-start', incrementLoader);
 document.addEventListener('turbo:load', () => {

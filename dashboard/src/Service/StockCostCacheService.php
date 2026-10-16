@@ -18,6 +18,7 @@ final class StockCostCacheService
         #[Autowire(service: 'doctrine.dbal.prestashop_connection')]
         private readonly Connection $prestashopConnection,
         private readonly StockCostCalculator $calculator,
+        private readonly ?InvoicePampMarginService $invoicePampMarginService = null,
     ) {
     }
 
@@ -300,6 +301,8 @@ final class StockCostCacheService
                 ['product_id' => $productId, 'site_id' => $siteId]
             );
         });
+
+        $this->invoicePampMarginService?->syncPair($productId, $siteId);
 
         return count($calculation['movements']);
     }

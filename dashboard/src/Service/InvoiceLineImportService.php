@@ -169,6 +169,23 @@ final class InvoiceLineImportService
     {
         $exists = $this->reportingConnection->fetchOne("SHOW TABLES LIKE 'reporting_invoice_line_fact'");
         if ($exists) {
+        $this->ensureColumnExists('source_site_id', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN source_site_id INT DEFAULT NULL AFTER source_invoice_id,
+                    ADD KEY idx_invoice_pamp_match (source_invoice_id, product_id, source_site_id)
+            SQL);
+        $this->ensureColumnExists('source_margin_ht', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN source_margin_ht DECIMAL(10,2) DEFAULT NULL AFTER margin_ht
+            SQL);
+        $this->ensureColumnExists('pamp_unit_cost', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN pamp_unit_cost DECIMAL(20,6) DEFAULT NULL AFTER source_margin_ht
+            SQL);
+        $this->ensureColumnExists('pamp_cost_total', <<<'SQL'
+                ALTER TABLE reporting_invoice_line_fact
+                    ADD COLUMN pamp_cost_total DECIMAL(20,6) DEFAULT NULL AFTER pamp_unit_cost
+            SQL);
         $this->ensureColumnExists('brand_name', <<<'SQL'
                 ALTER TABLE reporting_invoice_line_fact
                     ADD COLUMN brand_name VARCHAR(255) DEFAULT NULL AFTER brand_id,
@@ -198,6 +215,7 @@ final class InvoiceLineImportService
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
                 source_line_id INT NOT NULL,
                 source_invoice_id INT NOT NULL,
+                source_site_id INT DEFAULT NULL,
                 invoice_number VARCHAR(64) NOT NULL,
                 invoice_date DATE NOT NULL,
                 invoice_datetime DATETIME NOT NULL,
@@ -224,6 +242,9 @@ final class InvoiceLineImportService
                 total_ht DECIMAL(10,2) NOT NULL DEFAULT 0,
                 total_ttc DECIMAL(10,2) NOT NULL DEFAULT 0,
                 margin_ht DECIMAL(10,2) NOT NULL DEFAULT 0,
+                source_margin_ht DECIMAL(10,2) DEFAULT NULL,
+                pamp_unit_cost DECIMAL(20,6) DEFAULT NULL,
+                pamp_cost_total DECIMAL(20,6) DEFAULT NULL,
                 discount_percent DECIMAL(4,2) NOT NULL DEFAULT 0,
                 discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
                 tax_rate DECIMAL(4,2) NOT NULL DEFAULT 0,
@@ -242,6 +263,7 @@ final class InvoiceLineImportService
                 KEY idx_customer_id (customer_id),
                 KEY idx_channel_name (channel_name),
                 KEY idx_invoice_date_channel (invoice_date, channel_name)
+                ,KEY idx_invoice_pamp_match (source_invoice_id, product_id, source_site_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         SQL;
 
@@ -363,6 +385,7 @@ final class InvoiceLineImportService
         return [
             (int) ($row['IDLigneFac'] ?? 0),
             (int) ($row['IDFAC'] ?? 0),
+            isset($row['SITE']) && $row['SITE'] !== '' ? (int) $row['SITE'] : null,
             $this->normalizeInvoiceNumber($row),
             $invoiceDate,
             $invoiceDateTime,
@@ -389,6 +412,9 @@ final class InvoiceLineImportService
             $this->floatOrZero($row['TotalHT'] ?? 0),
             $this->floatOrZero($row['TotalTTC'] ?? 0),
             $this->floatOrZero($row['MARGE'] ?? 0),
+            $this->floatOrZero($row['MARGE'] ?? 0),
+            null,
+            null,
             $this->floatOrZero($row['Remise'] ?? 0),
             $this->floatOrZero($row['RemiseMontant'] ?? 0),
             $this->floatOrZero($row['TauxTVA'] ?? 0),
@@ -430,6 +456,7 @@ final class InvoiceLineImportService
         $columns = [
             'source_line_id',
             'source_invoice_id',
+            'source_site_id',
             'invoice_number',
             'invoice_date',
             'invoice_datetime',
@@ -456,6 +483,9 @@ final class InvoiceLineImportService
             'total_ht',
             'total_ttc',
             'margin_ht',
+            'source_margin_ht',
+            'pamp_unit_cost',
+            'pamp_cost_total',
             'discount_percent',
             'discount_amount',
             'tax_rate',
@@ -469,6 +499,7 @@ final class InvoiceLineImportService
         $valuesSql = implode(',', array_fill(0, count($rows), $placeholders));
         $sql = 'INSERT INTO reporting_invoice_line_fact (' . implode(',', $columns) . ') VALUES ' . $valuesSql . ' ON DUPLICATE KEY UPDATE ' . implode(', ', [
             'source_invoice_id = VALUES(source_invoice_id)',
+            'source_site_id = VALUES(source_site_id)',
             'invoice_number = VALUES(invoice_number)',
             'invoice_date = VALUES(invoice_date)',
             'invoice_datetime = VALUES(invoice_datetime)',
@@ -495,6 +526,9 @@ final class InvoiceLineImportService
             'total_ht = VALUES(total_ht)',
             'total_ttc = VALUES(total_ttc)',
             'margin_ht = VALUES(margin_ht)',
+            'source_margin_ht = VALUES(source_margin_ht)',
+            'pamp_unit_cost = NULL',
+            'pamp_cost_total = NULL',
             'discount_percent = VALUES(discount_percent)',
             'discount_amount = VALUES(discount_amount)',
             'tax_rate = VALUES(tax_rate)',

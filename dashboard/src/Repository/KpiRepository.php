@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use DateTimeImmutable;
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
@@ -264,7 +265,7 @@ final class KpiRepository
     }
 
     /**
-     * @return array{channels: array<int, array{id:int, label:string}>, brands: array<int, array{id:int, label:string}>, categories: array<int, array{id:string, label:string}>}
+     * @return array{channels: array<int, array{id:int, label:string}>, brands: array<int, array{id:int, label:string}>, categories: array<int, array{id:string, label:string}>, suppliers: array<int, array{id:int, label:string}>}
      */
     public function getFilterOptions(): array
     {
@@ -309,6 +310,19 @@ final class KpiRepository
             SQL
         );
 
+        $suppliers = $this->reportingConnection->fetchAllAssociative(
+            <<<'SQL'
+                SELECT DISTINCT
+                    COALESCE(supplier_id, 0) AS id,
+                    COALESCE(NULLIF(NULLIF(TRIM(supplier_name), ''), '0'), CASE
+                        WHEN COALESCE(supplier_id, 0) = 0 THEN 'Sans fournisseur'
+                        ELSE CONCAT('IDFOU ', COALESCE(supplier_id, 0))
+                    END) AS label
+                FROM reporting_invoice_line_fact
+                ORDER BY label ASC
+            SQL
+        );
+
         return [
             'channels' => array_map(static fn (array $row): array => [
                 'value' => (string) ($row['label'] ?? 'Autre'),
@@ -322,13 +336,17 @@ final class KpiRepository
                 'value' => (string) ($row['label'] ?? ''),
                 'label' => (string) ($row['label'] ?? ''),
             ], $categories),
+            'suppliers' => array_map(static fn (array $row): array => [
+                'value' => (string) ($row['id'] ?? 0),
+                'label' => (string) ($row['label'] ?? 'Fournisseur'),
+            ], $suppliers),
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function getDetailData(array $filters, int $page = 1, int $perPage = 50, string $sort = 'invoice_date', string $direction = 'desc'): array
+    public function getDetailData(array $filters, int $page = 1, int $perPage = 50, string $sort = 'total_ht', string $direction = 'desc'): array
     {
         $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
         if ($groupBy !== 'idart') {
@@ -380,6 +398,7 @@ final class KpiRepository
                 r.total_ht,
                 COALESCE(prev.previous_total_ht, 0) AS previous_total_ht,
                 r.margin_ht,
+                COALESCE(prev.previous_margin_ht, 0) AS previous_margin_ht,
                 r.customer_id,
                 CASE
                     WHEN LOWER(COALESCE(r.product_code, '')) LIKE 'b-%%'
@@ -411,7 +430,8 @@ final class KpiRepository
                         ELSE 0
                     END AS is_occasion,
                     COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht,
+                    COALESCE(SUM(p.margin_ht), 0) AS previous_margin_ht
                 FROM reporting_invoice_line_fact p
                 WHERE {$previousWhereSql}
                 GROUP BY
@@ -444,7 +464,12 @@ final class KpiRepository
         $rowsSql = str_replace('__CATEGORY_EXPR__', $this->buildCategoryExpression('r'), $rowsSql);
         $rowsSql = str_replace('__PREVIOUS_CATEGORY_EXPR__', $this->buildCategoryExpression('p'), $rowsSql);
 
-        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams));
+        $rows = $this->attachCurrentPampStockValues(
+            $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams)),
+            'idart',
+            $period['previous_year_end'],
+            $filters
+        );
 
         return [
             'period' => $period,
@@ -453,6 +478,7 @@ final class KpiRepository
             'comparison_previous_month' => $this->fetchPeriodSummary($period['previous_month_start'], $period['previous_month_end'], $filters),
             'objective' => $this->buildObjectiveSummary($this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters)['total_ht']),
             'rows' => $rows,
+            'stock_totals' => $this->fetchDetailStockTotals($filters, $period['previous_year_end']),
             'pagination' => [
                 'page' => $page,
                 'per_page' => $perPage,
@@ -470,7 +496,7 @@ final class KpiRepository
     /**
      * @return iterable<array<string, mixed>>
      */
-    public function iterateDetailRows(array $filters, string $sort = 'invoice_date', string $direction = 'desc'): iterable
+    public function iterateDetailRows(array $filters, string $sort = 'total_ht', string $direction = 'desc'): iterable
     {
         $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
         if ($groupBy !== 'idart') {
@@ -518,6 +544,7 @@ final class KpiRepository
                 r.total_ht,
                 COALESCE(prev.previous_total_ht, 0) AS previous_total_ht,
                 r.margin_ht,
+                COALESCE(prev.previous_margin_ht, 0) AS previous_margin_ht,
                 r.customer_id,
                 CASE
                     WHEN LOWER(COALESCE(r.product_code, '')) LIKE 'b-%%'
@@ -549,7 +576,8 @@ final class KpiRepository
                         ELSE 0
                     END AS is_occasion,
                     COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht,
+                    COALESCE(SUM(p.margin_ht), 0) AS previous_margin_ht
                 FROM reporting_invoice_line_fact p
                 WHERE {$previousWhereSql}
                 GROUP BY
@@ -620,6 +648,7 @@ final class KpiRepository
                 COALESCE(SUM(r.total_ht), 0) AS total_ht,
                 COALESCE(MAX(prev.previous_total_ht), 0) AS previous_total_ht,
                 COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
+                COALESCE(MAX(prev.previous_margin_ht), 0) AS previous_margin_ht,
                 COUNT(DISTINCT r.customer_id) AS customer_id,
                 CASE
                     WHEN SUM(CASE WHEN {$groupSql['occasion_expr']} THEN 1 ELSE 0 END) > 0 THEN 1
@@ -631,7 +660,8 @@ final class KpiRepository
                 SELECT
                     {$previousGroupSql['group_key_expr']} AS group_key,
                     COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht,
+                    COALESCE(SUM(p.margin_ht), 0) AS previous_margin_ht
                 FROM reporting_invoice_line_fact p
                 WHERE {$previousWhereSql}
                 GROUP BY {$previousGroupSql['group_key_expr']}
@@ -641,7 +671,12 @@ final class KpiRepository
             ORDER BY {$orderSql}
             LIMIT {$perPage} OFFSET {$offset}
         SQL;
-        $rows = $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams));
+        $rows = $this->attachCurrentPampStockValues(
+            $this->reportingConnection->fetchAllAssociative($rowsSql, array_merge($params, $previousParams)),
+            $groupBy,
+            $period['previous_year_end'],
+            $filters
+        );
 
         return [
             'period' => $period,
@@ -650,6 +685,7 @@ final class KpiRepository
             'comparison_previous_month' => $this->fetchPeriodSummary($period['previous_month_start'], $period['previous_month_end'], $filters),
             'objective' => $this->buildObjectiveSummary($this->fetchPeriodSummary($period['current_start'], $period['current_end'], $filters)['total_ht']),
             'rows' => $rows,
+            'stock_totals' => $this->fetchDetailStockTotals($filters, $period['previous_year_end']),
             'pagination' => [
                 'page' => $page,
                 'per_page' => $perPage,
@@ -695,6 +731,7 @@ final class KpiRepository
                 COALESCE(SUM(r.total_ht), 0) AS total_ht,
                 COALESCE(MAX(prev.previous_total_ht), 0) AS previous_total_ht,
                 COALESCE(SUM(r.margin_ht), 0) AS margin_ht,
+                COALESCE(MAX(prev.previous_margin_ht), 0) AS previous_margin_ht,
                 COUNT(DISTINCT r.customer_id) AS customer_id,
                 CASE
                     WHEN SUM(CASE WHEN {$groupSql['occasion_expr']} THEN 1 ELSE 0 END) > 0 THEN 1
@@ -706,7 +743,8 @@ final class KpiRepository
                 SELECT
                     {$previousGroupSql['group_key_expr']} AS group_key,
                     COALESCE(SUM(p.quantity), 0) AS previous_quantity,
-                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht
+                    COALESCE(SUM(p.total_ht), 0) AS previous_total_ht,
+                    COALESCE(SUM(p.margin_ht), 0) AS previous_margin_ht
                 FROM reporting_invoice_line_fact p
                 WHERE {$previousWhereSql}
                 GROUP BY {$previousGroupSql['group_key_expr']}
@@ -831,20 +869,219 @@ final class KpiRepository
             'total_ht' => 'total_ht',
             'previous_total_ht' => 'previous_total_ht',
             'margin_ht' => 'margin_ht',
+            'previous_margin_ht' => 'previous_margin_ht',
             'quantity' => 'quantity',
             'previous_quantity' => 'previous_quantity',
             'is_occasion' => 'is_occasion',
         ];
 
-        $column = $allowed[$sort] ?? 'invoice_date';
+        $column = $allowed[$sort] ?? 'total_ht';
         $dir = strtolower($direction) === 'asc' ? 'ASC' : 'DESC';
 
         return $column . ' ' . $dir;
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachCurrentPampStockValues(array $rows, string $groupBy, DateTimeImmutable $previousYearEnd, array $filters): array
+    {
+        if ($rows === []) {
+            return $rows;
+        }
+
+        $keys = array_values(array_unique(array_map(
+            static fn (array $row): string => (string) ($row['group_key'] ?? $row['idart'] ?? ''),
+            $rows
+        )));
+        $values = $this->fetchGroupedPampStockValues(
+            $keys,
+            $groupBy,
+            'reporting_stock_current_cost stock',
+            [],
+            $filters
+        );
+        $previousValues = $this->fetchGroupedPampStockValues(
+            $keys,
+            $groupBy,
+            $this->historicalPampStockSource(),
+            ['stock_snapshot_end' => $previousYearEnd->modify('+1 day')->format('Y-m-d')],
+            $filters
+        );
+
+        foreach ($rows as &$row) {
+            $key = (string) ($row['group_key'] ?? $row['idart'] ?? '');
+            $row['stock_pamp_value'] = $values[$key] ?? 0.0;
+            $row['previous_stock_pamp_value'] = $previousValues[$key] ?? 0.0;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
+     * @param list<string> $keys
+     * @param array<string, scalar> $params
+     * @return array<string, float>
+     */
+    private function fetchGroupedPampStockValues(array $keys, string $groupBy, string $stockSource, array $params = [], array $filters = []): array
+    {
+        $values = [];
+        $supplierCondition = '';
+        if (array_key_exists('supplier_id', $filters) && $filters['supplier_id'] !== '') {
+            $supplierCondition = ' AND EXISTS (SELECT 1 FROM reporting_invoice_line_fact supplier_meta WHERE supplier_meta.product_id = stock.product_id AND COALESCE(supplier_meta.supplier_id, 0) = :stock_group_supplier_id)';
+            $params['stock_group_supplier_id'] = (int) $filters['supplier_id'];
+        }
+        if ($groupBy === 'channel') {
+            $siteValues = $this->reportingConnection->fetchAllKeyValue(
+                "SELECT stock.site_id, COALESCE(SUM(stock.pamp_stock_value), 0) FROM {$stockSource} WHERE 1 = 1{$supplierCondition} GROUP BY stock.site_id",
+                $params
+            );
+            return [
+                'Nantes' => (float) ($siteValues[0] ?? 0),
+                'Bordeaux' => (float) ($siteValues[1] ?? 0),
+            ];
+        }
+
+        if ($groupBy === 'brand') {
+            $sql = <<<SQL
+                    SELECT meta.group_key, COALESCE(SUM(stock.pamp_stock_value), 0) AS stock_value
+                    FROM {$stockSource}
+                    INNER JOIN (
+                        SELECT product_id, COALESCE(MAX(brand_id), 0) AS group_key
+                        FROM reporting_invoice_line_fact
+                        GROUP BY product_id
+                    ) meta ON meta.product_id = stock.product_id
+                    WHERE meta.group_key IN (:keys){$supplierCondition}
+                    GROUP BY meta.group_key
+            SQL;
+        } elseif ($groupBy === 'category') {
+            $categoryExpression = $this->buildCategoryExpression('facts');
+            $sql = <<<SQL
+                    SELECT meta.group_key, COALESCE(SUM(stock.pamp_stock_value), 0) AS stock_value
+                    FROM {$stockSource}
+                    INNER JOIN (
+                        SELECT DISTINCT facts.product_id, {$categoryExpression} AS group_key
+                        FROM reporting_invoice_line_fact facts
+                    ) meta ON meta.product_id = stock.product_id
+                    WHERE meta.group_key IN (:keys){$supplierCondition}
+                    GROUP BY meta.group_key
+            SQL;
+        } else {
+            $sql = <<<SQL
+                SELECT stock.product_id AS group_key, COALESCE(SUM(stock.pamp_stock_value), 0) AS stock_value
+                FROM {$stockSource}
+                WHERE stock.product_id IN (:keys){$supplierCondition}
+                GROUP BY stock.product_id
+            SQL;
+        }
+
+        $queryParams = [...$params, 'keys' => $keys];
+        $types = ['keys' => $groupBy === 'category' ? ArrayParameterType::STRING : ArrayParameterType::INTEGER];
+        $stockRows = $this->reportingConnection->fetchAllAssociative($sql, $queryParams, $types);
+        foreach ($stockRows as $stockRow) {
+            $values[(string) $stockRow['group_key']] = (float) $stockRow['stock_value'];
+        }
+
+        return $values;
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return array{current:float, previous:float}
+     */
+    private function fetchDetailStockTotals(
+        array $filters,
+        DateTimeImmutable $previousYearEnd,
+    ): array {
+        $stockConditions = ['1 = 1'];
+        $metadataConditions = [];
+        $params = [];
+
+        $channel = (string) ($filters['channel'] ?? '');
+        if (strcasecmp($channel, 'Nantes') === 0) {
+            $stockConditions[] = 'stock.site_id = 0';
+        } elseif (strcasecmp($channel, 'Bordeaux') === 0) {
+            $stockConditions[] = 'stock.site_id = 1';
+        } elseif ($channel !== '') {
+            $metadataConditions[] = "COALESCE(NULLIF(meta.channel_name, ''), 'Autre') = :stock_channel";
+            $params['stock_channel'] = $channel;
+        }
+
+        if (!empty($filters['brand_id'])) {
+            $metadataConditions[] = 'COALESCE(meta.brand_id, 0) = :stock_brand_id';
+            $params['stock_brand_id'] = (int) $filters['brand_id'];
+        }
+        if (array_key_exists('supplier_id', $filters) && $filters['supplier_id'] !== '') {
+            $metadataConditions[] = 'COALESCE(meta.supplier_id, 0) = :stock_supplier_id';
+            $params['stock_supplier_id'] = (int) $filters['supplier_id'];
+        }
+        if (!empty($filters['category'])) {
+            $metadataConditions[] = $this->buildCategoryExpression('meta') . ' = :stock_category';
+            $params['stock_category'] = (string) $filters['category'];
+        }
+        if (($filters['occasion'] ?? '') === 'occasion') {
+            $metadataConditions[] = $this->buildOccasionFilterSql('meta');
+        } elseif (($filters['occasion'] ?? '') === 'hors_occasion') {
+            $metadataConditions[] = 'NOT ' . $this->buildOccasionFilterSql('meta');
+        }
+        if (!empty($filters['q'])) {
+            $metadataConditions[] = <<<'SQL'
+                (
+                    LOWER(COALESCE(meta.product_code, '')) LIKE :stock_search
+                    OR LOWER(COALESCE(meta.product_name, '')) LIKE :stock_search
+                    OR LOWER(COALESCE(meta.brand_name, '')) LIKE :stock_search
+                    OR LOWER(COALESCE(meta.supplier_reference, '')) LIKE :stock_search
+                )
+            SQL;
+            $params['stock_search'] = '%' . mb_strtolower((string) $filters['q']) . '%';
+        }
+
+        if ($metadataConditions !== []) {
+            $stockConditions[] = 'EXISTS (SELECT 1 FROM reporting_invoice_line_fact meta WHERE meta.product_id = stock.product_id AND '
+                . implode(' AND ', $metadataConditions) . ')';
+        }
+
+        $where = implode(' AND ', $stockConditions);
+        $current = (float) $this->reportingConnection->fetchOne(
+            "SELECT COALESCE(SUM(stock.pamp_stock_value), 0) FROM reporting_stock_current_cost stock WHERE {$where}",
+            $params
+        );
+        $previousParams = [...$params, 'stock_snapshot_end' => $previousYearEnd->modify('+1 day')->format('Y-m-d')];
+        $previous = (float) $this->reportingConnection->fetchOne(
+            "SELECT COALESCE(SUM(stock.pamp_stock_value), 0) FROM {$this->historicalPampStockSource()} WHERE {$where}",
+            $previousParams
+        );
+
+        return ['current' => $current, 'previous' => $previous];
+    }
+
+    private function historicalPampStockSource(): string
+    {
+        return <<<'SQL'
+            (
+                SELECT product_id, site_id, pamp_stock_value
+                FROM (
+                    SELECT
+                        product_id,
+                        site_id,
+                        pamp_stock_value,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY product_id, site_id
+                            ORDER BY movement_date DESC, source_stock_history_id DESC
+                        ) AS stock_rank
+                    FROM reporting_stock_movement_cost
+                    WHERE movement_date < :stock_snapshot_end
+                ) ranked_stock
+                WHERE stock_rank = 1
+            ) stock
+        SQL;
+    }
+
     private function normalizeDetailGroupBy(string $groupBy): string
     {
-        return in_array($groupBy, ['idart', 'brand', 'channel', 'category'], true) ? $groupBy : 'idart';
+        return in_array($groupBy, ['idart', 'product', 'brand', 'channel', 'category'], true) ? $groupBy : 'idart';
     }
 
     /**
@@ -867,9 +1104,19 @@ final class KpiRepository
             $params['channel_name'] = (string) $filters['channel'];
         }
 
+        if (!empty($filters['product_id'])) {
+            $conditions[] = sprintf('%s.product_id = :product_id', $alias);
+            $params['product_id'] = (int) $filters['product_id'];
+        }
+
         if (array_key_exists('brand_id', $filters) && $filters['brand_id'] !== '') {
             $conditions[] = sprintf('COALESCE(%s.brand_id, 0) = :brand_id', $alias);
             $params['brand_id'] = (int) $filters['brand_id'];
+        }
+
+        if (array_key_exists('supplier_id', $filters) && $filters['supplier_id'] !== '') {
+            $conditions[] = sprintf('COALESCE(%s.supplier_id, 0) = :supplier_id', $alias);
+            $params['supplier_id'] = (int) $filters['supplier_id'];
         }
 
         if (!empty($filters['category'])) {
@@ -918,12 +1165,13 @@ final class KpiRepository
             'total_ht' => 'r.total_ht',
             'previous_total_ht' => 'previous_total_ht',
             'margin_ht' => 'r.margin_ht',
+            'previous_margin_ht' => 'previous_margin_ht',
             'quantity' => 'r.quantity',
             'previous_quantity' => 'previous_quantity',
             'is_occasion' => 'is_occasion',
         ];
 
-        $column = $allowed[$sort] ?? 'r.invoice_date';
+        $column = $allowed[$sort] ?? 'r.total_ht';
         $dir = strtolower($direction) === 'asc' ? 'ASC' : 'DESC';
 
         return $column . ' ' . $dir;

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\InvoiceLineImportService;
+use App\Service\InvoicePampMarginService;
+use App\Service\ProductDimensionSyncService;
+use App\Service\StockCostExecutionService;
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -22,6 +25,9 @@ final class EtlController extends AbstractController
         Connection $reportingConnection,
         #[Autowire(service: 'doctrine.dbal.prestashop_connection')]
         Connection $prestashopConnection,
+        StockCostExecutionService $stockCostExecutionService,
+        InvoicePampMarginService $invoicePampMarginService,
+        ProductDimensionSyncService $productDimensionSyncService,
     ): JsonResponse
     {
         $expectedToken = (string) $this->getParameter('etl_web_token');
@@ -44,8 +50,11 @@ final class EtlController extends AbstractController
         }
 
         try {
+            $productStats = $productDimensionSyncService->sync();
             $importService = new InvoiceLineImportService($reportingConnection, $prestashopConnection);
             $stats = $importService->run(500, $limit, $since);
+            $stockCostStats = $stockCostExecutionService->run(100, 5000);
+            $marginRows = $invoicePampMarginService->syncAll();
         } catch (\Throwable $e) {
             return $this->json([
                 'ok' => false,
@@ -57,6 +66,9 @@ final class EtlController extends AbstractController
             'ok' => true,
             'inserted' => $stats['inserted'],
             'source_rows' => $stats['source_rows'],
+            'products' => $productStats,
+            'stock_costs' => $stockCostStats,
+            'pamp_margin_rows' => $marginRows,
         ]);
     }
 

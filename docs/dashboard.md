@@ -123,6 +123,29 @@ Route web sécurisée:
 /etl/import?token=VOTRE_TOKEN&since=2026-07-01
 ```
 
+Après l'import des ventes, cette route lance également un lot incrémental de calcul
+FIFO/PAMP (100 couples article/site, découverte de 5 000 mouvements). Le même verrou
+que la commande protège le traitement : si une autre tâche lourde ou un worker de
+veille est actif, le calcul des coûts est reporté et la réponse JSON l'indique dans
+`stock_costs`, sans faire échouer l'import des ventes.
+
+Les marges du dashboard sont ensuite reliées au PAMP calculé avant la sortie de
+stock. La correspondance utilise `IDFAC + IDART + SITE`. Lorsque plusieurs lignes
+de facture correspondent à plusieurs sorties du même article, le coût PAMP total
+est regroupé puis réparti au prorata des quantités afin de ne jamais le compter
+plusieurs fois. La marge métier d'origine reste conservée dans `source_margin_ht`;
+elle reste affichée tant qu'aucun coût PAMP calculé ne correspond à la ligne.
+
+Un PAMP nul n'est pas considéré comme un coût exploitable. Dans ce cas, la marge
+source est conservée, sauf pour les références `DEPV%` (dépôt-vente) auxquelles
+une marge par défaut de 25 % du CA HT est appliquée.
+
+Resynchronisation manuelle des marges déjà importées:
+
+```bash
+php bin/console app:etl:sync-invoice-pamp-margins
+```
+
 ### Comportement
 
 - import incrémental par défaut
@@ -131,6 +154,8 @@ Route web sécurisée:
 - mise à jour des doublons via `source_line_id`
 - route web d’import protégée par `ETL_WEB_TOKEN`
 - aucune écriture dans `tm3dn_site_v3`
+- chaque synchronisation copie les métadonnées courantes utiles de `K_ARTICLE` dans `reporting_product_dimension`
+- les corrections de produit (marque, fournisseur et catégories) sont répercutées sur les anciennes lignes de vente sans rejouer les factures
 - les montants affichés dans l’interface sont en HT
 - les KPI de répartition et les cartes utilisent `Chart.js` pour les camemberts
 - la home reste en vue cartes
@@ -171,6 +196,9 @@ La page d’accueil du dashboard met en avant:
 - les dates sont modifiables à la main ou via le calendrier
 - les cartes sont cliquables
 - le détail reprend les filtres actifs
+- les filtres du tableau sont séparés entre le périmètre analysé et l'organisation de l'affichage; le périmètre comprend notamment le canal, la marque, la catégorie et le fournisseur
+- le tableau accepte un regroupement principal et un deuxième niveau optionnel
+- quand un deuxième niveau est choisi, un clic sur une ligne principale déplie son détail; les données ne sont chargées qu'au premier clic
 - les montants sont affichés en HT
 - les graphiques de répartition sont construits avec `Chart.js`
 

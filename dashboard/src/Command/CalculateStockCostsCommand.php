@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace App\Command;
 
-use App\Service\StockCostCacheService;
+use App\Service\StockCostExecutionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 #[AsCommand(
     name: 'app:etl:calculate-stock-costs',
@@ -19,9 +18,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 final class CalculateStockCostsCommand extends Command
 {
     public function __construct(
-        private readonly StockCostCacheService $service,
-        #[Autowire('%kernel.project_dir%')]
-        private readonly string $projectDir,
+        private readonly StockCostExecutionService $service,
     ) {
         parent::__construct();
     }
@@ -37,36 +34,20 @@ final class CalculateStockCostsCommand extends Command
     {
         $pairLimit = max(1, (int) $input->getOption('pair-limit'));
         $discoveryLimit = max(1, (int) $input->getOption('discovery-limit'));
-        $lockDirectory = $this->projectDir . '/var/lock';
-        if (!is_dir($lockDirectory) && !mkdir($lockDirectory, 0775, true) && !is_dir($lockDirectory)) {
-            $output->writeln('<error>Unable to create the ETL lock directory.</error>');
-            return Command::FAILURE;
-        }
-
-        $lockHandle = fopen($lockDirectory . '/heavy-processing.lock', 'c+');
-        if ($lockHandle === false || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
-            if (is_resource($lockHandle)) {
-                fclose($lockHandle);
-            }
-            $output->writeln('<comment>Another heavy task is running; stock calculation skipped.</comment>');
-            return Command::SUCCESS;
-        }
-
-        if ($this->isCompetitiveTaskRunning()) {
-            flock($lockHandle, LOCK_UN);
-            fclose($lockHandle);
-            $output->writeln('<comment>A competitive-intelligence worker is still running; stock calculation skipped.</comment>');
-            return Command::SUCCESS;
-        }
-
         try {
             $stats = $this->service->run($pairLimit, $discoveryLimit);
         } catch (\Throwable $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
             return Command::FAILURE;
-        } finally {
-            flock($lockHandle, LOCK_UN);
-            fclose($lockHandle);
+        }
+
+        if ($stats['status'] === 'skipped') {
+            $message = $stats['reason'] === 'competitive_intelligence_worker_is_running'
+                ? 'A competitive-intelligence worker is still running; stock calculation skipped.'
+                : 'Another heavy task is running; stock calculation skipped.';
+            $output->writeln('<comment>' . $message . '</comment>');
+
+            return Command::SUCCESS;
         }
 
         $output->writeln(sprintf(
@@ -79,27 +60,5 @@ final class CalculateStockCostsCommand extends Command
         ));
 
         return $stats['failed_pairs'] > 0 ? Command::FAILURE : Command::SUCCESS;
-    }
-
-    private function isCompetitiveTaskRunning(): bool
-    {
-        $lockDirectory = dirname($this->projectDir) . '/competitive_intelligence_python/var/lock/competitive-intelligence';
-        $lockPaths = glob($lockDirectory . '/*.lock') ?: [];
-        foreach ($lockPaths as $lockPath) {
-            $handle = fopen($lockPath, 'c+');
-            if ($handle === false) {
-                continue;
-            }
-            $available = flock($handle, LOCK_EX | LOCK_NB);
-            if ($available) {
-                flock($handle, LOCK_UN);
-            }
-            fclose($handle);
-            if (!$available) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

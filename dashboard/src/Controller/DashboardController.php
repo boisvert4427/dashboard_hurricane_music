@@ -8,6 +8,7 @@ use App\Repository\KpiRepository;
 use App\Service\StockCostCacheService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
@@ -230,7 +231,7 @@ final class DashboardController extends AbstractController
         $page = max(1, (int) $request->query->get('page', 1));
         $perPage = (int) $request->query->get('per_page', 50);
         $perPage = in_array($perPage, [25, 50, 100], true) ? $perPage : 50;
-        $sort = (string) $request->query->get('sort', 'invoice_date');
+        $sort = (string) $request->query->get('sort', 'total_ht');
         $direction = strtolower((string) $request->query->get('direction', 'desc'));
 
         $data = $kpiRepository->getDetailData($filters, $page, $perPage, $sort, $direction);
@@ -246,9 +247,61 @@ final class DashboardController extends AbstractController
             'objective_summary' => $data['objective'],
             'pagination' => $data['pagination'],
             'rows' => $data['rows'],
+            'stock_totals' => $data['stock_totals'],
             'sort' => $data['sort'],
             'direction' => $data['direction'],
             'alerts' => $data['alerts'],
+        ]);
+    }
+
+    #[Route('/detail/subgroup', name: 'app_detail_subgroup', methods: ['GET'])]
+    public function detailSubgroup(Request $request, KpiRepository $kpiRepository): JsonResponse
+    {
+        $primaryGroup = (string) $request->query->get('primary_group', '');
+        $secondaryGroup = (string) $request->query->get('secondary_group', '');
+        $primaryKey = (string) $request->query->get('primary_key', '');
+        $allowedPrimaryGroups = ['idart', 'brand', 'channel', 'category'];
+        $allowedSecondaryGroups = ['product', 'brand', 'channel', 'category'];
+
+        if (!in_array($primaryGroup, $allowedPrimaryGroups, true)
+            || !in_array($secondaryGroup, $allowedSecondaryGroups, true)
+            || $primaryKey === ''
+        ) {
+            return $this->json(['ok' => false, 'error' => 'Regroupement invalide.'], 400);
+        }
+
+        $filters = $this->parseFilters($request, true);
+        $filters['group_by'] = $secondaryGroup;
+        unset($filters['group_by_secondary']);
+
+        if ($primaryGroup === 'brand') {
+            $filters['brand_id'] = $primaryKey;
+        } elseif ($primaryGroup === 'channel') {
+            $filters['channel'] = $primaryKey;
+        } elseif ($primaryGroup === 'category') {
+            $filters['category'] = $primaryKey;
+        } else {
+            $filters['product_id'] = (int) $primaryKey;
+        }
+
+        $data = $kpiRepository->getDetailData($filters, 1, 100, 'total_ht', 'desc');
+
+        return $this->json([
+            'ok' => true,
+            'group' => $secondaryGroup,
+            'rows' => array_map(static fn (array $row): array => [
+                'key' => (string) ($row['group_key'] ?? $row['idart'] ?? ''),
+                'label' => (string) ($row['product_name'] ?? ''),
+                'code' => (string) ($row['product_code'] ?? ''),
+                'quantity' => (float) ($row['quantity'] ?? 0),
+                'previous_quantity' => (float) ($row['previous_quantity'] ?? 0),
+                'total_ht' => (float) ($row['total_ht'] ?? 0),
+                'previous_total_ht' => (float) ($row['previous_total_ht'] ?? 0),
+                'margin_ht' => (float) ($row['margin_ht'] ?? 0),
+                'previous_margin_ht' => (float) ($row['previous_margin_ht'] ?? 0),
+                'stock_pamp_value' => (float) ($row['stock_pamp_value'] ?? 0),
+                'previous_stock_pamp_value' => (float) ($row['previous_stock_pamp_value'] ?? 0),
+            ], $data['rows']),
         ]);
     }
 
@@ -256,7 +309,7 @@ final class DashboardController extends AbstractController
     public function export(Request $request, KpiRepository $kpiRepository): StreamedResponse
     {
         $filters = $this->parseFilters($request, true);
-        $sort = (string) $request->query->get('sort', 'invoice_date');
+        $sort = (string) $request->query->get('sort', 'total_ht');
         $direction = strtolower((string) $request->query->get('direction', 'desc'));
         $filename = 'dashboard-detail-' . (new \DateTimeImmutable('now'))->format('Y-m-d_His') . '.csv';
 
@@ -982,7 +1035,7 @@ final class DashboardController extends AbstractController
     }
 
     /**
-     * @return array{start:?string,end:?string,channel:?string,brand_id:?string,category:?string,occasion:?string,q:?string}
+     * @return array{start:?string,end:?string,channel:?string,brand_id:?string,supplier_id:?string,category:?string,occasion:?string,q:?string}
      */
     private function parseFilters(Request $request, bool $includeSearch): array
     {
@@ -999,16 +1052,22 @@ final class DashboardController extends AbstractController
         if (!in_array($groupBy, ['idart', 'brand', 'channel', 'category'], true)) {
             $groupBy = 'idart';
         }
+        $secondaryGroup = (string) $request->query->get('group_by_secondary', '');
+        if (!in_array($secondaryGroup, ['', 'product', 'brand', 'channel', 'category'], true)) {
+            $secondaryGroup = '';
+        }
 
         $filters = [
             'start' => $this->sanitizeDate($request->query->getString('start')) ?? $defaultStart,
             'end' => $this->sanitizeDate($request->query->getString('end')) ?? $defaultEnd,
             'channel' => $request->query->getString('channel') !== '' ? $request->query->getString('channel') : null,
             'brand_id' => $request->query->getString('brand_id') !== '' ? $request->query->getString('brand_id') : null,
+            'supplier_id' => $request->query->getString('supplier_id') !== '' ? $request->query->getString('supplier_id') : null,
             'category' => $request->query->getString('category') !== '' ? $request->query->getString('category') : null,
             'occasion' => $occasion !== '' ? $occasion : null,
             'view' => $view,
             'group_by' => $groupBy,
+            'group_by_secondary' => $secondaryGroup !== '' ? $secondaryGroup : null,
             'q' => $includeSearch ? trim($request->query->getString('q')) : null,
         ];
 
