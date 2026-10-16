@@ -29,7 +29,7 @@ final class StockCostCacheService
     {
         $discovery = $this->discoverChanges($discoveryLimit);
         $queue = $this->reportingConnection->fetchAllAssociative(
-            'SELECT product_id, site_id FROM reporting_stock_recalc_queue ORDER BY queued_at ASC, product_id ASC, site_id ASC LIMIT ' . max(1, $pairLimit)
+            'SELECT product_id, site_id FROM reporting_stock_recalc_queue WHERE attempts < 3 ORDER BY queued_at ASC, product_id ASC, site_id ASC LIMIT ' . max(1, $pairLimit)
         );
 
         $processedPairs = 0;

@@ -349,6 +349,9 @@ final class KpiRepository
     public function getDetailData(array $filters, int $page = 1, int $perPage = 50, string $sort = 'total_ht', string $direction = 'desc'): array
     {
         $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
+        if ($groupBy === 'idart') {
+            return $this->getGroupedDetailData($filters, 'product', $page, $perPage, $sort, $direction);
+        }
         if ($groupBy !== 'idart') {
             return $this->getGroupedDetailData($filters, $groupBy, $page, $perPage, $sort, $direction);
         }
@@ -499,6 +502,11 @@ final class KpiRepository
     public function iterateDetailRows(array $filters, string $sort = 'total_ht', string $direction = 'desc'): iterable
     {
         $groupBy = $this->normalizeDetailGroupBy((string) ($filters['group_by'] ?? 'idart'));
+        if ($groupBy === 'idart') {
+            yield from $this->iterateGroupedDetailRows($filters, 'product', $sort, $direction);
+
+            return;
+        }
         if ($groupBy !== 'idart') {
             yield from $this->iterateGroupedDetailRows($filters, $groupBy, $sort, $direction);
 
@@ -622,9 +630,11 @@ final class KpiRepository
         $previousGroupSql = $this->buildDetailGroupSql($groupBy, 'p');
         $orderSql = $this->buildGroupedDetailOrderByClause($sort, $direction);
         $offset = max(0, ($page - 1) * $perPage);
+        $currentSource = $groupBy === 'product' ? $this->buildProductSaleOrStockSource() : 'reporting_invoice_line_fact';
 
         $countSql = sprintf(
-            'SELECT COUNT(*) FROM (SELECT 1 FROM reporting_invoice_line_fact r WHERE %s GROUP BY %s) grouped_rows',
+            'SELECT COUNT(*) FROM (SELECT 1 FROM %s r WHERE %s GROUP BY %s) grouped_rows',
+            $currentSource,
             $whereSql,
             $groupSql['group_key_expr']
         );
@@ -655,7 +665,7 @@ final class KpiRepository
                     ELSE 0
                 END AS is_occasion,
                 {$groupSql['group_key_expr']} AS group_key
-            FROM reporting_invoice_line_fact r
+            FROM {$currentSource} r
             LEFT JOIN (
                 SELECT
                     {$previousGroupSql['group_key_expr']} AS group_key,
@@ -712,6 +722,7 @@ final class KpiRepository
         $groupSql = $this->buildDetailGroupSql($groupBy, 'r');
         $previousGroupSql = $this->buildDetailGroupSql($groupBy, 'p');
         $orderSql = $this->buildGroupedDetailOrderByClause($sort, $direction);
+        $currentSource = $groupBy === 'product' ? $this->buildProductSaleOrStockSource() : 'reporting_invoice_line_fact';
 
         $rowsSql = <<<SQL
             SELECT
@@ -738,7 +749,7 @@ final class KpiRepository
                     ELSE 0
                 END AS is_occasion,
                 {$groupSql['group_key_expr']} AS group_key
-            FROM reporting_invoice_line_fact r
+            FROM {$currentSource} r
             LEFT JOIN (
                 SELECT
                     {$previousGroupSql['group_key_expr']} AS group_key,
@@ -1076,6 +1087,69 @@ final class KpiRepository
                 ) ranked_stock
                 WHERE stock_rank = 1
             ) stock
+        SQL;
+    }
+
+    private function buildProductSaleOrStockSource(): string
+    {
+        return <<<'SQL'
+            (
+                SELECT
+                    fact.invoice_date,
+                    fact.invoice_number,
+                    fact.channel_name,
+                    fact.product_id,
+                    fact.product_code,
+                    fact.product_name,
+                    fact.ray_id,
+                    fact.rayon_name,
+                    fact.family_id,
+                    fact.family_name,
+                    fact.subfamily_id,
+                    fact.subfamily_name,
+                    fact.brand_id,
+                    fact.brand_name,
+                    fact.supplier_id,
+                    fact.supplier_name,
+                    fact.supplier_reference,
+                    fact.quantity,
+                    fact.total_ht,
+                    fact.margin_ht,
+                    fact.customer_id
+                FROM reporting_invoice_line_fact fact
+
+                UNION ALL
+
+                SELECT
+                    :start_date AS invoice_date,
+                    '' AS invoice_number,
+                    CASE stock.site_id
+                        WHEN 0 THEN 'Nantes'
+                        WHEN 1 THEN 'Bordeaux'
+                        ELSE CONCAT('Site ', stock.site_id)
+                    END AS channel_name,
+                    product.product_id,
+                    product.product_code,
+                    product.product_name,
+                    product.ray_id,
+                    product.rayon_name,
+                    product.family_id,
+                    product.family_name,
+                    product.subfamily_id,
+                    product.subfamily_name,
+                    product.brand_id,
+                    product.brand_name,
+                    product.supplier_id,
+                    product.supplier_name,
+                    product.supplier_reference,
+                    0 AS quantity,
+                    0 AS total_ht,
+                    0 AS margin_ht,
+                    NULL AS customer_id
+                FROM reporting_stock_current_cost stock
+                INNER JOIN reporting_product_dimension product ON product.product_id = stock.product_id
+                WHERE stock.quantity <> 0
+            )
         SQL;
     }
 

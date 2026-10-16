@@ -354,7 +354,7 @@ function initDetailDrilldowns() {
         return cell;
     };
 
-    const renderDrilldown = (container, rows) => {
+    const renderDrilldown = (container, rows, sortKey = 'total_ht', sortDirection = 'desc') => {
         container.replaceChildren();
         if (!rows.length) {
             const empty = document.createElement('p');
@@ -366,14 +366,58 @@ function initDetailDrilldowns() {
 
         const head = document.createElement('div');
         head.className = 'detail-drilldown__head';
-        ['Deuxième niveau', 'Qté', 'CA HT', 'Marge', 'Valeur stock'].forEach((label) => {
-            const span = document.createElement('span');
-            span.textContent = label;
-            head.appendChild(span);
+        const columns = [
+            { key: 'label', label: 'Deuxième niveau', type: 'text' },
+            { key: 'quantity', label: 'Qté', type: 'number' },
+            { key: 'previous_quantity', label: 'Qté N-1', type: 'number' },
+            { key: 'quantity_delta', label: 'Var. Qté', type: 'delta', current: 'quantity', previous: 'previous_quantity' },
+            { key: 'total_ht', label: 'CA HT', type: 'number' },
+            { key: 'previous_total_ht', label: 'CA N-1', type: 'number' },
+            { key: 'total_ht_delta', label: 'Var. CA', type: 'delta', current: 'total_ht', previous: 'previous_total_ht' },
+            { key: 'margin_ht', label: 'Marge', type: 'number' },
+            { key: 'previous_margin_ht', label: 'Marge N-1', type: 'number' },
+            { key: 'margin_ht_delta', label: 'Var. marge', type: 'delta', current: 'margin_ht', previous: 'previous_margin_ht' },
+            { key: 'stock_pamp_value', label: 'Valeur stock', type: 'number' },
+            { key: 'previous_stock_pamp_value', label: 'Stock N-1', type: 'number' },
+            { key: 'stock_delta', label: 'Var. stock', type: 'delta', current: 'stock_pamp_value', previous: 'previous_stock_pamp_value' },
+        ];
+        columns.forEach((column) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `detail-drilldown__sort${sortKey === column.key ? ' is-active' : ''}`;
+            button.textContent = `${column.label} ${sortKey === column.key ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}`;
+            button.setAttribute('aria-label', `Trier par ${column.label}`);
+            button.addEventListener('click', () => {
+                const nextDirection = sortKey === column.key && sortDirection === 'desc' ? 'asc' : 'desc';
+                renderDrilldown(container, rows, column.key, nextDirection);
+            });
+            head.appendChild(button);
         });
         container.appendChild(head);
 
-        rows.forEach((row) => {
+        const selectedColumn = columns.find((column) => column.key === sortKey) || columns[2];
+        const sortedRows = [...rows].sort((left, right) => {
+            let comparison;
+            if (selectedColumn.type === 'text') {
+                comparison = String(left[sortKey] || left.key || '').localeCompare(
+                    String(right[sortKey] || right.key || ''),
+                    'fr',
+                    { sensitivity: 'base', numeric: true },
+                );
+            } else {
+                const value = (row) => {
+                    if (selectedColumn.type !== 'delta') {
+                        return Number(row[sortKey]) || 0;
+                    }
+                    const previous = Number(row[selectedColumn.previous]) || 0;
+                    return previous ? ((Number(row[selectedColumn.current]) - previous) / Math.abs(previous)) * 100 : -Infinity;
+                };
+                comparison = value(left) - value(right);
+            }
+            return sortDirection === 'asc' ? comparison : -comparison;
+        });
+
+        sortedRows.forEach((row) => {
             const item = document.createElement('div');
             item.className = 'detail-drilldown__item';
             const identity = document.createElement('div');
@@ -387,10 +431,36 @@ function initDetailDrilldowns() {
                 identity.appendChild(code);
             }
             item.appendChild(identity);
-            item.appendChild(createComparisonCell(row.quantity, row.previous_quantity));
-            item.appendChild(createComparisonCell(row.total_ht, row.previous_total_ht, ' €'));
-            item.appendChild(createComparisonCell(row.margin_ht, row.previous_margin_ht, ' €'));
-            item.appendChild(createComparisonCell(row.stock_pamp_value, row.previous_stock_pamp_value, ' €'));
+            const appendValue = (value, suffix = '', previous = false) => {
+                const cell = document.createElement('strong');
+                cell.className = previous ? 'metric-previous' : 'metric-current';
+                cell.textContent = `${numberFormatter.format(Number(value) || 0)}${suffix}`;
+                item.appendChild(cell);
+            };
+            const appendDelta = (current, previous) => {
+                const delta = document.createElement('span');
+                delta.className = 'metric-progression delta-neutral';
+                if (Number(previous)) {
+                    const value = ((Number(current) - Number(previous)) / Math.abs(Number(previous))) * 100;
+                    delta.textContent = `${value > 0 ? '+' : ''}${percentFormatter.format(value)} %`;
+                    delta.className = `metric-progression ${value > 0 ? 'delta-up' : (value < 0 ? 'delta-down' : 'delta-neutral')}`;
+                } else {
+                    delta.textContent = '--';
+                }
+                item.appendChild(delta);
+            };
+            appendValue(row.quantity);
+            appendValue(row.previous_quantity, '', true);
+            appendDelta(row.quantity, row.previous_quantity);
+            appendValue(row.total_ht, ' €');
+            appendValue(row.previous_total_ht, ' €', true);
+            appendDelta(row.total_ht, row.previous_total_ht);
+            appendValue(row.margin_ht, ' €');
+            appendValue(row.previous_margin_ht, ' €', true);
+            appendDelta(row.margin_ht, row.previous_margin_ht);
+            appendValue(row.stock_pamp_value, ' €');
+            appendValue(row.previous_stock_pamp_value, ' €', true);
+            appendDelta(row.stock_pamp_value, row.previous_stock_pamp_value);
             container.appendChild(item);
         });
     };

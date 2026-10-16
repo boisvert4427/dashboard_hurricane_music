@@ -55,7 +55,7 @@
                 <a class="button button-primary" href="{{ path('app_home', active_filters|merge({'view': 'cards', 'group_by': active_filters.group_by|default('idart')})) }}">Cartes</a>
                 <a class="button button-secondary" href="{{ path('app_detail', active_filters|merge({'view': 'table', 'group_by': active_filters.group_by|default('idart'), 'page': 1})) }}">Tableau</a>
             </div>
-            <form class="filter-form" method="get" action="{{ path('app_home') }}">
+            <form class="filter-form filter-form--cards" method="get" action="{{ path('app_home') }}">
                 <input type="hidden" name="view" value="{{ active_filters.view|default('cards') }}">
                 <input type="hidden" name="group_by" value="{{ active_filters.group_by|default('idart') }}">
                 <div class="filter-field">

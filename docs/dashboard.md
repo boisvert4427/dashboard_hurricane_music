@@ -73,8 +73,13 @@ cd dashboard
 php bin/console app:etl:calculate-stock-costs --pair-limit=100 --discovery-limit=5000
 ```
 
-Planification active, décalée de deux minutes par rapport aux autres tâches lancées
-sur les multiples de cinq minutes:
+Les limites découpent le travail en lots de 100 couples produit/site et de 5 000
+mouvements source. Une exécution enchaîne désormais tous les lots jusqu'à ce
+qu'il ne reste plus aucun mouvement ni couple traitable en attente. Un couple en
+erreur est tenté trois fois puis conservé dans la file avec son erreur.
+
+Le cron autonome ci-dessous est actuellement désactivé; le calcul est déclenché
+par `/etl/import` après l'import des ventes:
 
 ```cron
 2-59/5 * * * * cd dashboard && php bin/console app:etl:calculate-stock-costs --pair-limit=100 --discovery-limit=5000
@@ -199,6 +204,9 @@ La page d’accueil du dashboard met en avant:
 - les filtres du tableau sont séparés entre le périmètre analysé et l'organisation de l'affichage; le périmètre comprend notamment le canal, la marque, la catégorie et le fournisseur
 - le tableau accepte un regroupement principal et un deuxième niveau optionnel
 - quand un deuxième niveau est choisi, un clic sur une ligne principale déplie son détail; les données ne sont chargées qu'au premier clic
+- les colonnes du deuxième niveau sont triables côté navigateur, sans nouvelle requête serveur
+- quantité, CA HT, marge et stock sont présentés chacun dans trois colonnes distinctes: période courante, N-1 et variation
+- le regroupement IDART liste l'union des produits vendus sur la période et des produits dont le stock actuel est non nul
 - les montants sont affichés en HT
 - les graphiques de répartition sont construits avec `Chart.js`
 

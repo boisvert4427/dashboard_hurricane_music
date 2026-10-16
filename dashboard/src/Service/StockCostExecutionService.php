@@ -50,7 +50,22 @@ final class StockCostExecutionService
         }
 
         try {
-            $stats = $this->service->run(max(1, $pairLimit), max(1, $discoveryLimit));
+            $stats = [
+                'discovered_movements' => 0,
+                'queued_pairs' => 0,
+                'processed_pairs' => 0,
+                'processed_movements' => 0,
+                'failed_pairs' => 0,
+            ];
+            do {
+                $batch = $this->service->run(max(1, $pairLimit), max(1, $discoveryLimit));
+                foreach ($stats as $key => $value) {
+                    $stats[$key] = $value + $batch[$key];
+                }
+                $hasMoreWork = $batch['discovered_movements'] > 0
+                    || $batch['processed_pairs'] > 0
+                    || $batch['failed_pairs'] > 0;
+            } while ($hasMoreWork);
         } finally {
             flock($lockHandle, LOCK_UN);
             fclose($lockHandle);

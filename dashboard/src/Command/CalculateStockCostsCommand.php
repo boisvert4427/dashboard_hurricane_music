@@ -26,8 +26,8 @@ final class CalculateStockCostsCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('pair-limit', null, InputOption::VALUE_REQUIRED, 'Maximum product/site pairs recalculated per run.', '100')
-            ->addOption('discovery-limit', null, InputOption::VALUE_REQUIRED, 'Maximum new source movements queued per run.', '5000');
+            ->addOption('pair-limit', null, InputOption::VALUE_REQUIRED, 'Product/site pairs processed per batch until the queue is empty.', '100')
+            ->addOption('discovery-limit', null, InputOption::VALUE_REQUIRED, 'Source movements discovered per batch until none remain.', '5000');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
