@@ -224,6 +224,10 @@ le paramètre `variant` lorsqu'il existe, puis convertit le prix Shopify exprim�
 en centimes. Les anciennes URLs Woodbrass ne sont pas placées dans les lots de
 prix afin d'éviter un accès HTML ou une redirection supplémentaire.
 
+L'URL technique JSON terminée par `.js` ne doit jamais remplacer l'URL produit
+canonique dans `competitor_url_final` ou `competitor_url_test_result`. Elle est
+également exclue des lots de prix afin d'éviter une requête invalide `.js.js`.
+
 L'orchestrateur conserve la décision opérationnelle et son état visible : tâche
 active ou désactivée, taille du lot, intervalle, route réseau utilisée, dernier
 statut HTTP, motif de pause et heure de reprise. Au premier HTTP 429, le worker
@@ -238,3 +242,12 @@ données de la fiche (`/products/<handle>.js`) : le code-barres de la variante d
 correspondre exactement, avec équivalence UPC/EAN à zéro initial. Le prix et la
 variante proviennent de ces mêmes données. Sans EAN ou si l'EAN diffère, aucune
 correspondance automatique n'est créée. L'ancien index Algolia n'est plus utilisé.
+
+Les deux tâches orchestrées `woodbrass.new_urls` et `woodbrass.retry_urls` restent
+indépendantes (cadence, taille de lot, priorité, état et journal propres), mais
+leurs appels Woodbrass utilisent Chromium direct comme `woodbrass.prices`. Le
+navigateur est ouvert une fois par exécution et réutilisé pour
+`/search/suggest.json` puis `/products/<handle>.js`. Les appels à l'API Symfony
+restent en HTTP direct. Aucun verrou supplémentaire n'est ajouté : la sélection
+et le parallélisme restent sous le contrôle de l'orchestrateur. Un HTTP 429 arrête
+immédiatement le lot Woodbrass en cours.

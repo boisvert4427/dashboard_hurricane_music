@@ -1,0 +1,508 @@
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+import random
+import re
+import time
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
+from bs4 import BeautifulSoup
+
+from competitive_intelligence.core.api_client import ApiClient
+from competitive_intelligence.core.config import Settings
+from competitive_intelligence.core.http_client import HttpClient
+from competitive_intelligence.core.woodbrass_price import (
+    extract_woodbrass_display_price,
+    extract_woodbrass_json_price,
+    is_woodbrass_product_url,
+    woodbrass_product_json_url,
+)
+from competitive_intelligence.core.woodbrass_browser import WoodbrassBrowser
+from competitive_intelligence.core.woodbrass_proxy import WoodbrassProxyCircuit
+
+
+@contextmanager
+def competitor_run_lock(competitor_id: int):
+    project_root = Path(__file__).resolve().parents[2]
+    lock_dir = project_root / "var" / "lock" / "competitive-intelligence"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+
+    lock_path = lock_dir / f"price-competitor-{competitor_id}.lock"
+    with lock_path.open("a+") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f"price batch already running for competitor_id={competitor_id}") from exc
+
+        yield
+
+
+def run_price_job(competitor_id: int | None = None, *, settings: Settings | None = None) -> None:
+    settings = settings or Settings.from_env()
+    if competitor_id is not None:
+        settings = replace(settings, competitor_id=competitor_id)
+
+    debug_enabled = os.environ.get("CI_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+    direct_http = HttpClient(timeout=30)
+    api = ApiClient(settings.api_base_url, settings.api_token, direct_http)
+
+    with competitor_run_lock(settings.competitor_id):
+        batch = api.fetch_next_final_price_batch(
+            competitor_id=settings.competitor_id,
+            limit=settings.batch_limit,
+            after_id=settings.after_id,
+            product_id=int(os.environ.get("CI_PRICE_PRODUCT_ID", "0")),
+        )
+        competitor = batch["competitor"]
+        competitor_domain = str(competitor.get("domain") or "").lower()
+        competitor_name = str(competitor.get("name") or "").lower()
+        is_woodbrass = "woodbrass" in competitor_domain or "woodbrass" in competitor_name
+        woodbrass_browser = WoodbrassBrowser() if is_woodbrass else None
+        using_browser = bool(woodbrass_browser and woodbrass_browser.configured)
+        proxy_circuit = None
+        if is_woodbrass and not using_browser:
+            configured_circuit = WoodbrassProxyCircuit(Path(__file__).resolve().parents[2])
+            if configured_circuit.configured:
+                proxy_circuit = configured_circuit
+        using_browser_proxy = bool(using_browser and woodbrass_browser and woodbrass_browser.uses_proxy)
+        using_proxy = using_browser_proxy or bool(proxy_circuit and proxy_circuit.should_use_proxy)
+        if using_proxy and proxy_circuit is not None:
+            proxy_circuit.ensure_tunnel()
+        scrape_http = HttpClient(
+            timeout=30,
+            proxy_url=proxy_circuit.proxy_url if using_proxy and proxy_circuit is not None else None,
+        )
+
+        observations: list[dict[str, object]] = []
+        failures: list[dict[str, object]] = []
+        print(
+            {
+                "event": "batch_fetched",
+                "competitor_id": competitor.get("id"),
+                "items": len(batch["items"]),
+                "after_id": batch["after_id"],
+                "has_more": batch["has_more"],
+                "debug": debug_enabled,
+                "proxy": using_proxy,
+            },
+            flush=True,
+        )
+
+        for item_index, item in enumerate(batch["items"]):
+            url = str(item.get("url") or "").strip()
+            product_id = int(item.get("id_product") or 0)
+            if product_id <= 0 or not url:
+                continue
+
+            try:
+                if "thomann" in competitor_domain or "thomann" in competitor_name:
+                    _human_pause()
+                if using_browser and woodbrass_browser is not None:
+                    if item_index > 0:
+                        time.sleep(random.uniform(15.0, 30.0))
+                    request_url = woodbrass_product_json_url(url)
+                    if request_url is None:
+                        raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
+                    response = woodbrass_browser.get(request_url)
+                else:
+                    request_url = woodbrass_product_json_url(url) if is_woodbrass else url
+                    if is_woodbrass and request_url is None:
+                        raise ValueError("Woodbrass legacy URL must be replaced before JSON price scraping")
+                    response = scrape_http.get(request_url, headers=_page_headers(competitor_domain))
+                response.raise_for_status()
+                if proxy_circuit is not None:
+                    proxy_circuit.record_http_status(response.status_code, used_proxy=using_proxy)
+                if response.headers.get("cf-mitigated") == "challenge" or "cf-chl-" in response.text:
+                    raise RuntimeError("Temporary anti-bot challenge")
+                price = (
+                    extract_woodbrass_json_price(response.json(), url)
+                    if using_browser
+                    else extract_woodbrass_json_price(response.json(), url)
+                    if is_woodbrass
+                    else _extract_price(competitor_domain, competitor_name, response.text, response.url)
+                )
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if proxy_circuit is not None:
+                    proxy_circuit.record_http_status(status_code, used_proxy=using_proxy)
+                print(
+                    {
+                        "event": "price_error",
+                        "id_product": product_id,
+                        "url": url,
+                        "http_status": status_code,
+                        "error": str(exc),
+                    },
+                    flush=True,
+                )
+                failures.append(
+                    {
+                        "id_product": product_id,
+                        "url": url,
+                        "http_status": status_code,
+                        "result": "http_gone" if status_code in {404, 410} else "temporary_error",
+                        "error": str(exc),
+                    }
+                )
+                if is_woodbrass and status_code == 429:
+                    print({"event": "woodbrass_batch_stopped", "reason": "http_429"}, flush=True)
+                    break
+                continue
+            except Exception as exc:
+                if proxy_circuit is not None and not using_proxy and proxy_circuit.enabled:
+                    proxy_circuit.record_http_status(None, used_proxy=False)
+                print(
+                    {
+                        "event": "price_error",
+                        "id_product": product_id,
+                        "url": url,
+                        "error": str(exc),
+                    },
+                    flush=True,
+                )
+                failures.append(
+                    {"id_product": product_id, "url": url, "result": "temporary_error", "error": str(exc)}
+                )
+                continue
+
+            if price is None or price <= 0:
+                print(
+                    {
+                        "event": "price_not_found",
+                        "id_product": product_id,
+                        "url": url,
+                    },
+                    flush=True,
+                )
+                failures.append(
+                    {"id_product": product_id, "url": url, "result": "price_not_found"}
+                )
+                continue
+
+            resolved_url = response.url.split("#", 1)[0]
+            observation_url = {}
+            if using_browser and resolved_url != url and is_woodbrass_product_url(resolved_url):
+                observation_url["resolved_url"] = resolved_url
+            if "woodbrass" in competitor_domain and response.history and resolved_url != url and not resolved_url.endswith(".js"):
+                if is_woodbrass_product_url(resolved_url):
+                    observation_url["resolved_url"] = resolved_url
+
+            observations.append(
+                {
+                    "id_product": product_id,
+                    "url": url,
+                    "price": price,
+                    "source": "woodbrass_browser_json" if using_browser else "woodbrass_shopify_json" if is_woodbrass else _price_source_label(competitor_domain, competitor_name),
+                    **observation_url,
+                }
+            )
+            print(
+                {
+                    "event": "price_found",
+                    "id_product": product_id,
+                    "price": price,
+                    "url": url,
+                },
+                flush=True,
+            )
+
+        if woodbrass_browser is not None:
+            woodbrass_browser.close()
+
+        if observations or failures:
+            api.submit_final_prices(
+                {
+                    "competitor_id": competitor.get("id"),
+                    "transport": "chromium_proxy" if using_browser_proxy else "chromium_direct" if using_browser else "vps_proxy" if using_proxy else "direct",
+                    "observations": observations,
+                    "failures": failures,
+                }
+            )
+            print(
+                {
+                    "event": "price_batch_submitted",
+                    "competitor_id": competitor.get("id"),
+                    "observations": len(observations),
+                    "failures": len(failures),
+                },
+                flush=True,
+            )
+
+
+def _human_pause() -> None:
+    time.sleep(random.uniform(2.0, 5.0))
+
+
+def _page_headers(domain: str) -> dict[str, str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    }
+    if "woodbrass" in domain:
+        headers["Referer"] = "https://www.woodbrass.com/"
+    elif "thomann" in domain:
+        headers["Referer"] = "https://www.thomann.fr/"
+    elif "michenaud" in domain:
+        headers["Referer"] = "https://www.michenaud.com/"
+    elif "stars" in domain:
+        headers["Referer"] = "https://www.stars-music.fr/"
+    return headers
+
+
+def _price_source_label(domain: str, name: str) -> str:
+    if "woodbrass" in domain or "woodbrass" in name:
+        return "woodbrass_html"
+    if "thomann" in domain or "thomann" in name:
+        return "thomann_html"
+    if "michenaud" in domain or "michenaud" in name:
+        return "michenaud_html"
+    if "stars" in domain or "stars" in name:
+        return "stars_html"
+    return "generic_html"
+
+
+def _extract_price(domain: str, name: str, html: str, final_url: str | None = None) -> float | None:
+    if "woodbrass" in domain or "woodbrass" in name:
+        if final_url and not is_woodbrass_product_url(final_url):
+            return None
+        return _extract_woodbrass_price(html)
+
+    if "thomann" in domain or "thomann" in name:
+        return _extract_thomann_price(html)
+
+    if "stars" in domain or "stars" in name:
+        return _extract_stars_price(html)
+
+    if "michenaud" in domain or "michenaud" in name:
+        return _extract_michenaud_price(html, final_url)
+
+    price = _extract_meta_price(html)
+    if price is not None:
+        return price
+
+    return _extract_fallback_price(html)
+
+
+def _extract_woodbrass_price(html: str) -> float | None:
+    price = extract_woodbrass_display_price(html)
+    if price is not None:
+        return price
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        "div.fwb.fs40.fs30-md.fs28-sm.lh1",
+        ".fwb.fs40.fs30-md.fs28-sm.lh1",
+        ".col-20.wsnw",
+    ]
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        price = _parse_price_text(node.get_text(" ", strip=True))
+        if price is not None:
+            return price
+
+    for selector, attribute in [
+        ('meta[property="product:price:amount"]', "content"),
+        ('meta[property="og:price:amount"]', "content"),
+        ('meta[itemprop="price"]', "content"),
+    ]:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        value = node.get(attribute)
+        if value is None:
+            continue
+        price = _parse_price_text(str(value))
+        if price is not None:
+            return price
+    return None
+
+
+def _extract_thomann_price(html: str) -> float | None:
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        "div.price.fx-text.fx-text--no-margin",
+        "div.price",
+        ".price.fx-text",
+    ]
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        price = _parse_price_text(node.get_text(" ", strip=True))
+        if price is not None:
+            return price
+
+    match = re.search(r'itemprop="price"\s+content="([0-9]+(?:[.,][0-9]+)?)"', html, re.I)
+    if match:
+        return _parse_price_text(match.group(1))
+    return None
+
+
+def _extract_stars_price(html: str) -> float | None:
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        ".product-final-price",
+        ".product-final-price .price-decimal",
+    ]
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        price = _parse_price_text(node.get_text(" ", strip=True))
+        if price is not None:
+            return price
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        script_text = script.get_text(" ", strip=True)
+        if not script_text:
+            continue
+        try:
+            payload = json.loads(script_text)
+        except Exception:
+            continue
+
+        entries = [payload] if isinstance(payload, dict) else [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+        for entry in entries:
+            offers = entry.get("offers")
+            if not isinstance(offers, dict):
+                continue
+
+            price = _parse_price_text(str(offers.get("price") or ""))
+            if price is not None:
+                return price
+
+            price_spec = offers.get("priceSpecification")
+            if isinstance(price_spec, dict):
+                price = _parse_price_text(str(price_spec.get("price") or ""))
+                if price is not None:
+                    return price
+    return None
+
+
+def _extract_michenaud_price(html: str, final_url: str | None = None) -> float | None:
+    if not _looks_like_michenaud_product_page(final_url, html):
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        "span.price",
+        ".price",
+    ]
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        price = _parse_price_text(node.get_text(" ", strip=True))
+        if price is not None:
+            return price
+    return None
+
+
+def _looks_like_michenaud_product_page(final_url: str | None, html: str) -> bool:
+    if final_url:
+        path = urlparse(final_url).path or ""
+        if re.search(r"/p\d+/", path, re.I):
+            return True
+
+    title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+    title = title_match.group(1).strip().lower() if title_match else ""
+    if "catalogue france" in title or title == "epiphone":
+        return False
+
+    canonical_match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', html, re.I)
+    canonical_url = canonical_match.group(1).strip() if canonical_match else ""
+    if canonical_url:
+        canonical_path = urlparse(canonical_url).path or ""
+        if re.search(r"/p\d+/", canonical_path, re.I):
+            return True
+        if re.search(r"/m\d+-", canonical_path, re.I):
+            return False
+
+    meta_price_present = (
+        'itemprop="price"' in html
+        or 'property="product:price:amount"' in html
+        or 'property="og:price:amount"' in html
+    )
+    return meta_price_present
+
+
+def _extract_meta_price(html: str) -> float | None:
+    soup = BeautifulSoup(html, "html.parser")
+    meta_selectors = [
+        ('meta[itemprop="price"]', "content"),
+        ('meta[property="product:price:amount"]', "content"),
+        ('meta[property="og:price:amount"]', "content"),
+    ]
+    for selector, attribute in meta_selectors:
+        node = soup.select_one(selector)
+        if node is None:
+            continue
+        value = node.get(attribute)
+        if value is not None:
+            price = _parse_price_text(str(value))
+            if price is not None:
+                return price
+    return None
+
+
+def _extract_fallback_price(html: str) -> float | None:
+    match = re.search(r"([0-9][0-9 .,\u00A0]*)\s*€", html, re.I)
+    if match:
+        return _parse_price_text(match.group(1))
+    return None
+
+
+def _parse_price_text(text: str) -> float | None:
+    cleaned = text.replace("\u00A0", " ").replace("eur", "").replace("€", "").strip()
+    match = re.search(r"([0-9][0-9\s.,]*)", cleaned)
+    if not match:
+        return None
+
+    numeric = re.sub(r"\s+", "", match.group(1))
+    if not numeric:
+        return None
+
+    if "," in numeric and "." in numeric:
+        last_comma = numeric.rfind(",")
+        last_dot = numeric.rfind(".")
+        decimal_sep = "," if last_comma > last_dot else "."
+        thousands_sep = "." if decimal_sep == "," else ","
+        numeric = numeric.replace(thousands_sep, "")
+        numeric = numeric.replace(decimal_sep, ".")
+    elif numeric.count(",") > 1:
+        numeric = numeric.replace(",", "")
+    elif numeric.count(".") > 1:
+        numeric = numeric.replace(".", "")
+    else:
+        separator = "," if "," in numeric else "." if "." in numeric else None
+        if separator is not None:
+            left, right = numeric.split(separator, 1)
+            # `1.770 €` or `1,770 €` is a thousands format, not a decimal price.
+            if right.isdigit() and len(right) == 3 and len(left) >= 1:
+                numeric = left + right
+            else:
+                numeric = left + "." + right if separator == "," else numeric
+
+    try:
+        return float(numeric)
+    except ValueError:
+        return None
+
+
+def main() -> None:
+    run_price_job()
+
+
+if __name__ == "__main__":
+    main()

@@ -7,10 +7,16 @@ import requests
 
 from competitive_intelligence.core.config import Settings
 from competitive_intelligence.core.woodbrass_browser import BrowserResponse
+from competitive_intelligence.core.woodbrass_price import is_woodbrass_product_url, woodbrass_product_json_url
 from competitive_intelligence.workers import price_job
 
 
 class PriceJobTest(unittest.TestCase):
+    def test_woodbrass_json_url_is_never_a_canonical_product_url(self):
+        url = 'https://woodbrass.com/products/test.js'
+        self.assertFalse(is_woodbrass_product_url(url))
+        self.assertIsNone(woodbrass_product_json_url(url))
+
     def test_all_competitors_report_every_outcome_even_without_prices(self):
         for competitor_id, domain in enumerate(['woodbrass.com', 'stars-music.fr', 'thomann.fr', 'michenaud.com'], 1):
             with self.subTest(domain=domain):
@@ -120,6 +126,7 @@ class PriceJobTest(unittest.TestCase):
         payload = api.submit_final_prices.call_args.args[0]
         self.assertEqual(114.0, payload['observations'][0]['price'])
         self.assertEqual('woodbrass_browser_json', payload['observations'][0]['source'])
+        self.assertNotIn('resolved_url', payload['observations'][0])
         self.assertEqual('chromium_proxy', payload['transport'])
 
     def test_woodbrass_legacy_url_is_rejected_without_network_request(self):

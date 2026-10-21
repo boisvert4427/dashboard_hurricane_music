@@ -206,11 +206,13 @@ final class CompetitiveFinalPriceIngestionService
     private function isWoodbrassProductUrl(string $url): bool
     {
         $parts = parse_url($url);
+        $path = strtolower((string) ($parts['path'] ?? ''));
         return is_array($parts)
             && strlen($url) <= 2048
             && in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
             && in_array(strtolower($parts['host'] ?? ''), ['woodbrass.com', 'www.woodbrass.com'], true)
             && !isset($parts['user']) && !isset($parts['pass'])
+            && !str_ends_with($path, '.js')
             && preg_match('~^/(?:products/[^/]+/?|[^/]*-p[0-9]+\.html)$~', $parts['path'] ?? '') === 1;
     }
 

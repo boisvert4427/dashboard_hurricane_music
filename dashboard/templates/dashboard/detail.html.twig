@@ -164,7 +164,7 @@
             </div>
 
             <div class="detail-table-wrap">
-                <table class="detail-table">
+                <table class="detail-table detail-table--{{ detail_group_by }}">
                     <thead>
                         <tr>
                             {% if detail_group_by not in ['brand', 'channel'] %}
@@ -207,8 +207,9 @@
                             {% set margin_progression = row.previous_margin_ht != 0 ? ((row.margin_ht - row.previous_margin_ht) / (row.previous_margin_ht|abs) * 100) : null %}
                             {% set stock_progression = row.previous_stock_pamp_value|default(0) != 0 ? ((row.stock_pamp_value|default(0) - row.previous_stock_pamp_value) / (row.previous_stock_pamp_value|abs) * 100) : null %}
                             {% set row_group_key = row.group_key|default(row.idart|default('')) %}
+                            {% set displayed_product_name = detail_group_by == 'idart' ? row.display_product_name|default(row.product_name) : row.product_name %}
                             {% set is_expandable = detail_group_secondary != '' and detail_group_secondary != detail_group_by and not (detail_group_by == 'idart' and detail_group_secondary == 'product') %}
-                            <tr{% if is_expandable %} class="detail-primary-row" tabindex="0" role="button" aria-expanded="false" data-detail-drilldown-url="{{ path('app_detail_subgroup', active_filters|merge({'primary_group': detail_group_by, 'primary_key': row_group_key, 'secondary_group': detail_group_secondary})) }}"{% endif %}>
+                            <tr class="detail-data-row{% if is_expandable %} detail-primary-row{% endif %}"{% if is_expandable %} tabindex="0" role="button" aria-expanded="false" data-detail-drilldown-url="{{ path('app_detail_subgroup', active_filters|merge({'primary_group': detail_group_by, 'primary_key': row_group_key, 'secondary_group': detail_group_secondary})) }}"{% endif %}>
                                 {% if detail_group_by not in ['brand', 'channel'] %}
                                     <td>{{ row.invoice_date }}</td>
                                     <td>{{ row.channel_name }}</td>
@@ -218,7 +219,7 @@
                                 {% endif %}
                                 <td>
                                     <div class="detail-product">
-                                        <strong>{% if is_expandable %}<span class="detail-row-chevron" aria-hidden="true">›</span>{% endif %}{{ row.product_name }}</strong>
+                                        <strong>{% if is_expandable %}<span class="detail-row-chevron" aria-hidden="true">›</span>{% endif %}{{ displayed_product_name }}</strong>
                                         {% if row.product_code and row.product_code != row.product_name %}<span>{{ row.product_code }}</span>{% endif %}
                                     </div>
                                 </td>

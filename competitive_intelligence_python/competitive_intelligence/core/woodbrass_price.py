@@ -14,6 +14,7 @@ def is_woodbrass_product_url(url: str) -> bool:
         and parsed.hostname in {"woodbrass.com", "www.woodbrass.com"}
         and not parsed.username
         and not parsed.password
+        and not parsed.path.lower().endswith(".js")
         and bool(re.fullmatch(r"/products/[^/]+/?|/[^/]*-p\d+\.html", parsed.path))
     )
 
@@ -21,6 +22,8 @@ def is_woodbrass_product_url(url: str) -> bool:
 def woodbrass_product_json_url(url: str) -> str | None:
     parsed = urlparse(url)
     if parsed.hostname not in {"woodbrass.com", "www.woodbrass.com"}:
+        return None
+    if parsed.path.lower().endswith(".js"):
         return None
     if not re.fullmatch(r"/products/[^/]+/?", parsed.path):
         return None

@@ -187,7 +187,7 @@ def run_price_job(competitor_id: int | None = None, *, settings: Settings | None
 
             resolved_url = response.url.split("#", 1)[0]
             observation_url = {}
-            if using_browser and resolved_url != url and is_woodbrass_product_url(resolved_url):
+            if using_browser and not resolved_url.endswith(".js") and resolved_url != url and is_woodbrass_product_url(resolved_url):
                 observation_url["resolved_url"] = resolved_url
             if "woodbrass" in competitor_domain and response.history and resolved_url != url and not resolved_url.endswith(".js"):
                 if is_woodbrass_product_url(resolved_url):

@@ -638,7 +638,8 @@ final class KpiRepository
             $whereSql,
             $groupSql['group_key_expr']
         );
-        $totalRows = (int) $this->reportingConnection->fetchOne($countSql, $params);
+        $countParams = $groupBy === 'product' ? array_merge($params, $previousParams) : $params;
+        $totalRows = (int) $this->reportingConnection->fetchOne($countSql, $countParams);
 
         $rowsSql = <<<SQL
             SELECT
@@ -1149,6 +1150,37 @@ final class KpiRepository
                 FROM reporting_stock_current_cost stock
                 INNER JOIN reporting_product_dimension product ON product.product_id = stock.product_id
                 WHERE stock.quantity <> 0
+
+                UNION ALL
+
+                SELECT
+                    :start_date AS invoice_date,
+                    '' AS invoice_number,
+                    previous_product.channel_name,
+                    product.product_id,
+                    product.product_code,
+                    product.product_name,
+                    product.ray_id,
+                    product.rayon_name,
+                    product.family_id,
+                    product.family_name,
+                    product.subfamily_id,
+                    product.subfamily_name,
+                    product.brand_id,
+                    product.brand_name,
+                    product.supplier_id,
+                    product.supplier_name,
+                    product.supplier_reference,
+                    0 AS quantity,
+                    0 AS total_ht,
+                    0 AS margin_ht,
+                    NULL AS customer_id
+                FROM (
+                    SELECT DISTINCT product_id, COALESCE(NULLIF(channel_name, ''), 'Autre') AS channel_name
+                    FROM reporting_invoice_line_fact
+                    WHERE invoice_date BETWEEN :previous_start_date AND :previous_end_date
+                ) previous_product
+                INNER JOIN reporting_product_dimension product ON product.product_id = previous_product.product_id
             )
         SQL;
     }
@@ -1176,6 +1208,8 @@ final class KpiRepository
         if (!empty($filters['channel'])) {
             $conditions[] = sprintf('COALESCE(NULLIF(%s.channel_name, \'\'), \'Autre\') = :channel_name', $alias);
             $params['channel_name'] = (string) $filters['channel'];
+        } elseif (!empty($filters['exclude_school'])) {
+            $conditions[] = sprintf("UPPER(COALESCE(NULLIF(%s.channel_name, ''), 'Autre')) NOT IN ('ECOLE', 'ÉCOLE')", $alias);
         }
 
         if (!empty($filters['product_id'])) {

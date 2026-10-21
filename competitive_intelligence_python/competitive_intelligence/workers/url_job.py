@@ -11,7 +11,7 @@ from competitive_intelligence.competitors.generic_search import GenericSearchScr
 from competitive_intelligence.competitors.michenaud import MichenaudScraper
 from competitive_intelligence.competitors.starsmusic import StarsMusicScraper
 from competitive_intelligence.competitors.thomann import ThomannScraper
-from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
+from competitive_intelligence.competitors.woodbrass import WoodbrassRateLimited, WoodbrassScraper
 from competitive_intelligence.core.api_client import ApiClient
 from competitive_intelligence.core.catalog_intelligence import OpenAICatalogComparator
 from competitive_intelligence.core.config import Settings
@@ -175,6 +175,14 @@ def run_url_job(
 
                 competitor = batch["competitor"]
                 scraper = _build_scraper(str(competitor["search_url_pattern"]), competitor, http, debug_enabled)
+                print(
+                    {
+                        "event": "scraper_ready",
+                        "competitor_id": competitor["id"],
+                        "transport": getattr(scraper, "transport", "requests"),
+                    },
+                    flush=True,
+                )
                 use_api_scoring = _is_ai_scored_competitor(competitor) and catalog_comparator.enabled
 
                 total_candidates = 0
@@ -224,6 +232,17 @@ def run_url_job(
                             },
                             flush=True,
                         )
+                    except WoodbrassRateLimited as exc:
+                        print(
+                            {
+                                "event": "woodbrass_batch_stopped",
+                                "reason": "http_429",
+                                "id_product": product_id,
+                                "error": str(exc),
+                            },
+                            flush=True,
+                        )
+                        break
                     except Exception as exc:
                         error_text = str(exc).lower()
                         if "cloudflare" in error_text or "cloudfare" in error_text:
@@ -462,6 +481,10 @@ def run_url_job(
             },
             flush=True,
         )
+    finally:
+        scraper_instance = locals().get("scraper")
+        if scraper_instance is not None:
+            scraper_instance.close()
 
 
 def main() -> None:

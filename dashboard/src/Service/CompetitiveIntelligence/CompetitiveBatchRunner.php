@@ -48,6 +48,21 @@ final class CompetitiveBatchRunner
         if ($maxParallel > 0) {
             $env['CI_MAX_PARALLEL'] = (string) $maxParallel;
         }
+        if ($competitorId === 1) {
+            foreach ([
+                'WOODBRASS_BROWSER_ENABLED',
+                'WOODBRASS_PROXY_HOST',
+                'WOODBRASS_PROXY_PORT',
+                'WOODBRASS_PROXY_USERNAME',
+                'WOODBRASS_PROXY_PASSWORD',
+                'WOODBRASS_CHROMIUM_PATH',
+            ] as $key) {
+                $value = trim((string) ($_ENV[$key] ?? $_SERVER[$key] ?? getenv($key) ?: ''));
+                if ($value !== '') {
+                    $env[$key] = $value;
+                }
+            }
+        }
 
         $logDir = $projectRoot . '/var/log/competitive-intelligence';
         if (!is_dir($logDir) && !mkdir($logDir, 0775, true) && !is_dir($logDir)) {

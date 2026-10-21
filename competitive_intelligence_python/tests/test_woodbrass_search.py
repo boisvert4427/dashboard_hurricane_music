@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import requests
 
 from competitive_intelligence.competitors.woodbrass import WoodbrassScraper
+from competitive_intelligence.core.woodbrass_browser import BrowserResponse
 
 
 class WoodbrassSearchTest(unittest.TestCase):
@@ -64,6 +65,33 @@ class WoodbrassSearchTest(unittest.TestCase):
             {'url': 'https://other.test/products/fender'}]}}}, 'https://woodbrass.com/search/suggest.json')
         self.assertEqual([], self.scraper.search(self.product))
         self.assertEqual(1, self.http.get.call_count)
+
+    def test_chromium_is_used_for_search_and_product_json(self):
+        browser = MagicMock()
+        browser.configured = True
+        browser.uses_proxy = False
+        hits = {'resources': {'results': {'products': [{'url': '/products/fender-395764'}]}}}
+        details = {
+            'title': 'Player II HSS',
+            'vendor': 'Fender',
+            'variants': [{'id': 123, 'barcode': self.product['ean'], 'price': 81900}],
+        }
+        browser.get.side_effect = [
+            BrowserResponse(200, 'https://woodbrass.com/search/suggest.json', __import__('json').dumps(hits), {}),
+            BrowserResponse(200, self.url + '.js', __import__('json').dumps(details), {}),
+        ]
+        scraper = WoodbrassScraper('legacy-unused', self.http, browser=browser)
+
+        result = scraper.search(self.product)
+
+        self.assertEqual(1, len(result))
+        self.assertEqual(819.0, result[0].price)
+        self.assertEqual('chromium_direct', scraper.transport)
+        self.http.get.assert_not_called()
+        first_url = browser.get.call_args_list[0].args[0]
+        self.assertIn('/search/suggest.json?', first_url)
+        self.assertIn('q=0885978098606', first_url)
+        browser.get.assert_any_call(self.url + '.js')
 
 
 if __name__ == '__main__':

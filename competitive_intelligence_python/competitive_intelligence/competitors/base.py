@@ -35,6 +35,9 @@ class CompetitorScraper(ABC):
     def build_search_url(self, query: str) -> str:
         return self.search_url_pattern.format(query=quote_plus(query))
 
+    def close(self) -> None:
+        """Release optional scraper resources."""
+
     @abstractmethod
     def parse_results(self, html: str, query: str) -> Iterable[tuple[str, str]]:
         """Return iterable of (url, title) pairs."""

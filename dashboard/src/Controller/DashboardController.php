@@ -228,6 +228,7 @@ final class DashboardController extends AbstractController
     public function detail(Request $request, KpiRepository $kpiRepository): Response
     {
         $filters = $this->parseFilters($request, true);
+        $filters['exclude_school'] = true;
         $page = max(1, (int) $request->query->get('page', 1));
         $perPage = (int) $request->query->get('per_page', 50);
         $perPage = in_array($perPage, [25, 50, 100], true) ? $perPage : 50;
@@ -246,7 +247,14 @@ final class DashboardController extends AbstractController
             'comparison_previous_month' => $data['comparison_previous_month'],
             'objective_summary' => $data['objective'],
             'pagination' => $data['pagination'],
-            'rows' => $data['rows'],
+            'rows' => array_map(function (array $row): array {
+                $row['display_product_name'] = $this->stripBrandPrefix(
+                    (string) ($row['product_name'] ?? ''),
+                    (string) ($row['brand_name'] ?? '')
+                );
+
+                return $row;
+            }, $data['rows']),
             'stock_totals' => $data['stock_totals'],
             'sort' => $data['sort'],
             'direction' => $data['direction'],
@@ -271,6 +279,7 @@ final class DashboardController extends AbstractController
         }
 
         $filters = $this->parseFilters($request, true);
+        $filters['exclude_school'] = true;
         $filters['group_by'] = $secondaryGroup;
         unset($filters['group_by_secondary']);
 
@@ -289,9 +298,11 @@ final class DashboardController extends AbstractController
         return $this->json([
             'ok' => true,
             'group' => $secondaryGroup,
-            'rows' => array_map(static fn (array $row): array => [
+            'rows' => array_map(fn (array $row): array => [
                 'key' => (string) ($row['group_key'] ?? $row['idart'] ?? ''),
-                'label' => (string) ($row['product_name'] ?? ''),
+                'label' => $secondaryGroup === 'product'
+                    ? $this->stripBrandPrefix((string) ($row['product_name'] ?? ''), (string) ($row['brand_name'] ?? ''))
+                    : (string) ($row['product_name'] ?? ''),
                 'code' => (string) ($row['product_code'] ?? ''),
                 'quantity' => (float) ($row['quantity'] ?? 0),
                 'previous_quantity' => (float) ($row['previous_quantity'] ?? 0),
@@ -305,10 +316,22 @@ final class DashboardController extends AbstractController
         ]);
     }
 
+    private function stripBrandPrefix(string $productName, string $brandName): string
+    {
+        $productName = trim($productName);
+        $brandName = trim($brandName);
+        if ($productName === '' || $brandName === '') {
+            return $productName;
+        }
+
+        return preg_replace('/^' . preg_quote($brandName, '/') . '\s*-\s*/iu', '', $productName) ?? $productName;
+    }
+
     #[Route('/detail/export.csv', name: 'app_detail_export')]
     public function export(Request $request, KpiRepository $kpiRepository): StreamedResponse
     {
         $filters = $this->parseFilters($request, true);
+        $filters['exclude_school'] = true;
         $sort = (string) $request->query->get('sort', 'total_ht');
         $direction = strtolower((string) $request->query->get('direction', 'desc'));
         $filename = 'dashboard-detail-' . (new \DateTimeImmutable('now'))->format('Y-m-d_His') . '.csv';

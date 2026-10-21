@@ -3045,6 +3045,19 @@ body.dashboard-home .detail-table th:not(:first-child) {
     white-space: nowrap;
 }
 
+body.dashboard-home .detail-table--idart th:nth-child(4),
+body.dashboard-home .detail-table--idart .detail-data-row td:nth-child(4) {
+    width: 220px;
+    min-width: 220px;
+    max-width: 220px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+body.dashboard-home .detail-table--idart .detail-product strong {
+    line-height: 1.25;
+}
+
 body.dashboard-home .detail-table .metric-previous {
     color: #66758b;
     font-weight: 700;

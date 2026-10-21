@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import re
 from typing import Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
 from ..core.normalization import normalize_text
 from ..core.scoring import ProductFacts
+from ..core.woodbrass_browser import WoodbrassBrowser
 from ..core.woodbrass_price import extract_woodbrass_display_price, is_woodbrass_product_url
 from .base import Candidate, CompetitorScraper
 
@@ -24,13 +25,45 @@ class WoodbrassMatch:
     matched_ean: bool
 
 
+class WoodbrassRateLimited(RuntimeError):
+    pass
+
+
 class WoodbrassScraper(CompetitorScraper):
     SEARCH_INPUT_TIMEOUT_MS = 12000
     SEARCH_RESULT_TIMEOUT_MS = 3000
-    def __init__(self, search_url_pattern: str, http, debug: bool = False, debug_dir: str = "debug"):
+    def __init__(
+        self,
+        search_url_pattern: str,
+        http,
+        debug: bool = False,
+        debug_dir: str = "debug",
+        browser: WoodbrassBrowser | None = None,
+    ):
         super().__init__(search_url_pattern=search_url_pattern, http=http)
         self.debug = debug
         self.debug_dir = Path(debug_dir)
+        self.browser = browser or WoodbrassBrowser()
+
+    @property
+    def transport(self) -> str:
+        if not self.browser.configured:
+            return "requests"
+        return "chromium_proxy" if self.browser.uses_proxy else "chromium_direct"
+
+    def close(self) -> None:
+        self.browser.close()
+
+    def _get(self, url: str, *, params: dict[str, object] | None = None):
+        if self.browser.configured:
+            if params:
+                url = f"{url}?{urlencode(params)}"
+            response = self.browser.get(url)
+        else:
+            response = self.http.get(url, params=params) if params else self.http.get(url)
+        if response.status_code == 429:
+            raise WoodbrassRateLimited("HTTP 429 Woodbrass via " + self.transport)
+        return response
 
     def parse_results(self, html: str, query: str) -> Iterable[tuple[str, str]]:
         # Search uses the current storefront JSON endpoint, not HTML result cards.
@@ -41,7 +74,7 @@ class WoodbrassScraper(CompetitorScraper):
         if not ean:
             return []
 
-        response = self.http.get(
+        response = self._get(
             "https://woodbrass.com/search/suggest.json",
             params={"q": ean, "resources[type]": "product", "resources[limit]": 10},
         )
@@ -61,7 +94,7 @@ class WoodbrassScraper(CompetitorScraper):
             if url in seen_urls:
                 continue
             seen_urls.add(url)
-            details_response = self.http.get(url + ".js")
+            details_response = self._get(url + ".js")
             if details_response.status_code in {404, 410}:
                 continue
             details_response.raise_for_status()

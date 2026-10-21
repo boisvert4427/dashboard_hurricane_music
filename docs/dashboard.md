@@ -206,7 +206,8 @@ La page d’accueil du dashboard met en avant:
 - quand un deuxième niveau est choisi, un clic sur une ligne principale déplie son détail; les données ne sont chargées qu'au premier clic
 - les colonnes du deuxième niveau sont triables côté navigateur, sans nouvelle requête serveur
 - quantité, CA HT, marge et stock sont présentés chacun dans trois colonnes distinctes: période courante, N-1 et variation
-- le regroupement IDART liste l'union des produits vendus sur la période et des produits dont le stock actuel est non nul
+- le regroupement IDART liste l'union des produits vendus sur la période, des produits dont le stock actuel est non nul et des produits vendus uniquement en N-1 afin que les sous-totaux comparatifs restent réconciliables
+- le global des vues Cartes et Tableau exclut le canal École par défaut; École reste accessible en le sélectionnant explicitement dans le filtre Canal
 - les montants sont affichés en HT
 - les graphiques de répartition sont construits avec `Chart.js`
 

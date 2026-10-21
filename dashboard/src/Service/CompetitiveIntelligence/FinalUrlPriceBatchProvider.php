@@ -147,6 +147,7 @@ final class FinalUrlPriceBatchProvider
              INNER JOIN competitor c ON c.id = f.competitor_id
              WHERE f.competitor_id = :competitor_id
                AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
+               AND (:competitor_id <> 1 OR f.url NOT LIKE :woodbrass_json_pattern)
                AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
                AND (:product_id = 0 OR f.id = :product_id)
                AND f.id ' . $operator . ' :after_id
@@ -159,6 +160,7 @@ final class FinalUrlPriceBatchProvider
             [
                 'competitor_id' => $competitorId,
                 'woodbrass_product_pattern' => '%/products/%',
+                'woodbrass_json_pattern' => '%.js',
                 'after_id' => $afterId,
                 'product_id' => $productId,
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
@@ -184,11 +186,13 @@ final class FinalUrlPriceBatchProvider
                     FROM competitor_url_final f
                     WHERE f.competitor_id = :competitor_id
                       AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
+                      AND (:competitor_id <> 1 OR f.url NOT LIKE :woodbrass_json_pattern)
                       AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)
                 )',
                 [
                     'competitor_id' => $competitorId,
                     'woodbrass_product_pattern' => '%/products/%',
+                    'woodbrass_json_pattern' => '%.js',
                     'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
                 ],
                 [
@@ -202,10 +206,12 @@ final class FinalUrlPriceBatchProvider
              FROM competitor_url_final f
              WHERE f.competitor_id = :competitor_id
                AND (:competitor_id <> 1 OR f.url LIKE :woodbrass_product_pattern)
+               AND (:competitor_id <> 1 OR f.url NOT LIKE :woodbrass_json_pattern)
                AND (f.next_price_check_at IS NULL OR f.next_price_check_at <= :now)',
             [
                 'competitor_id' => $competitorId,
                 'woodbrass_product_pattern' => '%/products/%',
+                'woodbrass_json_pattern' => '%.js',
                 'now' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             ],
             ['competitor_id' => ParameterType::INTEGER]
